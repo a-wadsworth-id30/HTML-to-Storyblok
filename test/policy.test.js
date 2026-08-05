@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { buildGeneratedFiles } from '../src/generator.js';
 import { createDefaultManifest, validatePlan } from '../src/policy.js';
 
 test('default manifest passes additive-only policy', () => {
@@ -40,3 +41,19 @@ test('unnamespaced Storyblok technical names are rejected', () => {
   assert.equal(result.violations.at(-1).resource, 'hero');
 });
 
+test('generator produces isolated files inside repository namespace', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.components_to_create.push(
+    { technical_name: 'hts_acme_v1_template_page', component_type: 'content_type' },
+    { technical_name: 'hts_acme_v1_hero', component_type: 'nestable' }
+  );
+
+  const files = buildGeneratedFiles(manifest);
+  assert.ok(files.length > 0);
+  assert.ok(files.every((file) => file.path.startsWith('src/integrations/acme-homepage-v1/')));
+  assert.ok(files.some((file) => file.path.endsWith('/components.js')));
+});

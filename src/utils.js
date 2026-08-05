@@ -46,8 +46,15 @@ export async function readJson(filePath) {
 
 export async function writeJson(filePath, data) {
   await mkdir(path.dirname(filePath), { recursive: true });
-  const tmpPath = `${filePath}.tmp`;
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
   await writeFile(tmpPath, `${JSON.stringify(data, null, 2)}\n`);
+  await rename(tmpPath, filePath);
+}
+
+export async function writeText(filePath, content) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
+  await writeFile(tmpPath, content);
   await rename(tmpPath, filePath);
 }
 
@@ -72,6 +79,17 @@ export function requireOption(args, name) {
     throw new Error(`missing required option --${name.replaceAll('_', '-')}`);
   }
   return String(args[name]);
+}
+
+export function envValue(names, env = process.env) {
+  for (const name of names) {
+    if (env[name]) return env[name];
+  }
+  return null;
+}
+
+export function toPosixPath(filePath) {
+  return filePath.split(path.sep).join('/');
 }
 
 export function nowIso() {

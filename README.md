@@ -2,27 +2,469 @@
 
 `html-to-storyblok` is a safety-first CLI scaffold for integrating supplied HTML templates into existing Storyblok-powered repositories.
 
-The current implementation focuses on deterministic discovery, additive-only planning, policy validation, and evidence logging. External mutations such as Storyblok schema creation, draft story creation, GitHub pull requests, and Netlify deploy verification are intentionally dry-run guarded until their adapters are wired.
+The current implementation focuses on deterministic discovery, additive-only planning, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, GitHub draft pull-request creation, and Netlify deploy-preview lookup.
 
-## Install locally
+## Requirements
+
+- Node.js 20 or newer
+- npm
+- Git
+- A supplied static template made up of HTML, CSS, JavaScript, and assets
+- A target Storyblok-powered repository to inspect
+
+Optional integrations:
+
+- Storyblok Management API credentials for component, asset, and draft story creation
+- Netlify API access for deploy-preview lookup
+- GitHub API credentials for draft pull-request automation
+
+Do not put secrets in the repository. Use environment variables only, and never commit `.env` files.
+
+## Setup
+
+Clone the project and install the local CLI:
 
 ```sh
 npm link
 ```
 
-## Commands
+Check the project:
 
 ```sh
-html-to-storyblok inspect-template --template ./template
+npm run check
+npm test
+```
+
+After `npm link`, the command is available as:
+
+```sh
+html-to-storyblok --help
+```
+
+You can also run it without linking:
+
+```sh
+node bin/html-to-storyblok.js --help
+```
+
+## Where to put templates
+
+Place supplied templates in a dedicated input folder:
+
+```text
+templates/<template-name>/
+```
+
+Example:
+
+```text
+templates/acme-homepage/
+  index.html
+  about.html
+  css/
+  js/
+  images/
+  fonts/
+```
+
+Keep the template source unchanged so discovery can compare the original files with generated integration output later.
+
+If you want to preview a raw static template in the browser before running inspection, start a simple server from the project root:
+
+```sh
+python3 -m http.server 8080
+```
+
+Then open:
+
+```text
+http://127.0.0.1:8080/templates/acme-homepage/
+```
+
+## Working directory
+
+The CLI writes local evidence and generated artifacts to:
+
+```text
+.tmp/html-to-storyblok/
+```
+
+This directory is ignored by Git. It is used for:
+
+- template inventories
+- repository inspections
+- Storyblok access checks
+- Netlify inspections
+- integration manifests
+- plan validation output
+- evidence logs
+
+Do not commit `.tmp/` output.
+
+## Basic workflow
+
+### 1. Inspect the supplied template
+
+```sh
+html-to-storyblok inspect-template --template templates/acme-homepage
+```
+
+This produces:
+
+```text
+.tmp/html-to-storyblok/template-inventory.json
+.tmp/html-to-storyblok/evidence.jsonl
+```
+
+The template inspection looks for:
+
+- pages
+- shared sections
+- scripts and interactions
+- CSS and breakpoints
+- assets
+- fonts
+- third-party URLs
+- accessibility concerns
+- unsafe or environment-specific code
+
+### 2. Inspect the target repository
+
+Point the CLI at the existing client repository:
+
+```sh
 html-to-storyblok inspect-repository --repo ../client-site
+```
+
+This produces:
+
+```text
+.tmp/html-to-storyblok/repository-inspection.json
+```
+
+The repository inspection checks for:
+
+- framework evidence
+- package manager
+- Storyblok dependencies
+- Storyblok rendering patterns
+- component discovery conventions
+- TypeScript usage
+- styling system
+- Netlify files
+- build contract clues
+
+### 3. Check Storyblok access
+
+```sh
 html-to-storyblok inspect-storyblok
+```
+
+This command only reports available environment-variable names and whether Storyblok access appears available. It never prints secret values.
+
+Example environment-variable names that may be detected:
+
+```text
+STORYBLOK_MANAGEMENT_TOKEN
+STORYBLOK_SPACE_ID
+STORYBLOK_PREVIEW_TOKEN
+```
+
+To query the remote Storyblok space, add `--remote`:
+
+```sh
+html-to-storyblok inspect-storyblok --remote
+```
+
+Remote Storyblok inspection and mutations require:
+
+```text
+STORYBLOK_MANAGEMENT_TOKEN
+STORYBLOK_SPACE_ID
+```
+
+Optional:
+
+```text
+STORYBLOK_REGION
+```
+
+Supported region values are `eu`, `us`, `ca`, `ap`, and `cn`.
+
+### 4. Inspect Netlify configuration
+
+```sh
 html-to-storyblok inspect-netlify --repo ../client-site
-html-to-storyblok plan --integration-id acme-homepage-v1 --storyblok-prefix hts_acme_v1_
+```
+
+This reads repository configuration such as `netlify.toml`.
+
+To query Netlify deploy previews through the API:
+
+```sh
+html-to-storyblok netlify-preview --site-id <site-id> --branch <branch>
+```
+
+Netlify API lookup requires:
+
+```text
+NETLIFY_AUTH_TOKEN
+```
+
+You may also set:
+
+```text
+NETLIFY_SITE_ID
+```
+
+### 5. Check live API readiness
+
+```sh
+html-to-storyblok check-access
+```
+
+This checks whether the variable names needed for Storyblok, Netlify, and GitHub live calls are available. It does not print secret values.
+
+### 6. Create an additive-only integration plan
+
+Choose:
+
+- an integration ID in lowercase kebab-case
+- a Storyblok prefix that starts with `hts_` and ends with `_`
+
+Example:
+
+```sh
+html-to-storyblok plan \
+  --integration-id acme-homepage-v1 \
+  --storyblok-prefix hts_acme_v1_ \
+  --template templates/acme-homepage \
+  --framework astro
+```
+
+This produces:
+
+```text
+.tmp/html-to-storyblok/integration-manifest.json
+.tmp/html-to-storyblok/plan-validation.json
+```
+
+The default repository namespace is:
+
+```text
+src/integrations/<integration-id>/
+```
+
+You can override it:
+
+```sh
+html-to-storyblok plan \
+  --integration-id acme-homepage-v1 \
+  --storyblok-prefix hts_acme_v1_ \
+  --repository-namespace src/integrations/acme-homepage-v1
+```
+
+### 7. Validate a plan
+
+```sh
 html-to-storyblok validate-plan --manifest .tmp/html-to-storyblok/integration-manifest.json
+```
+
+Validation fails if the manifest attempts to:
+
+- modify existing repository files
+- reuse existing frontend components at runtime
+- reuse existing Storyblok components at runtime
+- modify existing Storyblok stories
+- modify existing Storyblok assets
+- change dependencies
+- change deployment configuration
+- use unnamespaced Storyblok technical names
+
+### 8. Generate a report
+
+```sh
 html-to-storyblok report
 ```
 
-Artifacts are written under `.tmp/html-to-storyblok/`, which is ignored by Git.
+This summarizes commands run and artifacts written from the evidence log.
+
+## Applying a manifest
+
+All mutating commands validate the manifest immediately before execution.
+
+Use `--dry-run` first:
+
+```sh
+html-to-storyblok apply \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site \
+  --template templates/acme-homepage \
+  --framework auto \
+  --dry-run
+```
+
+Run without `--dry-run` only after reviewing the dry-run output:
+
+```sh
+html-to-storyblok apply \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site \
+  --template templates/acme-homepage \
+  --framework auto
+```
+
+`apply` performs these additive operations in order:
+
+- duplicate approved frontend and Storyblok components into the integration namespace
+- convert supplied template HTML/CSS/assets into isolated framework files
+- create new Storyblok components
+- upload new Storyblok assets listed in the manifest
+- create new draft Storyblok stories
+
+It does not modify existing registries, routes, Storyblok components, Storyblok stories, assets, dependencies, or Netlify configuration.
+
+## Individual operation commands
+
+Generate isolated framework files from a supplied template:
+
+```sh
+html-to-storyblok generate \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site \
+  --template templates/acme-homepage \
+  --framework auto \
+  --dry-run
+```
+
+Supported framework output modes are:
+
+- `auto`
+- `astro`
+- `react`
+- `next`
+- `vue`
+- `nuxt`
+- `static`
+
+Duplicate approved frontend, repository asset, and Storyblok component sources:
+
+```sh
+html-to-storyblok duplicate \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site \
+  --dry-run
+```
+
+Duplication entries are manifest-driven. Example:
+
+```json
+{
+  "repository": {
+    "components_to_duplicate": [
+      {
+        "source_path": "src/components/Button.js",
+        "target_path": "src/integrations/acme-homepage-v1/components/HtsButton.js",
+        "export_name": "Button",
+        "new_export_name": "HtsButton"
+      }
+    ],
+    "assets_to_create": [
+      {
+        "source_path": "public/logo.svg",
+        "target_path": "src/integrations/acme-homepage-v1/assets/logo.svg"
+      }
+    ]
+  },
+  "storyblok": {
+    "components_to_duplicate": [
+      {
+        "source_technical_name": "hero",
+        "technical_name": "hts_acme_v1_hero"
+      }
+    ]
+  }
+}
+```
+
+Targets must be inside the integration namespace. The source is copied and rewritten; no runtime import relationship to the source is retained.
+
+Create Storyblok components:
+
+```sh
+html-to-storyblok storyblok-components \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --dry-run
+```
+
+Upload Storyblok assets listed in `storyblok.assets_to_create`:
+
+```sh
+html-to-storyblok upload-assets \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --dry-run
+```
+
+Create draft stories:
+
+```sh
+html-to-storyblok create-draft-story \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --dry-run
+```
+
+Open a GitHub draft pull request:
+
+```sh
+html-to-storyblok open-pr \
+  --repo ../client-site \
+  --title "Integrate Acme homepage template" \
+  --base main \
+  --dry-run
+```
+
+Opening a pull request requires:
+
+```text
+GITHUB_TOKEN
+```
+
+or:
+
+```text
+GH_TOKEN
+```
+
+Generate a rollback preview:
+
+```sh
+html-to-storyblok rollback-preview \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json
+```
+
+## Command reference
+
+```sh
+html-to-storyblok inspect-template --template <path>
+html-to-storyblok inspect-repository --repo <path>
+html-to-storyblok inspect-storyblok
+html-to-storyblok inspect-netlify --repo <path>
+html-to-storyblok check-access
+html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>]
+html-to-storyblok plan --integration-id <id> --storyblok-prefix <prefix_>
+html-to-storyblok validate-plan --manifest <path>
+html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
+html-to-storyblok storyblok-components --manifest <path> [--dry-run]
+html-to-storyblok upload-assets --manifest <path> [--dry-run]
+html-to-storyblok create-draft-story --manifest <path> [--dry-run]
+html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--dry-run]
+html-to-storyblok rollback-preview --manifest <path>
+html-to-storyblok report
+```
+
+Mutating commands support `--dry-run` and require the relevant credentials before real execution.
 
 ## Policy
 
@@ -37,10 +479,49 @@ Automatic operations may only:
 
 The CLI rejects plans that modify existing repository files, reuse existing frontend or Storyblok components at runtime, modify existing stories or assets, change dependencies, or change deployment configuration.
 
+## Example end-to-end dry run
+
+```sh
+mkdir -p templates/acme-homepage
+
+html-to-storyblok inspect-template --template templates/acme-homepage
+html-to-storyblok inspect-repository --repo ../client-site
+html-to-storyblok inspect-storyblok
+html-to-storyblok inspect-netlify --repo ../client-site
+html-to-storyblok check-access
+
+html-to-storyblok plan \
+  --integration-id acme-homepage-v1 \
+  --storyblok-prefix hts_acme_v1_
+
+html-to-storyblok validate-plan \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json
+
+html-to-storyblok apply \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site \
+  --template templates/acme-homepage \
+  --framework auto \
+  --dry-run
+
+html-to-storyblok report
+```
+
+## Current limitations
+
+- Template conversion handles static HTML, CSS, and local assets. It strips script tags and inline event handlers instead of converting arbitrary JavaScript behaviours.
+- React/Next JSX conversion is intentionally conservative and may require manual follow-up for complex attributes, inline styles, or custom elements.
+- Existing component duplication is implemented for manifest-listed frontend files, repository assets, and Storyblok components, but it does not infer duplication candidates automatically yet.
+- Storyblok asset upload supports manifest-listed local files, but does not yet create asset folders.
+- Storyblok schema generation uses manifest schemas or safe defaults. It does not yet infer full schemas from template sections.
+- GitHub pull-request creation uses the GitHub REST API, but branch creation, commit staging, and push orchestration remain manual.
+- Netlify preview lookup reads deploy records, but does not yet poll until completion or inspect build logs.
+- Live Storyblok, Netlify, and GitHub calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
+- No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.
+
 ## Validation
 
 ```sh
 npm run check
 npm test
 ```
-

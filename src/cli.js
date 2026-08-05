@@ -1,7 +1,14 @@
 import path from 'node:path';
+import { checkLiveAccess } from './access.js';
+import { duplicateAll } from './duplicator.js';
 import { ensureWorkDir, readEvidence, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from './evidence.js';
+import { generateIntegration } from './generator.js';
+import { openDraftPullRequest } from './github.js';
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
+import { queryNetlifyDeployPreviews } from './netlify.js';
 import { createDefaultManifest, validatePlan } from './policy.js';
+import { createDraftStories, createStoryblokComponents, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
+import { plannedTemplateFilePaths } from './template-converter.js';
 import { commandName, parseArgs, readJson, requireOption } from './utils.js';
 
 const MUTATING_COMMANDS = new Set([
@@ -9,7 +16,9 @@ const MUTATING_COMMANDS = new Set([
   'create-draft-story',
   'duplicate',
   'generate',
-  'rollback-preview'
+  'open-pr',
+  'storyblok-components',
+  'upload-assets'
 ]);
 
 export async function main(argv) {
@@ -21,10 +30,6 @@ export async function main(argv) {
   if (command === 'help' || args.help) {
     printHelp();
     return;
-  }
-
-  if (MUTATING_COMMANDS.has(command) && !args.dry_run) {
-    throw new Error(`${command} is currently guarded; rerun with --dry-run until external mutators are implemented`);
   }
 
   await recordEvidence(workDir, {
@@ -44,8 +49,18 @@ export async function main(argv) {
     result = await inspectNetlify(requireOption(args, 'repo'));
     await writeArtifact(workDir, 'netlify-inspection.json', result);
   } else if (command === 'inspect-storyblok') {
-    result = inspectStoryblokEnvironment();
+    result = args.remote ? await inspectStoryblokSpace() : inspectStoryblokEnvironment();
     await writeArtifact(workDir, 'storyblok-access.json', result);
+  } else if (command === 'netlify-preview') {
+    result = await queryNetlifyDeployPreviews({
+      siteId: args.site_id ? String(args.site_id) : undefined,
+      branch: args.branch ? String(args.branch) : undefined,
+      deployId: args.deploy_id ? String(args.deploy_id) : undefined
+    });
+    await writeArtifact(workDir, 'netlify-preview.json', result);
+  } else if (command === 'check-access') {
+    result = checkLiveAccess();
+    await writeArtifact(workDir, 'access-readiness.json', result);
   } else if (command === 'plan') {
     result = await createPlan(args, workDir);
     await writeArtifact(workDir, 'integration-manifest.json', result);
@@ -71,12 +86,53 @@ export async function main(argv) {
     };
   } else if (command === 'report') {
     result = await createReport(workDir);
-  } else if (MUTATING_COMMANDS.has(command)) {
-    result = {
-      status: 'dry_run_only',
-      command,
-      note: 'External mutation support is intentionally stubbed until connectors and credentials are wired.'
-    };
+  } else if (command === 'storyblok-components') {
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await createStoryblokComponents(manifest, { dryRun: Boolean(args.dry_run) });
+    await writeArtifact(workDir, 'storyblok-components-result.json', result);
+  } else if (command === 'upload-assets') {
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await uploadStoryblokAssets(manifest, { dryRun: Boolean(args.dry_run) });
+    await writeArtifact(workDir, 'storyblok-assets-result.json', result);
+  } else if (command === 'create-draft-story') {
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await createDraftStories(manifest, { dryRun: Boolean(args.dry_run) });
+    await writeArtifact(workDir, 'storyblok-draft-stories-result.json', result);
+  } else if (command === 'generate') {
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await generateIntegration(manifest, {
+      repoPath: args.repo ? String(args.repo) : process.cwd(),
+      templatePath: args.template ? String(args.template) : undefined,
+      framework: args.framework ? String(args.framework) : 'auto',
+      dryRun: Boolean(args.dry_run)
+    });
+    await writeArtifact(workDir, 'generate-result.json', result);
+  } else if (command === 'duplicate') {
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await duplicateAll(manifest, {
+      repoPath: args.repo ? String(args.repo) : process.cwd(),
+      dryRun: Boolean(args.dry_run)
+    });
+    await writeArtifact(workDir, 'duplication-result.json', result);
+  } else if (command === 'apply') {
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await applyManifest(manifest, args, workDir);
+  } else if (command === 'open-pr') {
+    result = await openDraftPullRequest({
+      repoPath: args.repo ? String(args.repo) : process.cwd(),
+      owner: args.owner ? String(args.owner) : undefined,
+      repo: args.github_repo ? String(args.github_repo) : undefined,
+      title: args.title ? String(args.title) : undefined,
+      body: args.body ? String(args.body) : undefined,
+      head: args.head ? String(args.head) : undefined,
+      base: args.base ? String(args.base) : 'main',
+      dryRun: Boolean(args.dry_run)
+    });
+    await writeArtifact(workDir, 'github-pr-result.json', result);
+  } else if (command === 'rollback-preview') {
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = createRollbackPreview(manifest);
+    await writeArtifact(workDir, 'rollback-preview.json', result);
   } else {
     throw new Error(`unknown command: ${command}`);
   }
@@ -102,10 +158,24 @@ async function createPlan(args, workDir) {
   manifest.repository.files_to_create = [
     `${repositoryNamespace}/integration-manifest.json`,
     `${repositoryNamespace}/index.js`,
+    `${repositoryNamespace}/components.js`,
+    `${repositoryNamespace}/README.md`,
     `${repositoryNamespace}/styles/${integrationId}.css`
   ];
+  if (args.template) {
+    const plannedFramework = args.framework ? String(args.framework) : 'static';
+    manifest.repository.files_to_create.push(...plannedTemplateFilePaths(manifest, plannedFramework));
+    manifest.template = {
+      source_path: String(args.template),
+      framework: plannedFramework
+    };
+  }
   manifest.storyblok.components_to_create = [
-    { technical_name: `${storyblokPrefix}template_page`, component_type: 'content_type' },
+    {
+      technical_name: `${storyblokPrefix}template_page`,
+      component_type: 'content_type',
+      allowed_children: [`${storyblokPrefix}section`]
+    },
     { technical_name: `${storyblokPrefix}section`, component_type: 'nestable' }
   ];
   manifest.storyblok.stories_to_create = [
@@ -137,6 +207,65 @@ async function createReport(workDir) {
   };
 }
 
+async function readAndValidateManifest(args, workDir) {
+  const manifest = await readJson(requireOption(args, 'manifest'));
+  const validation = validatePlan(manifest);
+  await writeArtifact(workDir, 'plan-validation.json', validation);
+  if (!validation.valid) {
+    const reasons = validation.violations.map((violation) => `${violation.resource}: ${violation.reason}`).join('; ');
+    throw new Error(`manifest failed additive-only validation: ${reasons}`);
+  }
+  return manifest;
+}
+
+async function applyManifest(manifest, args, workDir) {
+  const dryRun = Boolean(args.dry_run);
+  const repoPath = args.repo ? String(args.repo) : process.cwd();
+  const steps = [];
+  steps.push(await duplicateAll(manifest, { repoPath, dryRun }));
+  steps.push(await generateIntegration(manifest, {
+    repoPath,
+    templatePath: args.template ? String(args.template) : undefined,
+    framework: args.framework ? String(args.framework) : 'auto',
+    dryRun
+  }));
+  steps.push({
+    action: 'storyblok_components',
+    results: await createStoryblokComponents(manifest, { dryRun })
+  });
+  steps.push({
+    action: 'storyblok_assets',
+    results: await uploadStoryblokAssets(manifest, { dryRun })
+  });
+  steps.push({
+    action: 'storyblok_draft_stories',
+    results: await createDraftStories(manifest, { dryRun })
+  });
+  const result = {
+    action: 'apply_manifest',
+    dry_run: dryRun,
+    steps
+  };
+  await writeArtifact(workDir, 'apply-result.json', result);
+  return result;
+}
+
+function createRollbackPreview(manifest) {
+  return {
+    action: 'rollback_preview',
+    dry_run: true,
+    policy: 'manual_approval_required',
+    repository_files_to_remove: manifest.repository?.files_to_create || [],
+    storyblok_components_to_remove: [
+      ...(manifest.storyblok?.components_to_create || []),
+      ...(manifest.storyblok?.components_to_duplicate || [])
+    ].map((component) => component.technical_name || component.name || component),
+    storyblok_stories_to_remove: (manifest.storyblok?.stories_to_create || []).map((story) => story.slug || story.full_slug),
+    storyblok_assets_to_remove: (manifest.storyblok?.assets_to_create || []).map((asset) => asset.id || asset.filename || asset.local_path),
+    note: 'Preview only. Rollback must verify ownership and external references before deletion.'
+  };
+}
+
 function redactArgs(args) {
   const redacted = {};
   for (const [key, value] of Object.entries(args)) {
@@ -153,14 +282,22 @@ Usage:
   html-to-storyblok inspect-repository --repo <path>
   html-to-storyblok inspect-storyblok
   html-to-storyblok inspect-netlify --repo <path>
+  html-to-storyblok check-access
+  html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>]
   html-to-storyblok plan --integration-id <id> --storyblok-prefix <prefix_> [--repository-namespace <path>]
   html-to-storyblok validate-plan --manifest <path>
+  html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+  html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
+  html-to-storyblok storyblok-components --manifest <path> [--dry-run]
+  html-to-storyblok upload-assets --manifest <path> [--dry-run]
+  html-to-storyblok create-draft-story --manifest <path> [--dry-run]
+  html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+  html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--dry-run]
+  html-to-storyblok rollback-preview --manifest <path>
   html-to-storyblok report
 
-Safe-mode mutating commands are present but currently dry-run guarded:
-  duplicate, generate, apply, create-draft-story, rollback-preview
+Mutating commands support --dry-run and always validate the manifest immediately before execution.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
 `);
 }
-

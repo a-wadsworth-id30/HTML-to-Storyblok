@@ -1,0 +1,10 @@
+.site-header {
+  display: grid;
+  gap: 1rem;
+}
+
+@media (min-width: 48rem) {
+  .site-header {
+    grid-template-columns: 1fr 1fr;
+  }
+}
