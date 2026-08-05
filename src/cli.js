@@ -4,6 +4,7 @@ import { duplicateAll } from './duplicator.js';
 import { ensureWorkDir, readEvidence, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { openDraftPullRequest } from './github.js';
+import { openDraftMergeRequest } from './gitlab.js';
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { queryNetlifyDeployPreviews } from './netlify.js';
 import { createDefaultManifest, validatePlan } from './policy.js';
@@ -16,6 +17,7 @@ const MUTATING_COMMANDS = new Set([
   'create-draft-story',
   'duplicate',
   'generate',
+  'open-mr',
   'open-pr',
   'storyblok-components',
   'upload-assets'
@@ -129,6 +131,18 @@ export async function main(argv) {
       dryRun: Boolean(args.dry_run)
     });
     await writeArtifact(workDir, 'github-pr-result.json', result);
+  } else if (command === 'open-mr') {
+    result = await openDraftMergeRequest({
+      repoPath: args.repo ? String(args.repo) : process.cwd(),
+      project: args.project ? String(args.project) : undefined,
+      title: args.title ? String(args.title) : undefined,
+      body: args.body ? String(args.body) : undefined,
+      sourceBranch: args.source_branch ? String(args.source_branch) : args.head ? String(args.head) : undefined,
+      targetBranch: args.target_branch ? String(args.target_branch) : args.base ? String(args.base) : 'main',
+      removeSourceBranch: Boolean(args.remove_source_branch),
+      dryRun: Boolean(args.dry_run)
+    });
+    await writeArtifact(workDir, 'gitlab-mr-result.json', result);
   } else if (command === 'rollback-preview') {
     const manifest = await readAndValidateManifest(args, workDir);
     result = createRollbackPreview(manifest);
@@ -293,6 +307,7 @@ Usage:
   html-to-storyblok create-draft-story --manifest <path> [--dry-run]
   html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
   html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--dry-run]
+  html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--dry-run]
   html-to-storyblok rollback-preview --manifest <path>
   html-to-storyblok report
 

@@ -2,7 +2,7 @@
 
 `html-to-storyblok` is a safety-first CLI scaffold for integrating supplied HTML templates into existing Storyblok-powered repositories.
 
-The current implementation focuses on deterministic discovery, additive-only planning, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, GitHub draft pull-request creation, and Netlify deploy-preview lookup.
+The current implementation focuses on deterministic discovery, additive-only planning, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, GitHub draft pull-request creation, GitLab draft merge-request creation, and Netlify deploy-preview lookup.
 
 ## Requirements
 
@@ -17,6 +17,7 @@ Optional integrations:
 - Storyblok Management API credentials for component, asset, and draft story creation
 - Netlify API access for deploy-preview lookup
 - GitHub API credentials for draft pull-request automation
+- GitLab API credentials for draft merge-request automation
 
 Do not put secrets in the repository. Use environment variables only, and never commit `.env` files.
 
@@ -223,7 +224,7 @@ NETLIFY_SITE_ID
 html-to-storyblok check-access
 ```
 
-This checks whether the variable names needed for Storyblok, Netlify, and GitHub live calls are available. It does not print secret values.
+This checks whether the variable names needed for Storyblok, Netlify, GitHub, and GitLab live calls are available. It does not print secret values.
 
 ### 6. Create an additive-only integration plan
 
@@ -435,6 +436,34 @@ or:
 GH_TOKEN
 ```
 
+Open a GitLab draft merge request:
+
+```sh
+html-to-storyblok open-mr \
+  --repo ../client-site \
+  --title "Integrate Acme homepage template" \
+  --target-branch main \
+  --dry-run
+```
+
+Opening a merge request requires:
+
+```text
+GITLAB_TOKEN
+```
+
+or:
+
+```text
+GITLAB_PRIVATE_TOKEN
+```
+
+For self-managed GitLab, also set:
+
+```text
+GITLAB_BASE_URL
+```
+
 Generate a rollback preview:
 
 ```sh
@@ -460,6 +489,7 @@ html-to-storyblok upload-assets --manifest <path> [--dry-run]
 html-to-storyblok create-draft-story --manifest <path> [--dry-run]
 html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
 html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--dry-run]
+html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--dry-run]
 html-to-storyblok rollback-preview --manifest <path>
 html-to-storyblok report
 ```
@@ -515,8 +545,9 @@ html-to-storyblok report
 - Storyblok asset upload supports manifest-listed local files, but does not yet create asset folders.
 - Storyblok schema generation uses manifest schemas or safe defaults. It does not yet infer full schemas from template sections.
 - GitHub pull-request creation uses the GitHub REST API, but branch creation, commit staging, and push orchestration remain manual.
+- GitLab merge-request creation uses the GitLab REST API, but branch creation, commit staging, and push orchestration remain manual.
 - Netlify preview lookup reads deploy records, but does not yet poll until completion or inspect build logs.
-- Live Storyblok, Netlify, and GitHub calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
+- Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.
 
 ## Validation
