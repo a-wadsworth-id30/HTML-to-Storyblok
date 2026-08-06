@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { analyzeCss } from './analyzer.js';
 import { inspectRepository } from './inspectors.js';
 import { validatePlan } from './policy.js';
-import { ensureArray, pathExists } from './utils.js';
+import { ensureArray, pathExists, unique } from './utils.js';
 
 const execFileAsync = promisify(execFile);
 const TEXT_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue', '.astro', '.css', '.scss', '.sass', '.less', '.html', '.json', '.md']);
@@ -39,10 +39,10 @@ export async function validateIntegration(manifest, { repoPath = process.cwd() }
 export async function diffIntegration(manifest, { repoPath = process.cwd() } = {}) {
   const root = path.resolve(repoPath);
   const repositoryFiles = [];
-  for (const file of ensureArray(manifest.repository?.files_to_create)) {
+  for (const file of plannedRepositoryTextTargets(manifest)) {
     repositoryFiles.push({
       path: file,
-      planned_action: 'create',
+      planned_action: ensureArray(manifest.repository?.files_to_create).includes(file) ? 'create' : 'duplicate',
       exists: await pathExists(path.join(root, file)),
       status: await pathExists(path.join(root, file)) ? 'exists' : 'missing'
     });
@@ -135,9 +135,9 @@ export async function runRepositoryScript({ repoPath = process.cwd(), script = '
 }
 
 async function checkPlannedFiles(manifest, root, checks) {
-  for (const file of ensureArray(manifest.repository?.files_to_create)) {
+  for (const file of plannedRepositoryTextTargets(manifest)) {
     const exists = await pathExists(path.join(root, file));
-    addCheck(checks, `file_exists:${file}`, exists, exists ? 'Generated file exists.' : 'Generated file is missing.');
+    addCheck(checks, `file_exists:${file}`, exists, exists ? 'Integration-owned file exists.' : 'Integration-owned file is missing.');
   }
 }
 
@@ -176,7 +176,7 @@ async function resolveSourcePath(manifest, root, source) {
 
 async function checkForbiddenCoupling(manifest, root, checks) {
   const namespace = manifest.repository_namespace;
-  const files = await existingTextFiles(root, ensureArray(manifest.repository?.files_to_create));
+  const files = await existingTextFiles(root, plannedRepositoryTextTargets(manifest));
   for (const file of files) {
     const content = await readFile(path.join(root, file), 'utf8');
     const violations = [];
@@ -200,7 +200,7 @@ async function checkForbiddenCoupling(manifest, root, checks) {
 
 async function checkCssScoping(manifest, root, checks) {
   const rootClass = `hts-${manifest.integration_id}-root`;
-  const cssFiles = (await existingTextFiles(root, ensureArray(manifest.repository?.files_to_create)))
+  const cssFiles = (await existingTextFiles(root, plannedRepositoryTextTargets(manifest)))
     .filter((file) => /\.(css|scss|sass|less)$/.test(file));
   for (const file of cssFiles) {
     const content = await readFile(path.join(root, file), 'utf8');
@@ -214,6 +214,13 @@ async function checkCssScoping(manifest, root, checks) {
       unscoped
     );
   }
+}
+
+function plannedRepositoryTextTargets(manifest) {
+  return unique([
+    ...ensureArray(manifest.repository?.files_to_create),
+    ...ensureArray(manifest.repository?.components_to_duplicate).map((entry) => entry.target_path || entry.target)
+  ]);
 }
 
 async function checkGitStatus(manifest, root, checks) {
