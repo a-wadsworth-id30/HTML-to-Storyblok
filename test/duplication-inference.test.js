@@ -185,6 +185,51 @@ test('inferDuplicationCandidates plans local style asset copies and CSS URL rewr
   assert.equal(copiedAsset, 'fake image');
 });
 
+test('inferDuplicationCandidates plans local static asset imports and URL rewrites', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-code-assets-'));
+  await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
+  await mkdir(path.join(repoPath, 'src/assets'), { recursive: true });
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.jsx'),
+    [
+      "import heroUrl from '../assets/hero.svg?url';",
+      "const posterUrl = new URL('../assets/poster.png', import.meta.url).href;",
+      'export function Hero(){ return <img className="hero" src={heroUrl} data-poster={posterUrl} alt="Hero" />; }',
+      ''
+    ].join('\n')
+  );
+  await writeFile(path.join(repoPath, 'src/assets/hero.svg'), '<svg role="img"></svg>');
+  await writeFile(path.join(repoPath, 'src/assets/poster.png'), 'fake png');
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const inference = await inferDuplicationCandidates(manifest, { repoPath });
+  const root = inference.repository.components_to_duplicate.find((entry) => entry.source_path === 'src/components/Hero.jsx');
+  const assets = inference.repository.assets_to_create;
+
+  assert.equal(inference.summary.frontend_components, 1);
+  assert.equal(inference.summary.frontend_asset_files, 2);
+  assert.equal(root.import_rewrites['../assets/hero.svg?url'], '../assets/dependencies/src/assets/hero.svg?url');
+  assert.equal(root.import_rewrites['../assets/poster.png'], '../assets/dependencies/src/assets/poster.png');
+  assert.deepEqual(assets.map((asset) => asset.source_path).sort(), ['src/assets/hero.svg', 'src/assets/poster.png']);
+
+  manifest.repository.components_to_duplicate.push(...inference.repository.components_to_duplicate);
+  manifest.repository.assets_to_create.push(...assets);
+  await duplicateFrontendComponents(manifest, { repoPath });
+  await duplicateRepositoryAssets(manifest, { repoPath });
+  const duplicatedComponent = await readFile(path.join(repoPath, root.target_path), 'utf8');
+  const copiedHero = await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/assets/dependencies/src/assets/hero.svg'), 'utf8');
+  const copiedPoster = await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/assets/dependencies/src/assets/poster.png'), 'utf8');
+
+  assert.match(duplicatedComponent, /from '\.\.\/assets\/dependencies\/src\/assets\/hero\.svg\?url'/);
+  assert.match(duplicatedComponent, /new URL\('\.\.\/assets\/dependencies\/src\/assets\/poster\.png', import\.meta\.url\)/);
+  assert.equal(copiedHero, '<svg role="img"></svg>');
+  assert.equal(copiedPoster, 'fake png');
+});
+
 test('inferDuplicationCandidates includes local JSON data dependencies without corrupting JSON output', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-json-'));
   await mkdir(path.join(repoPath, 'src/components'), { recursive: true });

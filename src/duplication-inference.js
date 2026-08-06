@@ -12,6 +12,27 @@ const CODE_DEPENDENCY_EXTENSIONS = new Set([
 ]);
 const STYLE_DEPENDENCY_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less']);
 const DATA_DEPENDENCY_EXTENSIONS = new Set(['.json']);
+const STATIC_ASSET_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.webp',
+  '.avif',
+  '.svg',
+  '.mp4',
+  '.webm',
+  '.mov',
+  '.mp3',
+  '.wav',
+  '.ogg',
+  '.woff',
+  '.woff2',
+  '.ttf',
+  '.otf',
+  '.eot',
+  '.pdf'
+]);
 const FRONTEND_DEPENDENCY_EXTENSIONS = new Set([
   ...CODE_DEPENDENCY_EXTENSIONS,
   ...STYLE_DEPENDENCY_EXTENSIONS,
@@ -39,6 +60,15 @@ const SAFE_DEPENDENCY_SOURCE_PATTERNS = [
   /^(src\/)?composables?\//i,
   /^(src\/)?styles?\//i
 ];
+const SAFE_ASSET_SOURCE_PATTERNS = [
+  /^(src\/)?assets?\//i,
+  /^(src\/)?images?\//i,
+  /^(src\/)?media\//i,
+  /^(src\/)?fonts?\//i,
+  /^(src\/)?static\//i,
+  /^public\//i,
+  /^static\//i
+];
 const MAX_DEPENDENCY_FILES = 16;
 const MAX_DEPENDENCY_DEPTH = 5;
 const MAX_DEPENDENCY_BYTES = 1_500_000;
@@ -50,6 +80,7 @@ const SIGNAL_SYNONYMS = new Map([
 ]);
 const CSS_IMPORT_PATTERN = /@import\s+(?:url\(\s*)?['"]?([^'")\s;]+)['"]?\s*\)?/gi;
 const CSS_URL_PATTERN = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
+const IMPORT_META_URL_PATTERN = /\bnew\s+URL\s*\(\s*(['"])([^'"]+)\1\s*,\s*import\.meta\.url\s*\)/g;
 
 export async function inferDuplicationCandidates(manifest, {
   repoPath = process.cwd(),
@@ -344,7 +375,7 @@ async function collectLocalDependencyGraph(root, entryRel, fileSet) {
   const files = [];
   const visited = new Set();
   const blockers = [];
-  const styleAssetReferences = [];
+  const assetReferences = [];
   let totalBytes = 0;
 
   async function visit(sourceRel, depth) {
@@ -368,16 +399,17 @@ async function collectLocalDependencyGraph(root, entryRel, fileSet) {
 
     const content = await readFile(fullPath, 'utf8');
     if (isStyleDependencyPath(sourceRel)) {
-      for (const ref of extractCssUrlReferences(content).filter(isLocalStyleAssetReference)) {
+      for (const ref of extractCssUrlReferences(content).filter(isLocalStaticAssetReference)) {
         const resolved = resolveLocalAssetReference(sourceRel, ref, fileSet);
         if (!resolved) {
           blockers.push(`style asset reference could not be resolved from ${sourceRel}: ${ref}`);
           continue;
         }
-        styleAssetReferences.push({
+        assetReferences.push({
           source_path: sourceRel,
           reference: ref,
-          resolved_path: resolved
+          resolved_path: resolved,
+          reference_kind: 'style_url'
         });
       }
       if (blockers.length > 0) return;
@@ -385,6 +417,20 @@ async function collectLocalDependencyGraph(root, entryRel, fileSet) {
 
     for (const specifier of extractDependencySpecifiers(content, sourceRel).filter(isLocalImportSpecifier)) {
       const resolved = resolveLocalImport(sourceRel, specifier, fileSet);
+      if (!resolved && isLocalStaticAssetReference(specifier)) {
+        const asset = resolveLocalAssetReference(sourceRel, specifier, fileSet);
+        if (!asset) {
+          blockers.push(`static asset import could not be resolved from ${sourceRel}: ${specifier}`);
+          continue;
+        }
+        assetReferences.push({
+          source_path: sourceRel,
+          reference: specifier,
+          resolved_path: asset,
+          reference_kind: 'code_import'
+        });
+        continue;
+      }
       if (!resolved) {
         blockers.push(`local import could not be resolved from ${sourceRel}: ${specifier}`);
         continue;
@@ -396,7 +442,7 @@ async function collectLocalDependencyGraph(root, entryRel, fileSet) {
   await visit(entryRel, 0);
   return {
     files,
-    style_asset_references: styleAssetReferences,
+    asset_references: assetReferences,
     blockers: unique(blockers)
   };
 }
@@ -432,8 +478,9 @@ async function buildFrontendDuplicationEntries({
 
   const {
     assetEntries,
+    importRewritesBySource,
     assetRewritesBySource
-  } = await buildStyleAssetEntries({
+  } = await buildStaticAssetEntries({
     root,
     manifest,
     graph,
@@ -448,7 +495,10 @@ async function buildFrontendDuplicationEntries({
     if (existingSources.has(sourcePath) && sourcePath !== entrySource) continue;
     const content = await readFile(path.join(root, sourcePath), 'utf8');
     const targetPath = targetBySource.get(sourcePath);
-    const importRewrites = buildImportRewrites(sourcePath, content, targetBySource, graph.files);
+    const importRewrites = {
+      ...buildImportRewrites(sourcePath, content, targetBySource, graph.files),
+      ...(importRewritesBySource.has(sourcePath) ? Object.fromEntries(importRewritesBySource.get(sourcePath)) : {})
+    };
     const isEntry = sourcePath === entrySource;
     entries.push({
       source_path: sourcePath,
@@ -478,7 +528,7 @@ async function buildFrontendDuplicationEntries({
   };
 }
 
-async function buildStyleAssetEntries({
+async function buildStaticAssetEntries({
   root,
   manifest,
   graph,
@@ -488,9 +538,10 @@ async function buildStyleAssetEntries({
   assetSourceTargetMap
 }) {
   const assetEntries = [];
+  const importRewritesBySource = new Map();
   const assetRewritesBySource = new Map();
 
-  for (const reference of graph.style_asset_references) {
+  for (const reference of graph.asset_references) {
     let targetPath = assetSourceTargetMap.get(reference.resolved_path);
     if (!targetPath) {
       targetPath = uniqueTargetPath(
@@ -504,28 +555,36 @@ async function buildStyleAssetEntries({
         assetEntries.push({
           source_path: reference.resolved_path,
           target_path: targetPath,
-          source_type: 'repository-style-dependency',
+          source_type: reference.reference_kind === 'style_url' ? 'repository-style-dependency' : 'repository-code-dependency',
           dependency_of: reference.source_path,
           source_hash: sha256(content),
-          reason: `Local style asset referenced by duplicated CSS ${reference.source_path}.`
+          reason: reference.reference_kind === 'style_url'
+            ? `Local style asset referenced by duplicated CSS ${reference.source_path}.`
+            : `Local static asset referenced by duplicated source ${reference.source_path}.`
         });
         existingAssetSources.add(reference.resolved_path);
       }
     }
 
-    const styleTarget = targetBySource.get(reference.source_path);
-    if (!styleTarget) continue;
-    if (!assetRewritesBySource.has(reference.source_path)) {
-      assetRewritesBySource.set(reference.source_path, new Map());
+    const sourceTarget = targetBySource.get(reference.source_path);
+    if (!sourceTarget) continue;
+    const rewrite = `${relativeImportSpecifier(path.posix.dirname(sourceTarget), targetPath)}${referenceSuffix(reference.reference)}`;
+    if (reference.reference_kind === 'style_url') {
+      if (!assetRewritesBySource.has(reference.source_path)) {
+        assetRewritesBySource.set(reference.source_path, new Map());
+      }
+      assetRewritesBySource.get(reference.source_path).set(reference.reference, rewrite);
+    } else {
+      if (!importRewritesBySource.has(reference.source_path)) {
+        importRewritesBySource.set(reference.source_path, new Map());
+      }
+      importRewritesBySource.get(reference.source_path).set(reference.reference, rewrite);
     }
-    assetRewritesBySource.get(reference.source_path).set(
-      reference.reference,
-      `${relativeImportSpecifier(path.posix.dirname(styleTarget), targetPath)}${referenceSuffix(reference.reference)}`
-    );
   }
 
   return {
     assetEntries,
+    importRewritesBySource,
     assetRewritesBySource
   };
 }
@@ -538,7 +597,7 @@ function buildImportRewrites(sourcePath, content, targetBySource, graphFiles) {
     const sourceTarget = targetBySource.get(sourcePath);
     const dependencyTarget = targetBySource.get(resolved);
     if (!sourceTarget || !dependencyTarget) continue;
-    rewrites[specifier] = relativeImportSpecifier(path.dirname(sourceTarget), dependencyTarget);
+    rewrites[specifier] = `${relativeImportSpecifier(path.dirname(sourceTarget), dependencyTarget)}${referenceSuffix(specifier)}`;
   }
   return rewrites;
 }
@@ -546,16 +605,21 @@ function buildImportRewrites(sourcePath, content, targetBySource, graphFiles) {
 function extractDependencySpecifiers(content, sourcePath) {
   return unique([
     ...extractImportSpecifiers(content),
+    ...extractImportMetaUrlSpecifiers(content),
     ...(isStyleDependencyPath(sourcePath) ? extractCssImportSpecifiers(content) : [])
   ]);
 }
 
 function extractImportSpecifiers(content) {
-  return [...content.matchAll(RUNTIME_IMPORT_PATTERN)].map((match) => stripImportQuery(match[1]));
+  return [...content.matchAll(RUNTIME_IMPORT_PATTERN)].map((match) => match[1]);
 }
 
 function extractCssImportSpecifiers(content) {
-  return [...content.matchAll(CSS_IMPORT_PATTERN)].map((match) => stripImportQuery(match[1]));
+  return [...content.matchAll(CSS_IMPORT_PATTERN)].map((match) => match[1]);
+}
+
+function extractImportMetaUrlSpecifiers(content) {
+  return [...content.matchAll(IMPORT_META_URL_PATTERN)].map((match) => match[2]);
 }
 
 function resolveLocalImport(sourceRel, specifier, fileSet) {
@@ -603,10 +667,10 @@ function extractCssUrlReferences(content) {
   return [...String(content || '').matchAll(CSS_URL_PATTERN)].map((match) => match[2]).filter(Boolean);
 }
 
-function isLocalStyleAssetReference(ref) {
+function isLocalStaticAssetReference(ref) {
   const clean = stripImportQuery(ref);
   if (!clean || clean.startsWith('#') || isExternalStyleRef(clean)) return false;
-  return !STYLE_DEPENDENCY_EXTENSIONS.has(path.extname(clean).toLowerCase());
+  return STATIC_ASSET_EXTENSIONS.has(path.extname(clean).toLowerCase());
 }
 
 function isExternalStyleRef(ref) {
@@ -632,8 +696,8 @@ function resolveLocalAssetReference(sourceRel, ref, fileSet) {
   const candidates = [];
   if (clean.startsWith('/')) {
     const withoutSlash = clean.replace(/^\/+/, '');
-    candidates.push(path.posix.normalize(withoutSlash));
     candidates.push(path.posix.normalize(path.posix.join('public', withoutSlash)));
+    candidates.push(path.posix.normalize(withoutSlash));
   } else if (clean.startsWith('@/') || clean.startsWith('~/')) {
     const withoutAlias = clean.slice(2);
     candidates.push(path.posix.normalize(path.posix.join('src', withoutAlias)));
@@ -641,7 +705,25 @@ function resolveLocalAssetReference(sourceRel, ref, fileSet) {
   } else {
     candidates.push(path.posix.normalize(path.posix.join(path.posix.dirname(sourceRel), clean)));
   }
-  return candidates.find((candidate) => fileSet.has(candidate)) || null;
+  return candidates
+    .flatMap(expandAssetReferenceCandidates)
+    .find((candidate) =>
+      fileSet.has(candidate) &&
+      STATIC_ASSET_EXTENSIONS.has(path.extname(candidate).toLowerCase()) &&
+      isSafeAssetSourcePath(candidate)
+    ) || null;
+}
+
+function expandAssetReferenceCandidates(candidate) {
+  const ext = path.extname(candidate);
+  if (ext) return [candidate];
+  return [...STATIC_ASSET_EXTENSIONS].map((extension) => `${candidate}${extension}`);
+}
+
+function isSafeAssetSourcePath(sourcePath) {
+  if (!sourcePath || sourcePath.startsWith('/') || sourcePath.includes('..')) return false;
+  return isSafeDependencySourcePath(sourcePath) ||
+    SAFE_ASSET_SOURCE_PATTERNS.some((pattern) => pattern.test(sourcePath));
 }
 
 function referenceSuffix(ref) {
