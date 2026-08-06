@@ -2,7 +2,7 @@
 
 `html-to-storyblok` is a safety-first CLI for integrating supplied HTML templates into existing Storyblok-powered repositories.
 
-It performs deterministic discovery, additive-only planning, duplication candidate inference, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, Storyblok Content API draft checks, Storyblok asset folder and asset import, GitHub/GitLab review branch preparation, draft pull-request and merge-request creation, Netlify deploy-preview polling and verification, local validation, local rollback, and confirmed remote Storyblok rollback for integration-owned draft resources.
+It performs deterministic discovery, additive-only planning, dependency-aware duplication candidate inference, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, Storyblok Content API draft checks, Storyblok asset folder and asset import, GitHub/GitLab review branch preparation, draft pull-request and merge-request creation, Netlify deploy-preview polling, optional Netlify CLI log snapshots, local validation, local rollback, and confirmed remote Storyblok rollback for integration-owned draft resources.
 
 ## Requirements
 
@@ -319,6 +319,20 @@ html-to-storyblok netlify-preview \
 
 `--wait` polls the deploy preview until it reaches a terminal state or the timeout expires. Use `--timeout-ms` and `--interval-ms` to tune polling. Verification records the deploy log page URL and any deploy error message, but it does not print raw deploy logs or expose Netlify log access metadata.
 
+To include a redacted log snapshot through the Netlify CLI:
+
+```sh
+html-to-storyblok netlify-preview \
+  --site-id <site-id> \
+  --branch <branch> \
+  --verify \
+  --include-logs \
+  --logs-source deploy \
+  --logs-since 1h
+```
+
+`--include-logs` requires `netlify-cli` on the machine running the command. Logs are captured as JSON Lines when available, capped in the report, and redacted for common token, password, authorization, and API key patterns.
+
 Netlify API lookup requires:
 
 ```text
@@ -528,7 +542,7 @@ html-to-storyblok infer-duplicates \
   --storyblok-inspection .tmp/html-to-storyblok/storyblok-access.json
 ```
 
-Add `--write-manifest` to persist the inferred entries back into the manifest after reviewing the output. Frontend inference skips files with local runtime imports so inferred copies do not retain coupling to existing components.
+Add `--write-manifest` to persist the inferred entries back into the manifest after reviewing the output. Frontend inference walks a bounded local import graph, duplicates safe local dependencies into `components/dependencies/`, rewrites import specifiers between copied files, and skips unresolved, unsupported, unsafe, or oversized dependency graphs.
 
 Manual example:
 
@@ -725,7 +739,7 @@ html-to-storyblok inspect-storyblok
 html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
 html-to-storyblok inspect-netlify --repo <path>
 html-to-storyblok check-access
-html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait]
+html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
 html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--repo <path> --infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
 html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
 html-to-storyblok validate-plan --manifest <path>
@@ -802,18 +816,18 @@ Implemented:
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
-- Opt-in frontend and Storyblok duplication candidate inference with manifest validation.
-- Storyblok component schema generation, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
+- Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, import rewrites, and manifest validation.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, CTA groups, forms, nested form fields, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
-- Netlify deploy-preview lookup, build contract verification, deploy-state polling, and deploy log page references.
+- Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
 - Local validation, diffing, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
 - GitHub draft pull-request and GitLab draft merge-request creation through their APIs, with optional branch preparation, scoped staging, commit, and push orchestration.
 
 ## Remaining limitations
 
-- Duplication inference is conservative and opt-in. It skips frontend components with local runtime imports and still requires manifest review before apply.
-- Schema generation is intentionally conservative. Complex editorial models may still require manual refinement through a new namespaced version.
-- Netlify raw deploy logs are not exposed through the Netlify REST verification path; use the Netlify UI or Netlify CLI logs for full deploy output.
+- Duplication inference is conservative and opt-in. It skips unresolved, unsupported, unsafe, or oversized local dependency graphs and still requires manifest review before apply.
+- Schema generation covers common editorial patterns, but highly bespoke editorial models may still require manual refinement through a new namespaced version.
+- Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.
 
