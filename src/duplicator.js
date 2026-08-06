@@ -86,6 +86,9 @@ function rewriteDuplicate(content, manifest, entry) {
   if (isStyleDuplicate(entry)) {
     return rewriteStyleDuplicate(content, manifest, entry);
   }
+  if (isDataDuplicate(entry)) {
+    return String(content);
+  }
   return rewriteSourceDuplicate(content, manifest, entry);
 }
 
@@ -128,6 +131,12 @@ function isStyleDuplicate(entry) {
   const source = entry.source_path || entry.source || '';
   const target = entry.target_path || entry.target || '';
   return entry.content_kind === 'style' || /\.(css|scss|sass|less)$/i.test(source) || /\.(css|scss|sass|less)$/i.test(target);
+}
+
+function isDataDuplicate(entry) {
+  const source = entry.source_path || entry.source || '';
+  const target = entry.target_path || entry.target || '';
+  return entry.content_kind === 'data' || /\.json$/i.test(source) || /\.json$/i.test(target);
 }
 
 function applyCssUrlRewrites(content, entry) {

@@ -5,9 +5,11 @@ import { ensureArray, relativeTo, sha256, unique } from './utils.js';
 
 const FRONTEND_COMPONENT_EXTENSIONS = new Set(['.astro', '.vue', '.js', '.jsx', '.ts', '.tsx', '.mjs']);
 const STYLE_DEPENDENCY_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less']);
+const DATA_DEPENDENCY_EXTENSIONS = new Set(['.json']);
 const FRONTEND_DEPENDENCY_EXTENSIONS = new Set([
   ...FRONTEND_COMPONENT_EXTENSIONS,
-  ...STYLE_DEPENDENCY_EXTENSIONS
+  ...STYLE_DEPENDENCY_EXTENSIONS,
+  ...DATA_DEPENDENCY_EXTENSIONS
 ]);
 const COMPONENT_PATH_PATTERNS = [
   /(^|\/)components?\//i,
@@ -414,7 +416,7 @@ async function buildFrontendDuplicationEntries({
       targetBySource.set(sourcePath, sourceTargetMap.get(sourcePath));
       continue;
     }
-    const dependencyFolder = isStyleDependencyPath(sourcePath) ? 'styles' : 'components';
+    const dependencyFolder = dependencyFolderForSource(sourcePath);
     const targetPath = uniqueTargetPath(
       `${manifest.repository_namespace}/${dependencyFolder}/dependencies/${sourcePath}`,
       reservedTargets
@@ -609,6 +611,16 @@ function isStyleDependencyPath(sourcePath) {
   return STYLE_DEPENDENCY_EXTENSIONS.has(path.extname(sourcePath).toLowerCase());
 }
 
+function isDataDependencyPath(sourcePath) {
+  return DATA_DEPENDENCY_EXTENSIONS.has(path.extname(sourcePath).toLowerCase());
+}
+
+function dependencyFolderForSource(sourcePath) {
+  if (isStyleDependencyPath(sourcePath)) return 'styles';
+  if (isDataDependencyPath(sourcePath)) return 'data';
+  return 'components';
+}
+
 function resolveLocalAssetReference(sourceRel, ref, fileSet) {
   const clean = stripImportQuery(ref);
   const candidates = [];
@@ -633,6 +645,7 @@ function referenceSuffix(ref) {
 
 function contentKindForSource(sourcePath, isEntry) {
   if (isStyleDependencyPath(sourcePath)) return 'style';
+  if (isDataDependencyPath(sourcePath)) return 'data';
   return isEntry ? 'component' : 'source';
 }
 

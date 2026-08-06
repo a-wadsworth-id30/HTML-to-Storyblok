@@ -185,6 +185,49 @@ test('inferDuplicationCandidates plans local style asset copies and CSS URL rewr
   assert.equal(copiedAsset, 'fake image');
 });
 
+test('inferDuplicationCandidates includes local JSON data dependencies without corrupting JSON output', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-json-'));
+  await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.jsx'),
+    [
+      "import heroData from './HeroData.json';",
+      'export function Hero(){ return <section className="hero">{heroData.headline}</section>; }',
+      ''
+    ].join('\n')
+  );
+  await writeFile(
+    path.join(repoPath, 'src/components/HeroData.json'),
+    JSON.stringify({ headline: 'Imported JSON headline', cards: [{ label: 'One' }] }, null, 2)
+  );
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const inference = await inferDuplicationCandidates(manifest, { repoPath });
+  const entries = inference.repository.components_to_duplicate;
+  const root = entries.find((entry) => entry.source_path === 'src/components/Hero.jsx');
+  const data = entries.find((entry) => entry.source_path === 'src/components/HeroData.json');
+
+  assert.equal(inference.summary.frontend_components, 1);
+  assert.equal(inference.summary.frontend_dependency_files, 1);
+  assert.equal(root.import_rewrites['./HeroData.json'], '../data/dependencies/src/components/HeroData.json');
+  assert.equal(data.content_kind, 'data');
+
+  manifest.repository.components_to_duplicate.push(...entries);
+  await duplicateFrontendComponents(manifest, { repoPath });
+  const duplicatedComponent = await readFile(path.join(repoPath, root.target_path), 'utf8');
+  const duplicatedData = await readFile(path.join(repoPath, data.target_path), 'utf8');
+
+  assert.match(duplicatedComponent, /from '\.\.\/data\/dependencies\/src\/components\/HeroData\.json'/);
+  assert.deepEqual(JSON.parse(duplicatedData), {
+    headline: 'Imported JSON headline',
+    cards: [{ label: 'One' }]
+  });
+});
+
 test('inferDuplicationCandidates reports skipped frontend candidates with blockers', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-skip-'));
   await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
