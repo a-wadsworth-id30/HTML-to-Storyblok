@@ -165,6 +165,7 @@ export async function selectOption(terminal, {
 
     readline.emitKeypressEvents(input);
     if (input.setRawMode) input.setRawMode(true);
+    if (input.resume) input.resume();
     input.on('keypress', onKeypress);
     render();
   });
