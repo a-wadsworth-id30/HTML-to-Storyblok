@@ -542,7 +542,7 @@ html-to-storyblok infer-duplicates \
   --storyblok-inspection .tmp/html-to-storyblok/storyblok-access.json
 ```
 
-Add `--write-manifest` to persist the inferred entries back into the manifest after reviewing the output. Frontend inference walks a bounded local import graph, duplicates safe local dependencies into `components/dependencies/`, rewrites import specifiers between copied files, and skips unresolved, unsupported, unsafe, or oversized dependency graphs.
+Add `--write-manifest` to persist the inferred entries back into the manifest after reviewing the output. Frontend inference walks a bounded local import graph, duplicates safe local source dependencies into `components/dependencies/`, duplicates safe local style dependencies into `styles/dependencies/`, rewrites import specifiers between copied files, and namespaces duplicated CSS with the integration root. Skipped candidates are reported with blockers such as unresolved imports, unsupported files, unsafe paths, oversized graphs, or style asset URLs that need an explicit asset-copy plan.
 
 Manual example:
 
@@ -816,7 +816,7 @@ Implemented:
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
-- Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, import rewrites, manifest validation, and duplicated-output validation.
+- Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, import rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
 - Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
@@ -825,7 +825,7 @@ Implemented:
 
 ## Remaining limitations
 
-- Duplication inference is conservative and opt-in. It skips unresolved, unsupported, unsafe, or oversized local dependency graphs and still requires manifest review before apply.
+- Duplication inference is conservative and opt-in. It now handles local code and style dependency graphs, but still skips unresolved, unsupported, unsafe, oversized, or asset-rewrite-dependent graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns and several bespoke landing-page patterns, but custom business-specific editorial models may still require manual refinement through a new namespaced version.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.

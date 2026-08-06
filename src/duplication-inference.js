@@ -4,6 +4,11 @@ import { walkFiles } from './inspectors.js';
 import { ensureArray, relativeTo, sha256, unique } from './utils.js';
 
 const FRONTEND_COMPONENT_EXTENSIONS = new Set(['.astro', '.vue', '.js', '.jsx', '.ts', '.tsx', '.mjs']);
+const STYLE_DEPENDENCY_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less']);
+const FRONTEND_DEPENDENCY_EXTENSIONS = new Set([
+  ...FRONTEND_COMPONENT_EXTENSIONS,
+  ...STYLE_DEPENDENCY_EXTENSIONS
+]);
 const COMPONENT_PATH_PATTERNS = [
   /(^|\/)components?\//i,
   /(^|\/)blocks?\//i,
@@ -23,7 +28,8 @@ const SAFE_DEPENDENCY_SOURCE_PATTERNS = [
   /^(src\/)?lib\//i,
   /^(src\/)?utils?\//i,
   /^(src\/)?hooks?\//i,
-  /^(src\/)?composables?\//i
+  /^(src\/)?composables?\//i,
+  /^(src\/)?styles?\//i
 ];
 const MAX_DEPENDENCY_FILES = 16;
 const MAX_DEPENDENCY_DEPTH = 5;
@@ -34,6 +40,8 @@ const SIGNAL_SYNONYMS = new Map([
   ['content_section', ['content', 'section', 'rich-text', 'text']],
   ['template_page', ['page', 'layout']]
 ]);
+const CSS_IMPORT_PATTERN = /@import\s+(?:url\(\s*)?['"]?([^'")\s;]+)['"]?\s*\)?/gi;
+const CSS_URL_PATTERN = /url\(\s*(['"]?)(.*?)\1\s*\)/gi;
 
 export async function inferDuplicationCandidates(manifest, {
   repoPath = process.cwd(),
@@ -42,10 +50,11 @@ export async function inferDuplicationCandidates(manifest, {
   maxStoryblok = 8
 } = {}) {
   const signals = buildManifestSignals(manifest);
-  const [frontendComponents, storyblokComponents] = await Promise.all([
+  const [frontendInference, storyblokComponents] = await Promise.all([
     inferFrontendComponentCandidates(manifest, { repoPath, signals, max: maxFrontend }),
     inferStoryblokComponentCandidates(manifest, { storyblokInspection, signals, max: maxStoryblok })
   ]);
+  const frontendComponents = frontendInference.components_to_duplicate;
 
   return {
     action: 'infer_duplication_candidates',
@@ -53,7 +62,8 @@ export async function inferDuplicationCandidates(manifest, {
     integration_id: manifest.integration_id,
     signals: signals.map((signal) => signal.key),
     repository: {
-      components_to_duplicate: frontendComponents
+      components_to_duplicate: frontendComponents,
+      skipped_candidates: frontendInference.skipped_candidates
     },
     storyblok: {
       components_to_duplicate: storyblokComponents
@@ -61,6 +71,7 @@ export async function inferDuplicationCandidates(manifest, {
     summary: {
       frontend_components: frontendComponents.filter((entry) => !entry.dependency_of).length,
       frontend_dependency_files: frontendComponents.filter((entry) => entry.dependency_of).length,
+      skipped_frontend_candidates: frontendInference.skipped_candidates.length,
       storyblok_components: storyblokComponents.length
     }
   };
@@ -92,6 +103,7 @@ export async function applyInferredDuplicationCandidates(manifest, options = {})
     enabled: true,
     repository_components: inference.summary.frontend_components,
     repository_dependency_files: inference.summary.frontend_dependency_files,
+    skipped_repository_candidates: inference.repository.skipped_candidates,
     storyblok_components: inference.summary.storyblok_components,
     generated_at: new Date().toISOString()
   };
@@ -103,6 +115,7 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
   const root = path.resolve(repoPath);
   const files = await walkFiles(root);
   const scored = [];
+  const skipped = [];
   const reservedTargets = new Set([
     ...ensureArray(manifest.repository?.files_to_create),
     ...ensureArray(manifest.repository?.components_to_duplicate).map((entry) => entry.target_path || entry.target)
@@ -122,7 +135,13 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
     if (!isFrontendComponentPath(rel)) continue;
 
     const fileStat = await stat(file);
-    if (fileStat.size > 500_000) continue;
+    if (fileStat.size > 500_000) {
+      const match = scoreAgainstSignals(rel, '', signals);
+      if (match.score > 0) {
+        skipped.push(skippedFrontendCandidate(rel, match, [`component file exceeds 500000 bytes: ${rel}`]));
+      }
+      continue;
+    }
     const content = await readFile(file, 'utf8');
 
     const match = scoreAgainstSignals(rel, content, signals);
@@ -134,7 +153,10 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
       reservedTargets
     );
     const graph = await collectLocalDependencyGraph(root, rel, fileSet);
-    if (graph.blockers.length > 0) continue;
+    if (graph.blockers.length > 0) {
+      skipped.push(skippedFrontendCandidate(rel, match, graph.blockers));
+      continue;
+    }
     const entries = await buildFrontendDuplicationEntries({
       root,
       manifest,
@@ -157,8 +179,12 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
     scored.push(...entries);
   }
 
-  return scored
-    .sort((left, right) => confidenceRank(right.confidence) - confidenceRank(left.confidence) || left.source_path.localeCompare(right.source_path));
+  return {
+    components_to_duplicate: scored
+      .sort((left, right) => confidenceRank(right.confidence) - confidenceRank(left.confidence) || left.source_path.localeCompare(right.source_path)),
+    skipped_candidates: skipped
+      .sort((left, right) => confidenceRank(right.confidence) - confidenceRank(left.confidence) || left.source_path.localeCompare(right.source_path))
+  };
 }
 
 function inferStoryblokComponentCandidates(manifest, { storyblokInspection, signals, max }) {
@@ -303,7 +329,14 @@ async function collectLocalDependencyGraph(root, entryRel, fileSet) {
     if (blockers.length > 0) return;
 
     const content = await readFile(fullPath, 'utf8');
-    for (const specifier of extractImportSpecifiers(content).filter(isLocalImportSpecifier)) {
+    if (isStyleDependencyPath(sourceRel)) {
+      for (const ref of extractCssUrlReferences(content).filter(requiresExplicitStyleAssetCopy)) {
+        blockers.push(`style asset reference requires explicit asset copy from ${sourceRel}: ${ref}`);
+      }
+      if (blockers.length > 0) return;
+    }
+
+    for (const specifier of extractDependencySpecifiers(content, sourceRel).filter(isLocalImportSpecifier)) {
       const resolved = resolveLocalImport(sourceRel, specifier, fileSet);
       if (!resolved) {
         blockers.push(`local import could not be resolved from ${sourceRel}: ${specifier}`);
@@ -338,8 +371,9 @@ async function buildFrontendDuplicationEntries({
       targetBySource.set(sourcePath, sourceTargetMap.get(sourcePath));
       continue;
     }
+    const dependencyFolder = isStyleDependencyPath(sourcePath) ? 'styles' : 'components';
     const targetPath = uniqueTargetPath(
-      `${manifest.repository_namespace}/components/dependencies/${sourcePath}`,
+      `${manifest.repository_namespace}/${dependencyFolder}/dependencies/${sourcePath}`,
       reservedTargets
     );
     targetBySource.set(sourcePath, targetPath);
@@ -355,6 +389,7 @@ async function buildFrontendDuplicationEntries({
     entries.push({
       source_path: sourcePath,
       target_path: targetPath,
+      content_kind: contentKindForSource(sourcePath, sourcePath === entrySource),
       ...(isEntry ? {
         export_name: exportName,
         new_export_name: path.basename(targetPath, path.extname(targetPath)),
@@ -377,7 +412,7 @@ async function buildFrontendDuplicationEntries({
 
 function buildImportRewrites(sourcePath, content, targetBySource, graphFiles) {
   const rewrites = {};
-  for (const specifier of extractImportSpecifiers(content).filter(isLocalImportSpecifier)) {
+  for (const specifier of extractDependencySpecifiers(content, sourcePath).filter(isLocalImportSpecifier)) {
     const resolved = graphFiles.find((file) => file === resolveLocalImport(sourcePath, specifier, new Set(graphFiles)));
     if (!resolved) continue;
     const sourceTarget = targetBySource.get(sourcePath);
@@ -388,8 +423,19 @@ function buildImportRewrites(sourcePath, content, targetBySource, graphFiles) {
   return rewrites;
 }
 
+function extractDependencySpecifiers(content, sourcePath) {
+  return unique([
+    ...extractImportSpecifiers(content),
+    ...(isStyleDependencyPath(sourcePath) ? extractCssImportSpecifiers(content) : [])
+  ]);
+}
+
 function extractImportSpecifiers(content) {
   return [...content.matchAll(RUNTIME_IMPORT_PATTERN)].map((match) => stripImportQuery(match[1]));
+}
+
+function extractCssImportSpecifiers(content) {
+  return [...content.matchAll(CSS_IMPORT_PATTERN)].map((match) => stripImportQuery(match[1]));
 }
 
 function resolveLocalImport(sourceRel, specifier, fileSet) {
@@ -406,7 +452,7 @@ function resolveLocalImport(sourceRel, specifier, fileSet) {
   }
 
   for (const candidate of candidates.flatMap(expandImportCandidates)) {
-    if (fileSet.has(candidate) && FRONTEND_COMPONENT_EXTENSIONS.has(path.extname(candidate).toLowerCase())) return candidate;
+    if (fileSet.has(candidate) && FRONTEND_DEPENDENCY_EXTENSIONS.has(path.extname(candidate).toLowerCase())) return candidate;
   }
   return null;
 }
@@ -415,8 +461,8 @@ function expandImportCandidates(candidate) {
   const ext = path.extname(candidate);
   if (ext) return [candidate];
   return [
-    ...[...FRONTEND_COMPONENT_EXTENSIONS].map((extension) => `${candidate}${extension}`),
-    ...[...FRONTEND_COMPONENT_EXTENSIONS].map((extension) => `${candidate}/index${extension}`)
+    ...[...FRONTEND_DEPENDENCY_EXTENSIONS].map((extension) => `${candidate}${extension}`),
+    ...[...FRONTEND_DEPENDENCY_EXTENSIONS].map((extension) => `${candidate}/index${extension}`)
   ];
 }
 
@@ -431,6 +477,39 @@ function isSafeDependencySourcePath(sourcePath) {
 
 function stripImportQuery(specifier) {
   return String(specifier || '').split(/[?#]/)[0];
+}
+
+function extractCssUrlReferences(content) {
+  return [...String(content || '').matchAll(CSS_URL_PATTERN)].map((match) => match[2]).filter(Boolean);
+}
+
+function requiresExplicitStyleAssetCopy(ref) {
+  const clean = stripImportQuery(ref);
+  if (!clean || clean.startsWith('#') || isExternalStyleRef(clean)) return false;
+  return !STYLE_DEPENDENCY_EXTENSIONS.has(path.extname(clean).toLowerCase());
+}
+
+function isExternalStyleRef(ref) {
+  return /^(https?:)?\/\//i.test(ref) || /^(mailto|tel|data|blob):/i.test(ref);
+}
+
+function isStyleDependencyPath(sourcePath) {
+  return STYLE_DEPENDENCY_EXTENSIONS.has(path.extname(sourcePath).toLowerCase());
+}
+
+function contentKindForSource(sourcePath, isEntry) {
+  if (isStyleDependencyPath(sourcePath)) return 'style';
+  return isEntry ? 'component' : 'source';
+}
+
+function skippedFrontendCandidate(sourcePath, match, blockers) {
+  return {
+    source_path: sourcePath,
+    confidence: confidenceForScore(match.score),
+    matched_signal: match.signal.key,
+    reason: match.reason || 'Candidate matched template signals but could not be safely duplicated.',
+    blockers: unique(blockers)
+  };
 }
 
 function relativeImportSpecifier(fromDir, toFile) {

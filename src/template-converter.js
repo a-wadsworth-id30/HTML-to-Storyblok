@@ -1,8 +1,9 @@
 import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { ASSET_EXTENSIONS, isExternalRef, parseAttributes, stripRefQuery } from './analyzer.js';
+import { namespaceCss } from './css-isolation.js';
 import { inspectRepository, inspectTemplate } from './inspectors.js';
-import { ensureArray, pathExists, relativeTo, toPosixPath, unique } from './utils.js';
+import { ensureArray, pathExists, relativeTo, toPosixPath } from './utils.js';
 
 export async function convertTemplate({
   templatePath,
@@ -285,15 +286,6 @@ function namespaceHtml(html, integrationId) {
   output = markFirst(output, /<h1\b([^>]*)>/i, '<h1$1 data-hts-field="headline">');
   output = markFirst(output, /<p\b([^>]*)>/i, '<p$1 data-hts-field="body">');
   return output;
-}
-
-function namespaceCss(css, integrationId) {
-  const keyframeNames = unique([...css.matchAll(/@keyframes\s+([a-zA-Z0-9_-]+)/g)].map((match) => match[1]));
-  let rewritten = css;
-  for (const name of keyframeNames) {
-    rewritten = rewritten.replace(new RegExp(`\\b${escapeRegExp(name)}\\b`, 'g'), `hts-${integrationId}-${name}`);
-  }
-  return scopeCssRules(rewritten, integrationId).trimEnd();
 }
 
 function findHtmlAssetRefs(html) {
@@ -646,79 +638,12 @@ function isolateScriptSource(source, integrationId) {
     .replace(/\bdocument\.getElementById\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g, (_match, _quote, id) => `document.getElementById('hts-${integrationId}-${id}')`);
 }
 
-function scopeCssRules(css, integrationId) {
-  let output = '';
-  let index = 0;
-  while (index < css.length) {
-    const open = css.indexOf('{', index);
-    if (open === -1) {
-      output += css.slice(index);
-      break;
-    }
-    const prelude = css.slice(index, open).trim();
-    const close = findMatchingBrace(css, open);
-    if (close === -1) {
-      output += css.slice(index);
-      break;
-    }
-    const body = css.slice(open + 1, close);
-    if (prelude.startsWith('@media') || prelude.startsWith('@supports') || prelude.startsWith('@container') || prelude.startsWith('@layer')) {
-      output += `${prelude} {\n${scopeCssRules(body, integrationId)}\n}\n`;
-    } else if (prelude.startsWith('@')) {
-      output += `${prelude} {${body}}\n`;
-    } else {
-      output += `${scopeSelectorList(prelude, integrationId)} {${body}}\n`;
-    }
-    index = close + 1;
-  }
-  return output;
-}
-
-function findMatchingBrace(value, openIndex) {
-  let depth = 0;
-  for (let index = openIndex; index < value.length; index += 1) {
-    const char = value[index];
-    if (char === '{') depth += 1;
-    if (char === '}') depth -= 1;
-    if (depth === 0) return index;
-  }
-  return -1;
-}
-
-function scopeSelectorList(selectorList, integrationId) {
-  const root = `.hts-${integrationId}-root`;
-  return selectorList
-    .split(',')
-    .map((selector) => scopeSelector(selector.trim(), integrationId, root))
-    .join(', ');
-}
-
-function scopeSelector(selector, integrationId, root) {
-  if (!selector) return selector;
-  let rewritten = selector
-    .replace(/\.(-?[_a-zA-Z]+[_a-zA-Z0-9-]*)/g, (_match, className) => {
-      if (className.startsWith(`hts-${integrationId}-`)) return `.${className}`;
-      return `.hts-${integrationId}-${className}`;
-    })
-    .replace(/#(-?[_a-zA-Z]+[_a-zA-Z0-9-]*)/g, (_match, id) => {
-      if (id.startsWith(`hts-${integrationId}-`)) return `#${id}`;
-      return `#hts-${integrationId}-${id}`;
-    });
-  rewritten = rewritten.replace(/^html\b|^body\b|^:root\b/, root);
-  if (rewritten.startsWith(root)) return rewritten;
-  return `${root} ${rewritten}`;
-}
-
 function pascalCase(value) {
   return String(value)
     .split(/[^a-zA-Z0-9]+/)
     .filter(Boolean)
     .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
     .join('');
-}
-
-function escapeRegExp(value) {
-  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function namespaceIdReferenceList(value, prefix) {

@@ -1,5 +1,6 @@
 import { copyFile, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { namespaceCss } from './css-isolation.js';
 import { ensureArray, pathExists, sha256, writeJson, writeText } from './utils.js';
 import { duplicateStoryblokComponents } from './storyblok.js';
 
@@ -81,16 +82,25 @@ export async function writeDuplicationSnapshot(workDir, result) {
 }
 
 function rewriteDuplicate(content, manifest, entry) {
-  let rewritten = content;
-  const replacements = {
-    ...(entry.replacements || {}),
-    ...(entry.export_name && entry.new_export_name ? { [entry.export_name]: entry.new_export_name } : {})
-  };
-  for (const [from, to] of Object.entries(replacements)) {
+  if (isStyleDuplicate(entry)) {
+    return rewriteStyleDuplicate(content, manifest, entry);
+  }
+  return rewriteSourceDuplicate(content, manifest, entry);
+}
+
+function rewriteStyleDuplicate(content, manifest, entry) {
+  let rewritten = applyImportRewrites(content, entry);
+  rewritten = namespaceCss(rewritten, manifest.integration_id);
+  return `/* Duplicated and isolated for ${manifest.integration_id}. Source: ${entry.source_path || entry.source}. */\n${rewritten}\n`;
+}
+
+function rewriteSourceDuplicate(content, manifest, entry) {
+  let rewritten = applyImportRewrites(content, entry);
+  for (const [from, to] of Object.entries(entry.replacements || {})) {
     rewritten = rewritten.split(from).join(to);
   }
-  for (const [from, to] of Object.entries(entry.import_rewrites || {})) {
-    rewritten = rewriteImportSpecifier(rewritten, from, to);
+  if (entry.export_name && entry.new_export_name) {
+    rewritten = replaceIdentifierOutsideQuotedStrings(rewritten, entry.export_name, entry.new_export_name);
   }
   rewritten = `/* Duplicated and isolated for ${manifest.integration_id}. Source: ${entry.source_path || entry.source}. */\n${rewritten}`;
   rewritten = rewritten.replace(/\bclass(Name)?=(['"])([^'"]+)\2/g, (_match, classNameSuffix = '', quote, classes) => {
@@ -104,9 +114,68 @@ function rewriteDuplicate(content, manifest, entry) {
   return rewritten;
 }
 
+function applyImportRewrites(content, entry) {
+  let rewritten = content;
+  for (const [from, to] of Object.entries(entry.import_rewrites || {})) {
+    rewritten = rewriteImportSpecifier(rewritten, from, to);
+  }
+  return rewritten;
+}
+
+function isStyleDuplicate(entry) {
+  const source = entry.source_path || entry.source || '';
+  const target = entry.target_path || entry.target || '';
+  return entry.content_kind === 'style' || /\.(css|scss|sass|less)$/i.test(source) || /\.(css|scss|sass|less)$/i.test(target);
+}
+
 function rewriteImportSpecifier(content, from, to) {
   const escaped = escapeRegExp(from);
   return content.replace(new RegExp(`(['"])${escaped}\\1`, 'g'), (_match, quote) => `${quote}${to}${quote}`);
+}
+
+function replaceIdentifierOutsideQuotedStrings(content, from, to) {
+  const source = String(content);
+  const identifier = String(from);
+  if (!identifier) return source;
+  let output = '';
+  let index = 0;
+  let quote = null;
+  while (index < source.length) {
+    const char = source[index];
+    if (quote) {
+      output += char;
+      if (char === '\\') {
+        output += source[index + 1] || '';
+        index += 2;
+        continue;
+      }
+      if (char === quote) quote = null;
+      index += 1;
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') {
+      quote = char;
+      output += char;
+      index += 1;
+      continue;
+    }
+    if (
+      source.startsWith(identifier, index) &&
+      !isIdentifierCharacter(source[index - 1]) &&
+      !isIdentifierCharacter(source[index + identifier.length])
+    ) {
+      output += to;
+      index += identifier.length;
+      continue;
+    }
+    output += char;
+    index += 1;
+  }
+  return output;
+}
+
+function isIdentifierCharacter(char) {
+  return Boolean(char && /[A-Za-z0-9_$]/.test(char));
 }
 
 function escapeRegExp(value) {

@@ -79,6 +79,95 @@ test('inferDuplicationCandidates includes local dependency graph and import rewr
   assert.match(duplicated, /HtsAcmeHomepageV1Hero/);
 });
 
+test('inferDuplicationCandidates includes local style dependencies with scoped duplicate output', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-style-'));
+  await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.jsx'),
+    [
+      "import './Hero.css';",
+      'export function Hero(){ return <section className="hero"><h1>Hero</h1></section>; }',
+      ''
+    ].join('\n')
+  );
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.css'),
+    [
+      "@import './HeroBase.css';",
+      'body { margin: 0; }',
+      '.hero { animation: fade 1s ease; }',
+      '@media (min-width: 48rem) {',
+      '  .hero h1 { font-size: 4rem; }',
+      '}',
+      '@keyframes fade { from { opacity: 0; } to { opacity: 1; } }',
+      ''
+    ].join('\n')
+  );
+  await writeFile(
+    path.join(repoPath, 'src/components/HeroBase.css'),
+    '.hero-base { color: black; }\n'
+  );
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const inference = await inferDuplicationCandidates(manifest, { repoPath });
+  const entries = inference.repository.components_to_duplicate;
+  const root = entries.find((entry) => entry.source_path === 'src/components/Hero.jsx');
+  const heroCss = entries.find((entry) => entry.source_path === 'src/components/Hero.css');
+  const baseCss = entries.find((entry) => entry.source_path === 'src/components/HeroBase.css');
+
+  assert.equal(inference.summary.frontend_components, 1);
+  assert.equal(inference.summary.frontend_dependency_files, 2);
+  assert.equal(root.import_rewrites['./Hero.css'], '../styles/dependencies/src/components/Hero.css');
+  assert.equal(heroCss.content_kind, 'style');
+  assert.equal(baseCss.content_kind, 'style');
+
+  manifest.repository.components_to_duplicate.push(...entries);
+  await duplicateFrontendComponents(manifest, { repoPath });
+  const duplicatedComponent = await readFile(path.join(repoPath, root.target_path), 'utf8');
+  const duplicatedCss = await readFile(path.join(repoPath, heroCss.target_path), 'utf8');
+
+  assert.match(duplicatedComponent, /import '\.\.\/styles\/dependencies\/src\/components\/Hero\.css'/);
+  assert.match(duplicatedCss, /@import '\.\/HeroBase\.css';/);
+  assert.match(duplicatedCss, /\.hts-acme-homepage-v1-root \{/);
+  assert.match(duplicatedCss, /\.hts-acme-homepage-v1-root \.hts-acme-homepage-v1-hero \{/);
+  assert.match(duplicatedCss, /hts-acme-homepage-v1-fade/);
+});
+
+test('inferDuplicationCandidates reports skipped frontend candidates with blockers', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-skip-'));
+  await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.jsx'),
+    [
+      "import './Hero.css';",
+      'export function Hero(){ return <section className="hero">Hero</section>; }',
+      ''
+    ].join('\n')
+  );
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.css'),
+    ".hero { background-image: url('../assets/hero.jpg'); }\n"
+  );
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const inference = await inferDuplicationCandidates(manifest, { repoPath });
+
+  assert.equal(inference.summary.frontend_components, 0);
+  assert.equal(inference.summary.skipped_frontend_candidates, 1);
+  assert.equal(inference.repository.skipped_candidates[0].source_path, 'src/components/Hero.jsx');
+  assert.ok(inference.repository.skipped_candidates[0].blockers.some((blocker) =>
+    blocker.includes('style asset reference requires explicit asset copy')
+  ));
+});
+
 test('createIntegrationPlan can apply inferred Storyblok duplicate candidates without collisions', async () => {
   const manifest = await createIntegrationPlan({
     integrationId: 'acme-homepage-v1',
