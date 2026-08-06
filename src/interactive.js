@@ -3,13 +3,14 @@ import { checkLiveAccess } from './access.js';
 import { DEFAULT_CONFIG, loadConfig, parseSettingAssignment, saveConfig, updateConfigValue } from './config.js';
 import { discoverRepositories, discoverTemplates, isRepository } from './discovery.js';
 import { createDoctorReport } from './doctor.js';
+import { loadEnvironment } from './env.js';
 import { DEFAULT_WORK_DIR, ensureWorkDir, writeArtifact } from './evidence.js';
 import { inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { createIntegrationPlan } from './planner.js';
 import { storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
 import { createReport, writeMarkdownReport } from './reporter.js';
 import { inspectStoryblokSpace } from './storyblok.js';
-import { confirm, createTerminal, promptInput, selectOption } from './terminal-ui.js';
+import { confirm, createTerminal, promptInput, promptSecret, selectOption } from './terminal-ui.js';
 import { pathExists, readJson } from './utils.js';
 import { validateIntegration } from './validator.js';
 import { applyManifest } from './workflow.js';
@@ -73,7 +74,8 @@ export async function runDashboard({
   const model = await createDashboardModel({
     workDir: String(args.work_dir || config.default_output_folder || DEFAULT_WORK_DIR),
     cwd,
-    config
+    config,
+    env: (await loadEnvironment({ cwd, repoPath: config.default_repository || null, config })).env
   });
   renderDashboard(terminal, model);
   return model;
@@ -143,7 +145,8 @@ export async function runDoctorCommand({
     colorMode: args.color ? String(args.color) : config.color_mode,
     interactive: false
   });
-  const report = await createDoctorReport({ cwd, config, env });
+  const session = await loadEnvironment({ cwd, repoPath: config.default_repository || null, env, config });
+  const report = await createDoctorReport({ cwd, config, env: session.env });
   renderDoctor(terminal, report);
   return report;
 }
@@ -172,14 +175,15 @@ export async function runReportViewer({
 export async function createDashboardModel({
   workDir = DEFAULT_WORK_DIR,
   cwd = process.cwd(),
-  config = {}
+  config = {},
+  env = process.env
 } = {}) {
   const repoPath = config.default_repository ? path.resolve(cwd, config.default_repository) : cwd;
   const manifestPath = path.join(workDir, MANIFEST_NAME);
   const validationPath = path.join(workDir, VALIDATION_NAME);
   const assetsPath = path.join(workDir, 'storyblok-assets-result.json');
   const componentPath = path.join(workDir, 'storyblok-components-result.json');
-  const access = checkLiveAccess();
+  const access = checkLiveAccess(env);
   const manifest = await readOptionalJson(manifestPath);
   const validation = await readOptionalJson(validationPath);
   const assetsResult = await readOptionalJson(assetsPath);
@@ -232,7 +236,7 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
     if (action === 'create') return runCreateIntegration({ terminal, args, config, workDir, answers, cwd });
     if (action === 'continue') return runContinueExistingIntegration({ terminal, args, config, workDir, answers, cwd });
     if (action === 'validate') return runValidateExistingPlan({ terminal, workDir });
-    if (action === 'storyblok') return runReviewStoryblok({ terminal, args, config, workDir });
+    if (action === 'storyblok') return runReviewStoryblok({ terminal, args, config, workDir, answers, cwd });
     if (action === 'repository') return runReviewRepository({ terminal, config, workDir, answers, cwd });
     if (action === 'template') return runReviewTemplate({ terminal, config, workDir, answers, cwd });
     if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
@@ -256,12 +260,16 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   });
   renderRepositorySummary(terminal, repository);
 
+  let sessionEnv = await createSessionEnvironment({ terminal, config, cwd, repoPath });
+  sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: false });
+
   const storyblok = await terminal.task('Inspect Storyblok', async () => {
-    const inspection = args.remote ? await inspectStoryblokSpace() : inspectStoryblokEnvironment();
+    const shouldInspectRemote = args.remote || (terminal.interactive && checkLiveAccess(sessionEnv).storyblok.ready);
+    const inspection = shouldInspectRemote ? await inspectStoryblokSpace({ env: sessionEnv }) : inspectStoryblokEnvironment(sessionEnv);
     await writeArtifact(workDir, 'storyblok-access.json', inspection);
     return inspection;
   });
-  renderStoryblokSummary(terminal, storyblok, config);
+  renderStoryblokSummary(terminal, storyblok, config, sessionEnv);
 
   const template = await terminal.task('Inspect Template', async () => {
     const inventory = await inspectTemplate(templatePath);
@@ -310,7 +318,7 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
 
   const dryRun = await terminal.task('Dry Run Apply', async () => applyManifest(
     manifest,
-    { repo: repoPath, template: templatePath, framework, dry_run: true },
+    { repo: repoPath, template: templatePath, framework, dry_run: true, env: sessionEnv },
     workDir,
     { onProgress: (event) => terminal.progress(event.label, event.current, event.total) }
   ));
@@ -332,9 +340,10 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
     return { action: 'create_integration', status: 'dry_run_complete', manifest, validation, dry_run: dryRun, report: reportPath };
   }
 
+  sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: true });
   const result = await terminal.task('Apply Integration', async () => applyManifest(
     manifest,
-    { repo: repoPath, template: templatePath, framework, dry_run: false },
+    { repo: repoPath, template: templatePath, framework, dry_run: false, env: sessionEnv },
     workDir,
     { onProgress: (event) => terminal.progress(event.label, event.current, event.total) }
   ));
@@ -374,6 +383,7 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   if (!repoPath) return { action: 'continue_integration', status: 'cancelled' };
   const templatePath = manifest.template?.source_path;
   const framework = frameworkValue(manifest.template?.framework, config.preferred_framework);
+  let sessionEnv = await createSessionEnvironment({ terminal, config, cwd, repoPath });
 
   if (action === 'validate') {
     const localValidation = await terminal.task('Validate Local Output', async () => validateIntegration(manifest, { repoPath }));
@@ -383,9 +393,12 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   }
 
   const realApply = action === 'apply';
+  if (realApply) {
+    sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: true });
+  }
   const result = await terminal.task(realApply ? 'Apply Integration' : 'Dry Run Apply', async () => applyManifest(
     manifest,
-    { repo: repoPath, template: templatePath, framework, dry_run: !realApply },
+    { repo: repoPath, template: templatePath, framework, dry_run: !realApply, env: sessionEnv },
     workDir,
     { onProgress: (event) => terminal.progress(event.label, event.current, event.total) }
   ));
@@ -409,14 +422,77 @@ async function runValidateExistingPlan({ terminal, workDir }) {
   return { action: 'validate_plan', status: validation.valid ? 'passed' : 'failed', validation };
 }
 
-async function runReviewStoryblok({ terminal, args, config, workDir }) {
+async function runReviewStoryblok({ terminal, args, config, workDir, answers, cwd }) {
+  let sessionEnv = await createSessionEnvironment({ terminal, config, cwd });
+  sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: false });
   const inspection = await terminal.task('Review Storyblok', async () => {
-    const result = args.remote ? await inspectStoryblokSpace() : inspectStoryblokEnvironment();
+    const shouldInspectRemote = args.remote || (terminal.interactive && checkLiveAccess(sessionEnv).storyblok.ready);
+    const result = shouldInspectRemote ? await inspectStoryblokSpace({ env: sessionEnv }) : inspectStoryblokEnvironment(sessionEnv);
     await writeArtifact(workDir, 'storyblok-access.json', result);
     return result;
   });
-  renderStoryblokSummary(terminal, inspection, config);
+  renderStoryblokSummary(terminal, inspection, config, sessionEnv);
   return { action: 'review_storyblok', inspection };
+}
+
+async function createSessionEnvironment({ terminal, config, cwd, repoPath = null, env = process.env }) {
+  const session = await loadEnvironment({ cwd, repoPath, env, config });
+  if (session.files_loaded.length > 0) {
+    terminal.status('Loaded environment files', 'info', session.files_loaded.map((file) => path.relative(cwd, file)).join(', '));
+  }
+  return session.env;
+}
+
+async function promptForStoryblokCredentials({ terminal, env, config, answers, required = false }) {
+  if (!terminal.interactive) return env;
+  const nextEnv = { ...env };
+  const before = checkLiveAccess(nextEnv);
+  const needsManagement = required || !before.storyblok.ready;
+  const needsPreview = !before.storyblok_content.ready;
+  if (!needsManagement && !needsPreview) return nextEnv;
+
+  terminal.section('Storyblok Credentials');
+  terminal.status('Values entered here are used for this session only', 'info');
+
+  if (needsManagement && !hasAny(nextEnv, ['STORYBLOK_MANAGEMENT_TOKEN', 'STORYBLOK_OAUTH_TOKEN', 'STORYBLOK_PERSONAL_ACCESS_TOKEN'])) {
+    const token = await promptSecret(terminal, {
+      message: required ? 'Management API token' : 'Management API token (optional)',
+      answers
+    });
+    if (token) nextEnv.STORYBLOK_MANAGEMENT_TOKEN = token;
+  }
+  if (needsManagement && !hasAny(nextEnv, ['STORYBLOK_SPACE_ID', 'SB_SPACE_ID'])) {
+    const spaceId = await promptInput(terminal, {
+      message: required ? 'Storyblok Space ID' : 'Storyblok Space ID (optional)',
+      answers
+    });
+    if (spaceId) nextEnv.STORYBLOK_SPACE_ID = spaceId;
+  }
+  if (!nextEnv.STORYBLOK_REGION) {
+    const region = await promptInput(terminal, {
+      message: 'Storyblok Region',
+      defaultValue: config.storyblok_region || 'eu',
+      answers
+    });
+    if (region) nextEnv.STORYBLOK_REGION = region;
+  }
+  if (needsPreview && !hasAny(nextEnv, ['STORYBLOK_PREVIEW_TOKEN', 'STORYBLOK_PUBLIC_TOKEN', 'STORYBLOK_DELIVERY_TOKEN'])) {
+    const previewToken = await promptSecret(terminal, {
+      message: 'Preview API token (optional)',
+      answers
+    });
+    if (previewToken) nextEnv.STORYBLOK_PREVIEW_TOKEN = previewToken;
+  }
+
+  const after = checkLiveAccess(nextEnv);
+  if (required && !after.storyblok.ready) {
+    terminal.status('Storyblok Management API credentials are required for real apply', 'error');
+  }
+  return nextEnv;
+}
+
+function hasAny(env, names) {
+  return names.some((name) => Boolean(env[name]));
 }
 
 async function runReviewRepository({ terminal, config, workDir, answers, cwd }) {
@@ -580,14 +656,14 @@ function renderRepositorySummary(terminal, repository) {
   ]);
 }
 
-function renderStoryblokSummary(terminal, storyblok, config) {
-  const access = checkLiveAccess();
-  const region = storyblok.region || process.env.STORYBLOK_REGION || config.storyblok_region || 'eu';
+function renderStoryblokSummary(terminal, storyblok, config, env = process.env) {
+  const access = checkLiveAccess(env);
+  const region = storyblok.region || env.STORYBLOK_REGION || config.storyblok_region || 'eu';
   terminal.panel('Storyblok', [
     ['Management API', access.storyblok.ready || storyblok.management_api_available ? 'Available' : 'Not configured', access.storyblok.ready || storyblok.management_api_available ? 'success' : 'warning'],
     ['Preview API', access.storyblok_content.ready || storyblok.preview_api_available ? 'Available' : 'Not configured', access.storyblok_content.ready || storyblok.preview_api_available ? 'success' : 'warning'],
     ['Region', String(region).toUpperCase()],
-    ['Space', storyblok.space?.id || process.env.STORYBLOK_SPACE_ID || 'Not configured', storyblok.space?.id || process.env.STORYBLOK_SPACE_ID ? 'success' : 'warning'],
+    ['Space', storyblok.space?.id || env.STORYBLOK_SPACE_ID || env.SB_SPACE_ID || 'Not configured', storyblok.space?.id || env.STORYBLOK_SPACE_ID || env.SB_SPACE_ID ? 'success' : 'warning'],
     ['Components', storyblok.components ? count(storyblok.components) : 'Not queried'],
     ['Stories', storyblok.stories ? count(storyblok.stories) : 'Not queried'],
     ['Assets', storyblok.assets ? count(storyblok.assets) : 'Not queried']

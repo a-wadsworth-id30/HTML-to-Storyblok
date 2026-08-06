@@ -107,7 +107,16 @@ html-to-storyblok settings --set default_repository=../client-site
 html-to-storyblok settings --set color_mode=never
 ```
 
-Settings are stored in `~/.html-to-storyblok/config.json`. Secrets are never stored in the config file; keep API tokens in environment variables.
+Settings are stored in `~/.html-to-storyblok/config.json`. Secrets are never stored in the config file.
+
+Credential handling:
+
+- Interactive mode asks for missing Storyblok credentials when inspection or real apply needs them.
+- Tokens entered in the wizard are kept in memory for that CLI run only.
+- Scriptable commands read credentials from shell environment variables and local `.env` / `.env.local` files.
+- Shell environment variables override `.env` values.
+- `.env` values are loaded from the current working directory and, when `--repo` or a selected repository is available, the target repository.
+- Reports and evidence record variable names only, never secret values.
 
 Run environment and project readiness checks:
 
@@ -272,6 +281,8 @@ Optional:
 ```text
 STORYBLOK_REGION
 ```
+
+In the interactive wizard, missing Storyblok values are requested at the Storyblok review step and again before a real apply if they are still unavailable. Non-interactive commands fail with actionable messages instead of prompting.
 
 Supported region values are `eu`, `us`, `ca`, `ap`, and `cn`.
 
@@ -861,7 +872,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard, dashboard, settings, doctor checks, report viewer with skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with session-only credential prompts, dashboard, settings, doctor checks, report viewer with skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
@@ -878,7 +889,7 @@ Implemented:
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
-- Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
+- Live Storyblok, Netlify, GitHub, and GitLab calls require credentials from the shell environment, `.env` / `.env.local`, or the interactive session; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.
 
 ## Validation

@@ -68,6 +68,43 @@ test('interactive create flow produces a validated dry-run integration and repor
   assert.match(output.text(), /Dry run complete/);
 });
 
+test('interactive create flow prompts for session-only Storyblok credentials', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  const output = new CaptureOutput({ isTTY: true });
+  const calls = mockStoryblokFetch();
+  try {
+    const result = await runInteractiveApp({
+      args: {
+        config: path.join(root, 'config.json'),
+        work_dir: workDir
+      },
+      input: { isTTY: true },
+      output,
+      cwd: root,
+      answers: [
+        'create',
+        path.join(root, 'templates/acme-homepage'),
+        path.join(root, 'client-site'),
+        'management-token',
+        '12345',
+        'preview-token',
+        'acme-homepage-v1',
+        'no'
+      ]
+    });
+
+    assert.equal(result.status, 'dry_run_complete');
+    assert.ok(calls.some((call) => call.url.includes('/spaces/12345/components/')));
+    const storyblokAccess = await readFile(path.join(workDir, 'storyblok-access.json'), 'utf8');
+    assert.match(storyblokAccess, /STORYBLOK_MANAGEMENT_TOKEN/);
+    assert.doesNotMatch(storyblokAccess, /management-token|preview-token/);
+    assert.doesNotMatch(output.text(), /management-token|preview-token/);
+  } finally {
+    restoreFetch();
+  }
+});
+
 test('interactive resume can open the report viewer for an existing integration', async () => {
   const root = await createFixtureWorkspace();
   const workDir = path.join(root, 'work');
@@ -191,9 +228,9 @@ async function createFixtureWorkspace() {
 }
 
 class CaptureOutput extends Writable {
-  constructor() {
+  constructor({ isTTY = false } = {}) {
     super();
-    this.isTTY = false;
+    this.isTTY = isTTY;
     this.chunks = [];
   }
 
@@ -205,6 +242,38 @@ class CaptureOutput extends Writable {
   text() {
     return this.chunks.join('');
   }
+}
+
+let originalFetch;
+
+function mockStoryblokFetch() {
+  originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    let body = {};
+    if (String(url).endsWith('/spaces/12345')) {
+      body = { space: { id: 12345, name: 'Test Space', domain: 'example.test' } };
+    } else if (String(url).endsWith('/spaces/12345/components/')) {
+      body = { components: [] };
+    } else if (String(url).includes('/spaces/12345/stories?')) {
+      body = { stories: [] };
+    } else if (String(url).includes('/spaces/12345/assets?')) {
+      body = { assets: [] };
+    } else {
+      throw new Error(`unexpected Storyblok request: ${url}`);
+    }
+    return {
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify(body)
+    };
+  };
+  return calls;
+}
+
+function restoreFetch() {
+  global.fetch = originalFetch;
 }
 
 async function captureStdout(callback) {

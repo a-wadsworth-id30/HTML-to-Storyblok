@@ -1,5 +1,6 @@
 import { checkLiveAccess } from './access.js';
 import { duplicateAll } from './duplicator.js';
+import { loadEnvironment } from './env.js';
 import { ensureWorkDir, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { openDraftPullRequest } from './github.js';
@@ -45,6 +46,11 @@ export async function main(argv) {
     return;
   }
 
+  const { env } = await loadEnvironment({
+    repoPath: args.repo ? String(args.repo) : null,
+    env: process.env
+  });
+
   await recordEvidence(workDir, {
     type: 'command_started',
     command,
@@ -79,12 +85,13 @@ export async function main(argv) {
       result = await inspectNetlify(requireOption(args, 'repo'));
       await writeArtifact(workDir, 'netlify-inspection.json', result);
     } else if (command === 'inspect-storyblok') {
-      result = args.remote ? await inspectStoryblokSpace() : inspectStoryblokEnvironment();
+      result = args.remote ? await inspectStoryblokSpace({ env }) : inspectStoryblokEnvironment(env);
       await writeArtifact(workDir, 'storyblok-access.json', result);
     } else if (command === 'inspect-storyblok-content') {
       result = await inspectStoryblokContentStory({
         slug: requireOption(args, 'slug'),
-        version: args.version ? String(args.version) : 'draft'
+        version: args.version ? String(args.version) : 'draft',
+        env
       });
       await writeArtifact(workDir, 'storyblok-content-result.json', result);
     } else if (command === 'netlify-preview') {
@@ -102,17 +109,19 @@ export async function main(argv) {
           includeLogs: Boolean(args.include_logs),
           logsSince: args.logs_since ? String(args.logs_since) : undefined,
           logsSource: args.logs_source ? String(args.logs_source) : undefined,
-          repoPath: args.repo ? String(args.repo) : process.cwd()
+          repoPath: args.repo ? String(args.repo) : process.cwd(),
+          env
         })
         : await queryNetlifyDeployPreviews({
           siteId: args.site_id ? String(args.site_id) : undefined,
           branch: args.branch ? String(args.branch) : undefined,
-          deployId: args.deploy_id ? String(args.deploy_id) : undefined
+          deployId: args.deploy_id ? String(args.deploy_id) : undefined,
+          env
         });
       await writeArtifact(workDir, 'netlify-preview.json', result);
       if (result.status === 'failed') process.exitCode = 2;
     } else if (command === 'check-access') {
-      result = checkLiveAccess();
+      result = checkLiveAccess(env);
       await writeArtifact(workDir, 'access-readiness.json', result);
     } else if (command === 'plan') {
       result = await createPlanFromArgs(args, workDir);
@@ -171,19 +180,19 @@ export async function main(argv) {
       }
     } else if (command === 'storyblok-components') {
       const manifest = await readAndValidateManifest(args, workDir);
-      result = await createStoryblokComponents(manifest, { dryRun: Boolean(args.dry_run) });
+      result = await createStoryblokComponents(manifest, { dryRun: Boolean(args.dry_run), env });
       await writeArtifact(workDir, 'storyblok-components-result.json', result);
     } else if (command === 'storyblok-asset-folders') {
       const manifest = await readAndValidateManifest(args, workDir);
-      result = await createStoryblokAssetFolders(manifest, { dryRun: Boolean(args.dry_run) });
+      result = await createStoryblokAssetFolders(manifest, { dryRun: Boolean(args.dry_run), env });
       await writeArtifact(workDir, 'storyblok-asset-folders-result.json', result);
     } else if (command === 'upload-assets') {
       const manifest = await readAndValidateManifest(args, workDir);
-      result = await uploadStoryblokAssets(manifest, { dryRun: Boolean(args.dry_run) });
+      result = await uploadStoryblokAssets(manifest, { dryRun: Boolean(args.dry_run), env });
       await writeArtifact(workDir, 'storyblok-assets-result.json', result);
     } else if (command === 'create-draft-story') {
       const manifest = await readAndValidateManifest(args, workDir);
-      result = await createDraftStories(manifest, { dryRun: Boolean(args.dry_run) });
+      result = await createDraftStories(manifest, { dryRun: Boolean(args.dry_run), env });
       await writeArtifact(workDir, 'storyblok-draft-stories-result.json', result);
     } else if (command === 'generate') {
       const manifest = await readAndValidateManifest(args, workDir);
@@ -198,12 +207,13 @@ export async function main(argv) {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await duplicateAll(manifest, {
         repoPath: args.repo ? String(args.repo) : process.cwd(),
-        dryRun: Boolean(args.dry_run)
+        dryRun: Boolean(args.dry_run),
+        env
       });
       await writeArtifact(workDir, 'duplication-result.json', result);
     } else if (command === 'apply') {
       const manifest = await readAndValidateManifest(args, workDir);
-      result = await applyManifest(manifest, args, workDir);
+      result = await applyManifest(manifest, { ...args, env }, workDir);
     } else if (command === 'open-pr') {
       const reviewManifest = args.manifest ? await readAndValidateManifest(args, workDir) : null;
       result = await openDraftPullRequest({
@@ -220,7 +230,8 @@ export async function main(argv) {
         push: Boolean(args.push),
         commitMessage: args.commit_message ? String(args.commit_message) : undefined,
         remoteName: args.remote ? String(args.remote) : 'origin',
-        dryRun: Boolean(args.dry_run)
+        dryRun: Boolean(args.dry_run),
+        env
       });
       await writeArtifact(workDir, 'github-pr-result.json', result);
     } else if (command === 'open-mr') {
@@ -239,7 +250,8 @@ export async function main(argv) {
         push: Boolean(args.push),
         commitMessage: args.commit_message ? String(args.commit_message) : undefined,
         remoteName: args.remote ? String(args.remote) : 'origin',
-        dryRun: Boolean(args.dry_run)
+        dryRun: Boolean(args.dry_run),
+        env
       });
       await writeArtifact(workDir, 'gitlab-mr-result.json', result);
     } else if (command === 'rollback-preview') {
@@ -255,7 +267,8 @@ export async function main(argv) {
         dryRun: Boolean(args.dry_run),
         confirmIntegrationId: args.confirm_integration_id ? String(args.confirm_integration_id) : undefined,
         remote: Boolean(args.remote),
-        confirmRemoteDelete: Boolean(args.confirm_remote_delete)
+        confirmRemoteDelete: Boolean(args.confirm_remote_delete),
+        env
       });
       await writeArtifact(workDir, 'rollback-result.json', result);
     } else {

@@ -186,6 +186,59 @@ export async function promptInput(terminal, {
   }
 }
 
+export async function promptSecret(terminal, {
+  message,
+  answers
+}) {
+  if (answers?.length) return String(answers.shift());
+  if (!terminal.interactive || !terminal.input.isTTY) {
+    terminal.line(message);
+    return '';
+  }
+
+  return new Promise((resolve) => {
+    let value = '';
+    const input = terminal.input;
+    const output = terminal.output;
+    const wasRaw = input.isRaw;
+
+    const cleanup = () => {
+      input.off('keypress', onKeypress);
+      if (input.setRawMode) input.setRawMode(wasRaw);
+      output.write('\n');
+    };
+
+    const onKeypress = (str, key = {}) => {
+      if (key.name === 'return') {
+        cleanup();
+        resolve(value);
+        return;
+      }
+      if ((key.ctrl && key.name === 'c') || key.name === 'escape') {
+        cleanup();
+        resolve('');
+        return;
+      }
+      if (key.name === 'backspace' || key.name === 'delete') {
+        if (value.length > 0) {
+          value = value.slice(0, -1);
+          output.write('\b \b');
+        }
+        return;
+      }
+      if (str && !key.ctrl && !key.meta) {
+        value += str;
+        output.write('*');
+      }
+    };
+
+    output.write(`${message}: `);
+    readline.emitKeypressEvents(input);
+    if (input.setRawMode) input.setRawMode(true);
+    input.on('keypress', onKeypress);
+  });
+}
+
 export async function confirm(terminal, {
   message,
   defaultValue = false,
