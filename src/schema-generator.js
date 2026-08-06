@@ -20,7 +20,7 @@ const OVERRIDE_FIELD_TYPES = new Set([
 
 export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, repositoryNamespace, templatePath, schemaOverrides = null }) {
   const pages = inventory.page_inventory || [];
-  const primaryPage = pages[0] || {};
+  const primaryPage = selectPrimaryPage(pages);
   const components = [];
   const blocks = [];
   const mapping = [];
@@ -82,6 +82,12 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
   return applySchemaOverrides(plan, schemaOverrides, { integrationId, storyblokPrefix });
 }
 
+function selectPrimaryPage(pages = []) {
+  return pages.find((page) => path.basename(page.page || '').toLowerCase() === 'index.html') ||
+    pages[0] ||
+    {};
+}
+
 function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
   const definitions = [];
   const add = (key, label, extra = {}) => {
@@ -109,12 +115,12 @@ function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
 
   if (landmarks.header) {
     add('header', 'Header', {
-      assets: images.slice(0, 1).map((image) => image.src),
+      assets: [selectLogoImage(images)].filter(Boolean).map((image) => image.src),
       nested_key: links.length > 0 ? 'navigation_item' : undefined
     });
   }
   if (landmarks.nav || links.length >= 3) add('navigation', 'Navigation', { nested_key: 'navigation_item', links: links.slice(0, 12) });
-  if (hasHero) add('hero', 'Hero', { assets: images.slice(0, 1).map((image) => image.src) });
+  if (hasHero) add('hero', 'Hero', { assets: [selectHeroImage(images)].filter(Boolean).map((image) => image.src) });
   if (repeated.some((item) => /grid|card|item|feature|tile|product/i.test(item.class_name)) || textBlocks.length >= 4) {
     add('feature_grid', 'Repeated content grid', { nested_key: 'feature_item', source_candidates: repeated });
   }
@@ -182,6 +188,15 @@ function buildComponentForDefinition(definition, primaryPage, storyblokPrefix) {
     return nestableComponent(definition, {
       label: textField('Navigation label'),
       link: linkField('Navigation link')
+    });
+  }
+  if (definition.key === 'hero') {
+    return nestableComponent(definition, {
+      headline: textField('Hero headline'),
+      body: richtextField('Hero supporting copy'),
+      image: assetField('Hero image'),
+      cta_label: textField('Primary call-to-action label'),
+      cta_link: linkField('Primary call-to-action link')
     });
   }
   if (definition.key === 'feature_grid') {
@@ -397,12 +412,17 @@ function buildComponentForDefinition(definition, primaryPage, storyblokPrefix) {
 }
 
 function commonSectionSchema(primaryPage, definition = {}) {
+  const hints = collectExplicitFieldHints(primaryPage);
+  const hasExplicitImage = hints.some((hint) => hint.source_type === 'image');
+  const hasExplicitLink = hints.some((hint) => hint.source_type === 'link');
   const schema = {
     headline: textField('Section headline'),
     body: richtextField('Section body copy')
   };
-  if ((primaryPage.images || []).length > 0) schema.image = assetField('Section image');
-  if ((primaryPage.links || []).length > 0) {
+  if (acceptsCommonImage(definition, { hasExplicitImage }) && (primaryPage.images || []).length > 0) {
+    schema.image = assetField('Section image');
+  }
+  if (acceptsCommonCta(definition, { hasExplicitLink }) && (primaryPage.links || []).length > 0) {
     schema.cta_label = textField('Call-to-action label');
     schema.cta_link = linkField('Call-to-action link');
   }
@@ -444,24 +464,22 @@ function buildDraftStory({ integrationId, rootName, primaryPage, blockDefinition
 function draftBlock(definition, primaryPage, integrationId) {
   const title = primaryPage.headings?.[0]?.text || displayName(definition.label);
   const body = primaryPage.text_blocks?.find((block) => block.tag === 'p')?.text || '';
+  const contentImages = contentImagesForDraft(primaryPage.images || []);
   const block = {
     _uid: stableUid(integrationId, definition.key),
-    component: definition.technical_name,
-    headline: title,
-    body: richTextDocument(body)
+    component: definition.technical_name
   };
-  const firstImage = primaryPage.images?.[0];
-  if (firstImage) {
-    block.image = {
-      id: null,
-      filename: firstImage.src,
-      alt: firstImage.alt || ''
-    };
-  }
-  const firstLink = primaryPage.links?.find((link) => link.href);
-  if (firstLink) {
-    block.cta_label = firstLink.text || 'Learn more';
-    block.cta_link = toStoryblokLink(firstLink.href);
+
+  if (definition.key === 'hero') {
+    block.headline = title;
+    block.body = richTextDocument(body);
+    const heroImage = selectHeroImage(primaryPage.images || []);
+    if (heroImage) block.image = draftImage(heroImage);
+    const cta = selectPrimaryCtaLink(primaryPage.links || []);
+    if (cta) {
+      block.cta_label = cta.text || 'Learn more';
+      block.cta_link = toStoryblokLink(cta.href);
+    }
   }
   if (definition.key === 'navigation') {
     block.items = (primaryPage.links || []).slice(0, 12).map((link, index) => ({
@@ -472,17 +490,22 @@ function draftBlock(definition, primaryPage, integrationId) {
     }));
   }
   if (definition.key === 'feature_grid') {
+    block.headline = title;
+    block.intro = richTextDocument(body);
+    block.layout = 'grid';
     const textBlocks = (primaryPage.text_blocks || []).filter((entry) => entry.text).slice(0, 6);
     block.items = textBlocks.map((entry, index) => ({
       _uid: stableUid(integrationId, `feature-item-${index}-${entry.text}`),
       component: definition.technical_name.replace(/feature_grid$/, 'feature_item'),
       headline: entry.text.slice(0, 80),
       body: richTextDocument(entry.text),
-      image: draftImage(primaryPage.images?.[index])
+      image: draftImage(contentImages[index])
     }));
   }
   if (definition.key === 'gallery') {
-    block.items = (primaryPage.images || []).slice(0, 24).map((image, index) => ({
+    block.headline = title;
+    const galleryImages = contentImages.length > 0 ? contentImages : primaryPage.images || [];
+    block.items = galleryImages.slice(0, 24).map((image, index) => ({
       _uid: stableUid(integrationId, `media-item-${index}-${image.src}`),
       component: definition.technical_name.replace(/gallery$/, 'media_item'),
       image: draftImage(image),
@@ -491,6 +514,7 @@ function draftBlock(definition, primaryPage, integrationId) {
     }));
   }
   if (definition.key === 'testimonial_list') {
+    block.headline = title;
     block.items = (primaryPage.text_blocks || [])
       .filter((entry) => entry.tag === 'blockquote' || /testimonial|quote|review/i.test(entry.text))
       .slice(0, 12)
@@ -503,6 +527,7 @@ function draftBlock(definition, primaryPage, integrationId) {
       }));
   }
   if (definition.key === 'stats_grid') {
+    block.headline = title;
     block.items = inferStats(primaryPage.text_blocks || []).slice(0, 12).map((stat, index) => ({
       _uid: stableUid(integrationId, `stat-item-${index}-${stat.value}-${stat.label}`),
       component: definition.technical_name.replace(/stats_grid$/, 'stat_item'),
@@ -512,6 +537,8 @@ function draftBlock(definition, primaryPage, integrationId) {
     }));
   }
   if (definition.key === 'pricing_table') {
+    block.headline = title;
+    block.intro = richTextDocument(body);
     const links = primaryPage.links || [];
     block.plans = inferPricingPlans(primaryPage.text_blocks || [], links).slice(0, 12).map((plan, index) => ({
       _uid: stableUid(integrationId, `pricing-plan-${index}-${plan.name}-${plan.price}`),
@@ -526,6 +553,7 @@ function draftBlock(definition, primaryPage, integrationId) {
     }));
   }
   if (definition.key === 'steps') {
+    block.headline = title;
     block.items = inferSteps(primaryPage.text_blocks || []).slice(0, 16).map((step, index) => ({
       _uid: stableUid(integrationId, `step-item-${index}-${step.headline}`),
       component: definition.technical_name.replace(/steps$/, 'step_item'),
@@ -535,6 +563,7 @@ function draftBlock(definition, primaryPage, integrationId) {
     }));
   }
   if (definition.key === 'faq_list') {
+    block.headline = title;
     block.items = inferFaqs(primaryPage.text_blocks || []).slice(0, 40).map((faq, index) => ({
       _uid: stableUid(integrationId, `faq-item-${index}-${faq.question}`),
       component: definition.technical_name.replace(/faq_list$/, 'faq_item'),
@@ -543,7 +572,8 @@ function draftBlock(definition, primaryPage, integrationId) {
     }));
   }
   if (definition.key === 'team_grid') {
-    block.members = inferTeamMembers(primaryPage.text_blocks || [], primaryPage.images || [], primaryPage.links || []).slice(0, 48).map((member, index) => ({
+    block.headline = title;
+    block.members = inferTeamMembers(primaryPage.text_blocks || [], contentImages, primaryPage.links || []).slice(0, 48).map((member, index) => ({
       _uid: stableUid(integrationId, `team-member-${index}-${member.name}`),
       component: definition.technical_name.replace(/team_grid$/, 'team_member'),
       name: member.name,
@@ -554,6 +584,8 @@ function draftBlock(definition, primaryPage, integrationId) {
     }));
   }
   if (definition.key === 'cta_group') {
+    block.headline = title;
+    block.body = richTextDocument(body);
     block.items = (primaryPage.links || [])
       .filter((link) => link.href && !link.href.startsWith('#'))
       .slice(0, 8)
@@ -566,6 +598,8 @@ function draftBlock(definition, primaryPage, integrationId) {
       }));
   }
   if (definition.key === 'form') {
+    block.headline = title;
+    block.body = richTextDocument(body);
     const form = primaryPage.forms?.[0];
     block.fields = (form?.inputs || [])
       .filter((input) => input.tag !== 'button')
@@ -583,13 +617,32 @@ function draftBlock(definition, primaryPage, integrationId) {
     block.endpoint_reference = form?.action && /^https?:\/\//i.test(form.action) ? 'external-endpoint-review-required' : '';
   }
   if (definition.key === 'header') {
-    block.logo = draftImage(primaryPage.images?.[0]);
+    block.headline = title;
+    const logo = selectLogoImage(primaryPage.images || []);
+    if (logo) block.logo = draftImage(logo);
     block.links = (primaryPage.links || []).slice(0, 8).map((link, index) => ({
       _uid: stableUid(integrationId, `header-link-${index}-${link.href}`),
       component: definition.technical_name.replace(/header$/, 'navigation_item'),
       label: link.text || link.href || `Link ${index + 1}`,
       link: toStoryblokLink(link.href)
     }));
+  }
+  if (definition.key === 'content_section' || definition.key === 'section' || definition.key === 'footer') {
+    block.headline = title;
+    block.body = richTextDocument(body);
+    if (acceptsCommonImage(definition, { hasExplicitImage: collectExplicitFieldHints(primaryPage).some((hint) => hint.source_type === 'image') })) {
+      const image = selectHeroImage(primaryPage.images || []);
+      if (image) block.image = draftImage(image);
+    }
+    if (acceptsCommonCta(definition, { hasExplicitLink: collectExplicitFieldHints(primaryPage).some((hint) => hint.source_type === 'link') })) {
+      const cta = definition.key === 'footer'
+        ? selectFooterCtaLink(primaryPage.links || [])
+        : selectPrimaryCtaLink(primaryPage.links || []);
+      if (cta) {
+        block.cta_label = cta.text || 'Learn more';
+        block.cta_link = toStoryblokLink(cta.href);
+      }
+    }
   }
   if (definition.field_hints) {
     Object.assign(block, draftExplicitFieldValues(primaryPage, block));
@@ -761,6 +814,60 @@ function normalizeInputType(input) {
 
 function emptyStoryblokLink() {
   return { linktype: 'url', url: '' };
+}
+
+function acceptsCommonImage(definition, { hasExplicitImage = false } = {}) {
+  if (definition.key === 'section') return true;
+  if (definition.key === 'content_section') return !hasExplicitImage;
+  return false;
+}
+
+function acceptsCommonCta(definition, { hasExplicitLink = false } = {}) {
+  if (definition.key === 'section' || definition.key === 'footer') return true;
+  if (definition.key === 'content_section') return !hasExplicitLink;
+  return false;
+}
+
+function selectLogoImage(images = []) {
+  return images.find((image) => isLikelyLogoImage(image)) || null;
+}
+
+function selectHeroImage(images = []) {
+  const contentImages = contentImagesForDraft(images);
+  return contentImages.find((image) => /hero|banner|cover|main|dashboard|preview|campaign/i.test(assetSearchText(image))) ||
+    contentImages[0] ||
+    images.find((image) => !isLikelyLogoImage(image)) ||
+    images[0] ||
+    null;
+}
+
+function contentImagesForDraft(images = []) {
+  const contentImages = images.filter((image) => !isLikelyLogoImage(image));
+  return contentImages.length > 0 ? contentImages : images;
+}
+
+function isLikelyLogoImage(image = {}) {
+  return /\blogo\b|brand[-_\s]?mark|wordmark/i.test(assetSearchText(image));
+}
+
+function assetSearchText(image = {}) {
+  return `${image.src || ''} ${image.alt || ''}`.replace(/[-_./]+/g, ' ');
+}
+
+function selectPrimaryCtaLink(links = []) {
+  return links.find((link) => link.href && /book|demo|start|get|buy|signup|sign up|try|request/i.test(`${link.text || ''} ${link.href || ''}`)) ||
+    links.find((link) => link.href && !link.href.startsWith('#') && !isLikelyBrandLink(link)) ||
+    links.find((link) => link.href && !isLikelyBrandLink(link)) ||
+    null;
+}
+
+function selectFooterCtaLink(links = []) {
+  return links.find((link) => link.href && /contact|support|help/i.test(`${link.text || ''} ${link.href || ''}`)) ||
+    selectPrimaryCtaLink(links);
+}
+
+function isLikelyBrandLink(link = {}) {
+  return /logo|brand|home|studio|company/i.test(String(link.text || '')) && /^(\/|#|index\.html)?$/i.test(String(link.href || ''));
 }
 
 function explicitFieldHintSchema(primaryPage, existingSchema = {}) {

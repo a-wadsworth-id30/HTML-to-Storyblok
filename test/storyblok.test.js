@@ -159,9 +159,25 @@ test('createDraftStories hydrates draft asset fields from uploaded Storyblok ass
     if (url.includes('/stories?by_slugs=')) {
       return { stories: [] };
     }
+    if (url.endsWith('/stories?per_page=100')) {
+      return { stories: [] };
+    }
     if (url.endsWith('/stories') && options.method === 'POST') {
       const payload = JSON.parse(options.body);
+      if (payload.story.is_folder) {
+        return {
+          story: {
+            id: 22,
+            slug: 'integration-preview',
+            full_slug: 'integration-preview',
+            is_folder: true,
+            parent_id: 0
+          }
+        };
+      }
       const image = payload.story.content.body[0].image;
+      assert.equal(payload.story.slug, 'acme-homepage-v1');
+      assert.equal(payload.story.parent_id, 22);
       assert.equal(image.id, 88);
       assert.equal(image.filename, 'https://a.storyblok.com/f/123/acme-homepage-v1/hero.svg');
       assert.equal(image.alt, 'Hero from template');
@@ -226,6 +242,76 @@ test('createDraftStories hydrates draft asset fields from uploaded Storyblok ass
   });
 
   assert.equal(result[0].status, 'created');
+  restoreFetch();
+});
+
+test('createDraftStories creates nested integration preview folder before draft story', async () => {
+  const calls = mockFetch((url, options = {}) => {
+    if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1')) {
+      return { stories: [] };
+    }
+    if (url.endsWith('/stories?per_page=100')) {
+      return { stories: [] };
+    }
+    if (url.includes('/stories?by_slugs=integration-preview&per_page=1')) {
+      return { stories: [] };
+    }
+    if (url.endsWith('/stories') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      if (payload.story.is_folder) {
+        assert.deepEqual(payload, {
+          story: {
+            is_folder: true,
+            name: 'Integration Preview',
+            slug: 'integration-preview',
+            parent_id: 0
+          }
+        });
+        return {
+          story: {
+            id: 22,
+            slug: 'integration-preview',
+            full_slug: 'integration-preview',
+            is_folder: true,
+            parent_id: 0
+          }
+        };
+      }
+      assert.equal(payload.story.slug, 'acme-homepage-v1');
+      assert.equal(payload.story.parent_id, 22);
+      return {
+        story: {
+          id: 457,
+          slug: 'acme-homepage-v1',
+          full_slug: 'integration-preview/acme-homepage-v1',
+          parent_id: 22,
+          published_at: null,
+          content: payload.story.content
+        }
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await createDraftStories({
+    storyblok: {
+      stories_to_create: [
+        {
+          slug: 'integration-preview/acme-homepage-v1',
+          component: 'hts_acme_homepage_v1_template_page',
+          content: {
+            component: 'hts_acme_homepage_v1_template_page',
+            body: []
+          }
+        }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result[0].status, 'created');
+  assert.equal(result[0].slug, 'integration-preview/acme-homepage-v1');
+  assert.equal(result[0].folder_results[0].status, 'created');
+  assert.equal(calls.filter((call) => call.options.method === 'POST').length, 2);
   restoreFetch();
 });
 

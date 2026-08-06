@@ -51,8 +51,14 @@ export async function runInteractiveApp({
       ],
       answers: answerQueue
     });
-    if (resumeChoice === 'resume') return runContinueExistingIntegration({ terminal, args, config, workDir, answers: answerQueue, cwd });
-    if (resumeChoice === 'new') return runCreateIntegration({ terminal, args, config, workDir, answers: answerQueue, cwd });
+    if (resumeChoice === 'resume') {
+      const result = await runContinueExistingIntegration({ terminal, args, config, workDir, answers: answerQueue, cwd });
+      return continueInteractiveSession({ terminal, args, config, workDir, answers: answerQueue, cwd, result });
+    }
+    if (resumeChoice === 'new') {
+      const result = await runCreateIntegration({ terminal, args, config, workDir, answers: answerQueue, cwd });
+      return continueInteractiveSession({ terminal, args, config, workDir, answers: answerQueue, cwd, result });
+    }
     if (resumeChoice === 'exit' || resumeChoice === null) return { action: 'exit' };
   }
 
@@ -235,16 +241,54 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
     });
 
     if (!action || action === 'exit') return { action: 'exit' };
-    if (action === 'create') return runCreateIntegration({ terminal, args, config, workDir, answers, cwd });
-    if (action === 'storyblok-only') return runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd });
-    if (action === 'continue') return runContinueExistingIntegration({ terminal, args, config, workDir, answers, cwd });
-    if (action === 'validate') return runValidateExistingPlan({ terminal, workDir });
-    if (action === 'storyblok') return runReviewStoryblok({ terminal, args, config, workDir, answers, cwd });
-    if (action === 'repository') return runReviewRepository({ terminal, config, workDir, answers, cwd });
-    if (action === 'template') return runReviewTemplate({ terminal, config, workDir, answers, cwd });
-    if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
-    if (action === 'settings') return runSettings({ args, input: terminal.input, output: terminal.output, answers });
+    const result = await runHomeAction(action, { terminal, args, config, workDir, answers, cwd });
+    if (!terminal.interactive || result?.action === 'exit') return result;
+
+    const next = await chooseNextAction({ terminal, result, answers });
+    if (next === 'exit') return { ...result, next_action: 'exit' };
+    if (next === 'report') {
+      await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
+    }
   }
+}
+
+async function runHomeAction(action, context) {
+  const { terminal, args, config, workDir, answers, cwd } = context;
+  if (action === 'create') return runCreateIntegration({ terminal, args, config, workDir, answers, cwd });
+  if (action === 'storyblok-only') return runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd });
+  if (action === 'continue') return runContinueExistingIntegration({ terminal, args, config, workDir, answers, cwd });
+  if (action === 'validate') return runValidateExistingPlan({ terminal, workDir });
+  if (action === 'storyblok') return runReviewStoryblok({ terminal, args, config, workDir, answers, cwd });
+  if (action === 'repository') return runReviewRepository({ terminal, config, workDir, answers, cwd });
+  if (action === 'template') return runReviewTemplate({ terminal, config, workDir, answers, cwd });
+  if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
+  if (action === 'settings') return runSettings({ args, input: terminal.input, output: terminal.output, answers });
+  return { action: 'unknown', status: 'ignored' };
+}
+
+async function continueInteractiveSession({ terminal, args, config, workDir, answers, cwd, result }) {
+  if (!terminal.interactive || result?.action === 'exit') return result;
+  const next = await chooseNextAction({ terminal, result, answers });
+  if (next === 'exit') return { ...result, next_action: 'exit' };
+  if (next === 'report') {
+    await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
+  }
+  return runHomeScreen({ terminal, args, config, workDir, answers, cwd });
+}
+
+async function chooseNextAction({ terminal, result, answers }) {
+  const choices = [
+    { label: 'Return to Main Menu', value: 'home' },
+    ...(result?.report ? [{ label: 'View Latest Report', value: 'report' }] : []),
+    { label: 'Exit', value: 'exit' }
+  ];
+  terminal.section('Next');
+  const choice = await selectOption(terminal, {
+    message: 'What would you like to do next?',
+    choices,
+    answers
+  });
+  return choice || 'home';
 }
 
 async function runCreateIntegration({ terminal, args, config, workDir, answers, cwd }) {

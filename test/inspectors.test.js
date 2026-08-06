@@ -11,7 +11,11 @@ test('inspectTemplate produces page, CSS, script, asset, and accessibility inven
   assert.deepEqual(result.pages, ['index.html']);
   assert.equal(result.page_inventory[0].title, 'Basic Template');
   assert.equal(result.page_inventory[0].landmarks.header, 1);
+  assert.equal(result.page_inventory[0].tag_counts.header, 1);
   assert.equal(result.page_inventory[0].headings[0].text, 'Template headline');
+  assert.equal(result.page_inventory[0].text_blocks[0].text, 'Template headline');
+  assert.ok(result.page_inventory[0].classes.includes('site-header'));
+  assert.ok(result.page_inventory[0].ids.includes('top'));
   assert.deepEqual(result.shared_sections, ['header']);
   assert.ok(result.css_inventory.some((entry) => entry.class_selectors.includes('site-header')));
   assert.ok(result.third_party_integrations.includes('https://example.com/tracker.js'));

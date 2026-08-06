@@ -3,35 +3,35 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Acme Campaign</title>
-    <meta name="description" content="A sample campaign template for HTML-to-Storyblok testing.">
+    <title>HTML-to-Storyblok Integration Agent</title>
+    <meta name="description" content="A five-route sample template for testing HTML-to-Storyblok imports.">
     <link rel="stylesheet" href="./styles.css">
   </head>
   <body>
     <header class="site-header">
-      <a class="brand" href="/" data-hts-field="brand_name">
+      <a class="brand" href="/home" data-hts-field="brand_name">
         <img src="./assets/logo.svg" alt="Acme Studio logo">
-        Acme Studio
+        HTML-to-Storyblok
       </a>
       <nav class="primary-nav" aria-label="Primary">
-        <a href="#features">Features</a>
-        <a href="#pricing">Pricing</a>
-        <a href="#faq">FAQ</a>
-        <a href="/contact" data-hts-field="nav_contact_link">Contact</a>
+        <a href="/about">About</a>
+        <a href="/services">Services</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/contact" data-hts-field="nav_contact_link">Contact us</a>
       </nav>
     </header>
 
     <main>
       <section class="hero" id="top">
         <div class="hero-copy">
-          <p class="eyebrow" data-hts-field="hero_eyebrow">Launch campaign</p>
-          <h1 data-hts-field="hero_headline">Turn a static campaign page into editable Storyblok content.</h1>
+          <p class="eyebrow" data-hts-field="hero_eyebrow">Safety-first import agent</p>
+          <h1 data-hts-field="hero_headline">Turn static HTML templates into editable Storyblok content.</h1>
           <p class="lede" data-hts-field="hero_intro">
-            A realistic test template with assets, sections, form controls, pricing, and reusable content blocks.
+            A realistic five-route test template with assets, sections, forms, reusable content blocks, and explicit Storyblok field hints.
           </p>
           <div class="hero-actions">
-            <a class="button primary" href="/book-demo" data-hts-field="primary_cta">Book demo</a>
-            <a class="button secondary" href="#features" data-hts-field="secondary_cta">View features</a>
+            <a class="button primary" href="/contact" data-hts-field="primary_cta">Request review</a>
+            <a class="button secondary" href="/services" data-hts-field="secondary_cta">View services</a>
           </div>
         </div>
         <figure class="hero-media">
@@ -43,23 +43,23 @@
       <section class="stats" aria-label="Campaign metrics">
         <article>
           <strong data-hts-field="stat_one_value">24</strong>
-          <span data-hts-field="stat_one_label">editable blocks</span>
+          <span data-hts-field="stat_one_label">generated components</span>
         </article>
         <article>
           <strong data-hts-field="stat_two_value">100%</strong>
-          <span data-hts-field="stat_two_label">additive output</span>
+          <span data-hts-field="stat_two_label">additive workflow</span>
         </article>
         <article>
           <strong data-hts-field="stat_three_value">0</strong>
-          <span data-hts-field="stat_three_label">production mutations</span>
+          <span data-hts-field="stat_three_label">production edits</span>
         </article>
       </section>
 
       <section class="feature-grid" id="features">
         <div class="section-heading">
           <p class="eyebrow">Integration workflow</p>
-          <h2 data-hts-field="features_headline">Everything needed for a safe review.</h2>
-          <p data-hts-field="features_intro">The content below is intentionally structured to exercise schema inference and draft story generation.</p>
+          <h2 data-hts-field="features_headline">Everything needed for a safe import review.</h2>
+          <p data-hts-field="features_intro">The content below is intentionally structured to exercise schema inference, draft story generation, asset upload, and validation.</p>
         </div>
         <div class="cards">
           <article class="feature-card">
@@ -70,7 +70,7 @@
           <article class="feature-card">
             <img src="./assets/card-import.svg" alt="">
             <h3>Namespaced output</h3>
-            <p>Generated frontend files, CSS selectors, Storyblok components, and assets use the integration ID.</p>
+            <p>Generated frontend files, CSS selectors, Storyblok components, stories, and assets use the integration ID.</p>
           </article>
           <article class="feature-card">
             <img src="./assets/card-import.svg" alt="">
@@ -82,21 +82,21 @@
 
       <section class="pricing" id="pricing">
         <div class="section-heading">
-          <p class="eyebrow">Pricing</p>
-          <h2>Choose your launch package.</h2>
+          <p class="eyebrow">Services</p>
+          <h2>Choose the test path to run first.</h2>
         </div>
         <div class="pricing-grid">
           <article class="pricing-card">
-            <h3>Starter</h3>
+            <h3>Storyblok only</h3>
             <p class="price">$49 / month</p>
-            <p>Best for a single campaign landing page.</p>
-            <a href="/pricing/starter">Start small</a>
+            <p>Best for validating components, assets, and draft stories before selecting a repository.</p>
+            <a href="/services">Start small</a>
           </article>
           <article class="pricing-card featured">
-            <h3>Scale</h3>
+            <h3>Full repository import</h3>
             <p class="price">$149 / month</p>
-            <p>Best for teams migrating a reusable campaign system.</p>
-            <a href="/pricing/scale">Scale up</a>
+            <p>Best for validating frontend generation, repository output, Storyblok resources, and rollback evidence.</p>
+            <a href="/services">Scale up</a>
           </article>
         </div>
       </section>
@@ -104,14 +104,14 @@
       <section class="team">
         <div class="section-heading">
           <p class="eyebrow">Team</p>
-          <h2>Reviewed by delivery specialists.</h2>
+          <h2>Reviewed by implementation specialists.</h2>
         </div>
         <article class="profile-card">
           <img src="./assets/team-ada.svg" alt="Ada Lovelace profile illustration">
           <div>
             <h3>Ada Lovelace</h3>
             <p>Technical Director</p>
-            <p>Ada reviews import plans, rollback evidence, and publishing readiness before launch.</p>
+            <p>Ada reviews import plans, rollback evidence, validation output, and publishing readiness before launch.</p>
           </div>
         </article>
       </section>
@@ -127,7 +127,7 @@
         </details>
         <details>
           <summary>Can assets be reviewed first?</summary>
-          <p>Yes. The manifest and dry-run report list planned local and Storyblok asset operations.</p>
+          <p>Yes. The manifest and dry-run report list planned local and Storyblok asset operations before real apply.</p>
         </details>
       </section>
 
@@ -158,7 +158,7 @@
     </main>
 
     <footer class="site-footer">
-      <p>Acme Studio. Sample template for import testing.</p>
+      <p>HTML-to-Storyblok Integration Agent. Sample template for import testing.</p>
     </footer>
 
     <script src="./behaviour.js"></script>

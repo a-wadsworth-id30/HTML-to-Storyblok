@@ -158,21 +158,15 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
       component: story.component,
       body: ensureArray(story.body)
     }, assetMap);
-    const payload = {
-      story: {
-        name: story.name || lastSlugSegment(story.slug),
-        slug: story.slug,
-        content,
-        is_startpage: Boolean(story.is_startpage),
-        parent_id: story.parent_id || 0
-      },
-      publish: false
-    };
     if (dryRun) {
+      const target = plannedStoryTarget(story);
+      const payload = draftStoryPayload(story, target, content);
       results.push({
         action: 'create_draft_story',
         dry_run: true,
-        slug: story.slug,
+        slug: target.full_slug,
+        story_slug: target.slug,
+        parent_slug: target.parent_slug,
         collision_policy: 'verify_matching_draft_or_stop',
         asset_resolution: assetMap.size > 0 ? 'planned_storyblok_assets' : 'no_storyblok_assets',
         payload
@@ -181,7 +175,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
     }
     const existing = await findStoryBySlug(config, story.slug);
     if (existing) {
-      assertStoryMatches(existing, payload.story);
+      assertStoryMatches(existing, { slug: story.slug, content });
       results.push({
         action: 'create_draft_story',
         dry_run: false,
@@ -193,6 +187,8 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
       });
       continue;
     }
+    const target = await resolveStoryTarget(config, story);
+    const payload = draftStoryPayload(story, target, content);
     const response = await storyblokRequest(config, `/spaces/${config.spaceId}/stories`, {
       method: 'POST',
       body: payload
@@ -204,6 +200,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
       slug: response.story?.full_slug || story.slug,
       id: response.story?.id || null,
       published: Boolean(response.story?.published_at),
+      folder_results: target.folder_results,
       verification: response.story ? summarizeStory(response.story) : response
     });
   }
@@ -574,6 +571,97 @@ async function listStoryblokAssetFolders(config) {
 async function findStoryBySlug(config, slug) {
   const response = await storyblokRequest(config, `/spaces/${config.spaceId}/stories?by_slugs=${encodeURIComponent(slug)}&per_page=1`);
   return ensureArray(response.stories).find((story) => story.full_slug === slug || story.slug === slug) || null;
+}
+
+async function listStoryFolders(config) {
+  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/stories?per_page=100`);
+  return ensureArray(response.stories).filter((story) => story.is_folder);
+}
+
+async function resolveStoryTarget(config, story) {
+  const planned = plannedStoryTarget(story);
+  if (!planned.parent_parts.length) return planned;
+
+  const folders = await listStoryFolders(config);
+  const folderResults = [];
+  let parentId = 0;
+  let currentPath = '';
+  for (const part of planned.parent_parts) {
+    currentPath = currentPath ? `${currentPath}/${part}` : part;
+    const existing = folders.find((folder) =>
+      folder.is_folder &&
+      (folder.full_slug === currentPath || (folder.slug === part && Number(folder.parent_id || 0) === Number(parentId || 0)))
+    );
+    if (existing) {
+      parentId = existing.id;
+      folderResults.push({
+        action: 'create_story_folder',
+        status: 'already_exists',
+        slug: existing.full_slug || currentPath,
+        id: existing.id
+      });
+      continue;
+    }
+
+    const conflicting = await findStoryBySlug(config, currentPath);
+    if (conflicting && !conflicting.is_folder) {
+      throw new Error(`Storyblok draft folder collision is not a folder: ${currentPath}`);
+    }
+
+    const response = await storyblokRequest(config, `/spaces/${config.spaceId}/stories`, {
+      method: 'POST',
+      body: {
+        story: {
+          is_folder: true,
+          name: titleFromSlug(part),
+          slug: part,
+          parent_id: parentId
+        }
+      }
+    });
+    const created = response.story || response;
+    folders.push(created);
+    parentId = created.id;
+    folderResults.push({
+      action: 'create_story_folder',
+      status: 'created',
+      slug: created.full_slug || currentPath,
+      id: created.id
+    });
+  }
+
+  return {
+    ...planned,
+    parent_id: parentId,
+    folder_results: folderResults
+  };
+}
+
+function plannedStoryTarget(story) {
+  const parts = String(story.slug || '').split('/').filter(Boolean);
+  const slug = parts.at(-1) || String(story.slug || '');
+  const parentParts = parts.slice(0, -1);
+  return {
+    full_slug: parts.length ? parts.join('/') : slug,
+    slug,
+    parent_slug: parentParts.join('/') || null,
+    parent_parts: parentParts,
+    parent_id: story.parent_id || 0,
+    folder_results: []
+  };
+}
+
+function draftStoryPayload(story, target, content) {
+  return {
+    story: {
+      name: story.name || lastSlugSegment(target.full_slug),
+      slug: target.slug,
+      content,
+      is_startpage: Boolean(story.is_startpage),
+      parent_id: target.parent_id
+    },
+    publish: false
+  };
 }
 
 async function findAssetByFilename(config, filename) {
@@ -1066,6 +1154,14 @@ function titleFromTechnicalName(name) {
   return String(name)
     .replace(/^hts_/, '')
     .replaceAll('_', ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function titleFromSlug(slug) {
+  return String(slug)
+    .replace(/[-_]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
 }
 

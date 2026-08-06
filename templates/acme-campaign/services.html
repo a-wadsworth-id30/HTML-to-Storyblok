@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HTML-to-Storyblok Services</title>
+    <meta name="description" content="Template import services covered by the HTML-to-Storyblok test fixture.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/home" data-hts-field="brand_name">
+        <img src="./assets/logo.svg" alt="Acme Studio logo">
+        HTML-to-Storyblok
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <a href="/about">About</a>
+        <a href="/services">Services</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/contact" data-hts-field="nav_contact_link">Contact us</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">Services</p>
+        <h1 data-hts-field="services_headline">Choose the integration workflow to test.</h1>
+        <p class="lede" data-hts-field="services_intro">
+          Use this route to exercise service cards, pricing-style content, repeated blocks, and internal calls to action.
+        </p>
+      </section>
+
+      <section class="service-list" id="packages">
+        <article class="feature-card">
+          <img src="./assets/card-import.svg" alt="">
+          <h2>Template inspection</h2>
+          <p>Extract pages, shared sections, assets, forms, scripts, links, accessibility warnings, and external dependencies.</p>
+          <a href="/contact">Request inspection</a>
+        </article>
+        <article class="feature-card">
+          <img src="./assets/card-import.svg" alt="">
+          <h2>Storyblok-only apply</h2>
+          <p>Create namespaced components, upload assets, and generate a draft story before a repository is selected.</p>
+          <a href="/contact">Test Storyblok</a>
+        </article>
+        <article class="feature-card">
+          <img src="./assets/card-import.svg" alt="">
+          <h2>Full repository import</h2>
+          <p>Generate isolated frontend files, validate local output, create Storyblok resources, and produce rollback evidence.</p>
+          <a href="/contact">Plan full import</a>
+        </article>
+      </section>
+
+      <section class="pricing">
+        <div class="section-heading">
+          <p class="eyebrow">Packages</p>
+          <h2>Representative package cards.</h2>
+        </div>
+        <div class="pricing-grid">
+          <article class="pricing-card">
+            <h3>Review</h3>
+            <p class="price">$49 / month</p>
+            <p>For quick Storyblok-only template validation.</p>
+            <a href="/contact">Start review</a>
+          </article>
+          <article class="pricing-card featured">
+            <h3>Production readiness</h3>
+            <p class="price">$149 / month</p>
+            <p>For complete repository, Storyblok, report, and rollback validation.</p>
+            <a href="/contact">Start readiness check</a>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>HTML-to-Storyblok Integration Agent. Services route.</p>
+    </footer>
+    <script src="./behaviour.js"></script>
+  </body>
+</html>

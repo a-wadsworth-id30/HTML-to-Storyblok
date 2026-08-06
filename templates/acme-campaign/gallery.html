@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HTML-to-Storyblok Gallery</title>
+    <meta name="description" content="Gallery route for testing Storyblok asset upload and draft asset fields.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/home" data-hts-field="brand_name">
+        <img src="./assets/logo.svg" alt="Acme Studio logo">
+        HTML-to-Storyblok
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <a href="/about">About</a>
+        <a href="/services">Services</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/contact" data-hts-field="nav_contact_link">Contact us</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">Gallery</p>
+        <h1 data-hts-field="gallery_headline">Assets ready for Storyblok review.</h1>
+        <p class="lede" data-hts-field="gallery_intro">
+          This route repeats local images so the upload workflow can deduplicate source assets and hydrate draft asset fields.
+        </p>
+      </section>
+
+      <section class="gallery-grid">
+        <figure>
+          <img src="./assets/hero.svg" alt="Dashboard preview for campaign import" data-hts-field="gallery_hero_image">
+          <figcaption>Integration dashboard preview</figcaption>
+        </figure>
+        <figure>
+          <img src="./assets/card-import.svg" alt="Template import card illustration">
+          <figcaption>Template import card</figcaption>
+        </figure>
+        <figure>
+          <img src="./assets/team-ada.svg" alt="Ada Lovelace profile illustration">
+          <figcaption>Delivery specialist profile</figcaption>
+        </figure>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>HTML-to-Storyblok Integration Agent. Gallery route.</p>
+    </footer>
+    <script src="./behaviour.js"></script>
+  </body>
+</html>

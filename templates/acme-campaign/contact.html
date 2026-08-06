@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Contact HTML-to-Storyblok</title>
+    <meta name="description" content="Contact route for testing form extraction and field hints.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/home" data-hts-field="brand_name">
+        <img src="./assets/logo.svg" alt="Acme Studio logo">
+        HTML-to-Storyblok
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <a href="/about">About</a>
+        <a href="/services">Services</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/contact" data-hts-field="nav_contact_link">Contact us</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">Contact us</p>
+        <h1 data-hts-field="contact_headline">Request a safe import review.</h1>
+        <p class="lede" data-hts-field="contact_intro">
+          Use this page to test labels, required inputs, select options, checkbox defaults, external form warnings, and draft story field seeding.
+        </p>
+      </section>
+
+      <section class="contact-layout">
+        <div class="contact-card">
+          <h2>What the review checks</h2>
+          <ul>
+            <li>Template pages, assets, forms, CSS, and scripts</li>
+            <li>Storyblok component names, schemas, assets, and draft stories</li>
+            <li>Validation evidence, rollback readiness, and additive-only safety</li>
+          </ul>
+        </div>
+        <form action="https://forms.example.com/html-to-storyblok" method="post">
+          <label>
+            Work email
+            <input type="email" name="email" placeholder="you@example.com" required data-hts-field="lead_email">
+          </label>
+          <label>
+            Workflow
+            <select name="workflow" data-hts-field="preferred_package">
+              <option value="storyblok-only">Storyblok only</option>
+              <option value="full-import">Full repository import</option>
+            </select>
+          </label>
+          <label>
+            Message
+            <textarea name="message" placeholder="Tell us what you want to test." data-hts-field="contact_message"></textarea>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="updates" checked data-hts-field="accept_updates">
+            Send validation updates
+          </label>
+          <button type="submit">Request review</button>
+        </form>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>HTML-to-Storyblok Integration Agent. Contact route.</p>
+    </footer>
+    <script src="./behaviour.js"></script>
+  </body>
+</html>

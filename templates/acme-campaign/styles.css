@@ -21,6 +21,12 @@ a {
 .team,
 .faq,
 .lead-form,
+.page-hero,
+.split-section,
+.timeline,
+.service-list,
+.gallery-grid,
+.contact-layout,
 .site-footer {
   width: min(1120px, calc(100% - 32px));
   margin: 0 auto;
@@ -181,7 +187,13 @@ button {
 .pricing,
 .team,
 .faq,
-.lead-form {
+.lead-form,
+.page-hero,
+.split-section,
+.timeline,
+.service-list,
+.gallery-grid,
+.contact-layout {
   padding: 56px 0;
 }
 
@@ -259,6 +271,116 @@ button {
   color: #596779;
 }
 
+.page-hero {
+  max-width: 920px;
+  margin: 0 auto;
+  text-align: center;
+}
+
+.page-hero h1 {
+  margin: 0;
+  font-size: clamp(2.6rem, 7vw, 5rem);
+  line-height: 0.96;
+}
+
+.page-hero .lede {
+  margin-right: auto;
+  margin-left: auto;
+}
+
+.split-section,
+.contact-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
+  gap: 36px;
+  align-items: start;
+}
+
+.timeline,
+.service-list,
+.gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.timeline article,
+.gallery-grid figure,
+.contact-card {
+  border: 1px solid #d9e3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.timeline article,
+.contact-card {
+  padding: 24px;
+}
+
+.timeline strong {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  margin-bottom: 16px;
+  place-items: center;
+  border-radius: 50%;
+  color: #ffffff;
+  background: #184e77;
+}
+
+.service-list .feature-card {
+  display: grid;
+  gap: 12px;
+}
+
+.gallery-grid figure {
+  margin: 0;
+  overflow: hidden;
+}
+
+.gallery-grid img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  object-fit: cover;
+  background: #edf4f8;
+}
+
+.gallery-grid figcaption {
+  padding: 14px 16px 18px;
+  color: #596779;
+}
+
+.contact-layout form {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  border: 1px solid #d9e3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.contact-layout label {
+  display: grid;
+  gap: 8px;
+  font-weight: 750;
+}
+
+.contact-layout input,
+.contact-layout select,
+.contact-layout textarea {
+  min-height: 42px;
+  border: 1px solid #b9c8d8;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.contact-layout textarea {
+  min-height: 120px;
+  resize: vertical;
+}
+
 @media (max-width: 760px) {
   .site-header,
   .primary-nav,
@@ -267,7 +389,12 @@ button {
   .cards,
   .pricing-grid,
   .profile-card,
-  .lead-form form {
+  .lead-form form,
+  .split-section,
+  .timeline,
+  .service-list,
+  .gallery-grid,
+  .contact-layout {
     display: grid;
     grid-template-columns: 1fr;
   }

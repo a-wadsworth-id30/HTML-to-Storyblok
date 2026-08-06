@@ -90,7 +90,8 @@ test('interactive create flow prompts for session-only Storyblok credentials', a
         '12345',
         'preview-token',
         'acme-homepage-v1',
-        'no'
+        'no',
+        'exit'
       ]
     });
 
@@ -126,7 +127,8 @@ test('interactive Storyblok-only flow continues when optional remote inspection 
         '294359959203001',
         '',
         'acme-homepage-storyblok-v1',
-        'no'
+        'no',
+        'exit'
       ]
     });
 
@@ -200,6 +202,32 @@ test('interactive resume can open the report viewer for an existing integration'
   assert.equal(result.markdown_report, path.join(workDir, 'report.md'));
   assert.match(output.text(), /Previous integration detected/);
   assert.match(output.text(), /View Latest Report/);
+});
+
+test('interactive app returns to the home screen after a completed action', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  const output = new CaptureOutput({ isTTY: true });
+  const result = await runInteractiveApp({
+    args: {
+      config: path.join(root, 'config.json'),
+      work_dir: workDir
+    },
+    input: { isTTY: true },
+    output,
+    cwd: root,
+    answers: [
+      'template',
+      path.join(root, 'templates/acme-homepage'),
+      'home',
+      'exit'
+    ]
+  });
+
+  const headers = output.text().match(/HTML -> Storyblok/g) || [];
+  assert.equal(result.action, 'exit');
+  assert.equal(headers.length >= 2, true);
+  assert.match(output.text(), /Next/);
 });
 
 test('storyblok-apply command runs the remote-only workflow without a repository', async () => {

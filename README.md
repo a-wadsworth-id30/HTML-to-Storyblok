@@ -86,6 +86,8 @@ Navigation supports arrow keys, `Enter`, `Esc`, `q`, `Tab`, and `Ctrl+C`. The wi
 
 The create flow guides you through choosing a template from `templates/`, choosing a nearby repository, reviewing repository/Storyblok/template summaries, confirming the integration ID, previewing the derived prefix and namespace, validating the plan, running a dry run, optionally applying the real integration, and writing `.tmp/html-to-storyblok/report.md`.
 
+After a completed interactive action, the CLI stays open and shows a `Next` menu so you can return to the main menu, view the latest report, or exit intentionally.
+
 When you only want to test the Storyblok side before a client repository is available, choose `Test Storyblok Only` from the home screen, or choose `Skip Repository - Storyblok only test` when the create flow asks for a repository. This path still inspects the template, derives the same namespaced component schema, validates the additive-only plan, dry-runs all Storyblok operations, and can optionally run the real Storyblok apply. It does not generate repository files, inspect a repository, change routes, or require `--repo`.
 
 If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI offers to resume the previous integration or start a new one.
@@ -152,6 +154,10 @@ Example:
 ```text
 templates/acme-campaign/
   index.html
+  about.html
+  services.html
+  gallery.html
+  contact.html
   styles.css
   behaviour.js
   schema-overrides.json
@@ -160,7 +166,7 @@ templates/acme-campaign/
 
 Keep the template source unchanged so discovery can compare the original files with generated integration output later.
 
-This repository includes `templates/acme-campaign/` as a smoke-test fixture. It contains a realistic landing-page template with local assets, local CSS, local JavaScript, repeated image references, form fields, explicit `data-hts-field` hints, and additive schema overrides. It also includes external form and analytics references so inspection/reporting can surface the expected review warnings.
+This repository includes `templates/acme-campaign/` as a smoke-test fixture. It contains a realistic five-route static template for home, about, services, gallery, and contact pages using this project as the example subject matter. It includes local assets, local CSS, local JavaScript, repeated image references, form fields, explicit `data-hts-field` hints, and additive schema overrides. It also includes external form and analytics references so inspection/reporting can surface the expected review warnings.
 
 If you want to preview a raw static template in the browser before running inspection, start a simple server from the project root:
 
@@ -682,7 +688,7 @@ html-to-storyblok create-draft-story \
   --dry-run
 ```
 
-Draft story creation uses `publish: false`. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers. If a draft story was created by an earlier version with unresolved local asset paths, rerun with a new integration ID or use confirmed remote rollback for the integration-owned draft resources before applying again.
+Draft story creation uses `publish: false`. Draft stories planned under `integration-preview/<integration-id>` are created inside a Storyblok `integration-preview` folder, which is created or reused additively when needed. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers. If a draft story was created by an earlier version with unresolved local asset paths or at the root instead of `integration-preview/`, rerun with a new integration ID or use confirmed remote rollback for the integration-owned draft resources before applying again.
 
 Run the complete Storyblok-only workflow without a repository:
 
@@ -907,6 +913,7 @@ Implemented:
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
+- Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Current Storyblok planning still creates one integration preview draft story from `index.html`; true one-story-per-route generation remains outstanding.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials from the shell environment, `.env` / `.env.local`, or the interactive session; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.

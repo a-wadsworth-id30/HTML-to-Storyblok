@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>About HTML-to-Storyblok</title>
+    <meta name="description" content="About the safety-first HTML-to-Storyblok integration workflow.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/home" data-hts-field="brand_name">
+        <img src="./assets/logo.svg" alt="Acme Studio logo">
+        HTML-to-Storyblok
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <a href="/about">About</a>
+        <a href="/services">Services</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/contact" data-hts-field="nav_contact_link">Contact us</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">About the agent</p>
+        <h1 data-hts-field="about_headline">Built for safe template imports.</h1>
+        <p class="lede" data-hts-field="about_intro">
+          HTML-to-Storyblok helps teams inspect a supplied static template, generate an additive manifest, and create isolated Storyblok draft resources for review.
+        </p>
+      </section>
+
+      <section class="split-section">
+        <div>
+          <p class="eyebrow">Safety model</p>
+          <h2>Additive-only by default.</h2>
+          <p>
+            Generated files, components, assets, folders, and draft stories are namespaced with the integration ID. Existing production content, routes, dependencies, and Storyblok resources are never modified by the import workflow.
+          </p>
+        </div>
+        <figure class="hero-media">
+          <img src="./assets/hero.svg" alt="Integration dashboard preview" data-hts-field="about_image">
+          <figcaption>Every major action is planned, validated, and reported before real apply.</figcaption>
+        </figure>
+      </section>
+
+      <section class="timeline">
+        <article>
+          <strong>1</strong>
+          <h3>Inspect</h3>
+          <p>Review template pages, CSS, scripts, assets, repository conventions, and Storyblok readiness.</p>
+        </article>
+        <article>
+          <strong>2</strong>
+          <h3>Plan</h3>
+          <p>Create a deterministic manifest with generated component names, asset operations, and draft story content.</p>
+        </article>
+        <article>
+          <strong>3</strong>
+          <h3>Apply</h3>
+          <p>Run a dry run first, then create only integration-owned Storyblok resources and isolated repository files.</p>
+        </article>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>HTML-to-Storyblok Integration Agent. About route.</p>
+    </footer>
+    <script src="./behaviour.js"></script>
+  </body>
+</html>

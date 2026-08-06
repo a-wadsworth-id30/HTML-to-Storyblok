@@ -98,6 +98,118 @@ test('buildSchemaPlan infers richer nested schemas from complex template facts',
   assert.equal(gallery.items[0].component, 'hts_acme_homepage_v1_media_item');
 });
 
+test('buildSchemaPlan seeds draft assets by block role instead of leaking the first image everywhere', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'acme-campaign-v1',
+    storyblokPrefix: 'hts_acme_campaign_v1_',
+    repositoryNamespace: 'src/integrations/acme-campaign-v1',
+    templatePath: 'templates/acme-campaign',
+    inventory: {
+      page_inventory: [
+        {
+          page: 'index.html',
+          title: 'Acme Campaign',
+          landmarks: {
+            header: 1,
+            nav: 1,
+            footer: 1
+          },
+          tag_counts: {},
+          classes: ['hero', 'feature-card', 'feature-card', 'pricing-card'],
+          headings: [{ level: 1, text: 'Turn a static campaign page into editable Storyblok content.' }],
+          text_blocks: [
+            { tag: 'p', text: 'Launch copy.' },
+            { tag: 'p', text: 'Feature one.' },
+            { tag: 'p', text: 'Feature two.' },
+            { tag: 'p', text: '$49 / month' }
+          ],
+          repeated_candidates: [
+            { class_name: 'feature-card', count: 2 },
+            { class_name: 'pricing-card', count: 2 }
+          ],
+          images: [
+            { src: './assets/logo.svg', alt: 'Acme Studio logo' },
+            { src: './assets/hero.svg', alt: 'Dashboard preview for campaign import' },
+            { src: './assets/card-import.svg', alt: '' }
+          ],
+          links: [
+            { href: '/', text: 'Acme Studio' },
+            { href: '#features', text: 'Features' },
+            { href: '/book-demo', text: 'Book demo' }
+          ],
+          forms: []
+        }
+      ],
+      asset_inventory: []
+    }
+  });
+
+  const body = plan.draft_story.content.body;
+  const header = body.find((block) => block.component === 'hts_acme_campaign_v1_header');
+  const navigation = body.find((block) => block.component === 'hts_acme_campaign_v1_navigation');
+  const hero = body.find((block) => block.component === 'hts_acme_campaign_v1_hero');
+  const featureGrid = body.find((block) => block.component === 'hts_acme_campaign_v1_feature_grid');
+  const gallery = body.find((block) => block.component === 'hts_acme_campaign_v1_gallery');
+  const pricing = body.find((block) => block.component === 'hts_acme_campaign_v1_pricing_table');
+  const footer = body.find((block) => block.component === 'hts_acme_campaign_v1_footer');
+
+  assert.equal(header.logo.filename, './assets/logo.svg');
+  assert.equal(Object.hasOwn(header, 'image'), false);
+  assert.equal(Object.hasOwn(navigation, 'image'), false);
+  assert.equal(Object.hasOwn(navigation, 'body'), false);
+  assert.equal(hero.image.filename, './assets/hero.svg');
+  assert.equal(hero.cta_label, 'Book demo');
+  assert.equal(featureGrid.items[0].image.filename, './assets/hero.svg');
+  assert.equal(Object.hasOwn(featureGrid, 'image'), false);
+  assert.equal(gallery.items[0].image.filename, './assets/hero.svg');
+  assert.equal(Object.hasOwn(pricing, 'image'), false);
+  assert.equal(Object.hasOwn(pricing, 'body'), false);
+  assert.equal(Object.hasOwn(footer, 'image'), false);
+});
+
+test('buildSchemaPlan uses index.html as the primary draft page when templates contain multiple routes', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'multi-route-v1',
+    storyblokPrefix: 'hts_multi_route_v1_',
+    repositoryNamespace: 'src/integrations/multi-route-v1',
+    templatePath: 'templates/multi-route',
+    inventory: {
+      page_inventory: [
+        {
+          page: 'about.html',
+          title: 'About',
+          landmarks: {},
+          tag_counts: {},
+          classes: [],
+          headings: [{ level: 1, text: 'About page' }],
+          text_blocks: [],
+          repeated_candidates: [],
+          images: [],
+          links: [],
+          forms: []
+        },
+        {
+          page: 'index.html',
+          title: 'Home',
+          landmarks: {},
+          tag_counts: {},
+          classes: [],
+          headings: [{ level: 1, text: 'Home page' }],
+          text_blocks: [],
+          repeated_candidates: [],
+          images: [],
+          links: [],
+          forms: []
+        }
+      ],
+      asset_inventory: []
+    }
+  });
+
+  assert.equal(plan.draft_story.content.headline, 'Home page');
+  assert.equal(plan.components[0].source, 'index.html');
+});
+
 test('buildSchemaPlan infers bespoke editorial patterns without exposing child items at root', () => {
   const plan = buildSchemaPlan({
     integrationId: 'summit-template-v1',
