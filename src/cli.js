@@ -206,7 +206,7 @@ export async function main(argv) {
 async function createPlan(args, workDir) {
   const manifest = await createIntegrationPlan({
     integrationId: requireOption(args, 'integration_id'),
-    storyblokPrefix: requireOption(args, 'storyblok_prefix'),
+    storyblokPrefix: args.storyblok_prefix ? String(args.storyblok_prefix) : undefined,
     repositoryNamespace: args.repository_namespace ? String(args.repository_namespace) : undefined,
     templatePath: args.template ? String(args.template) : undefined,
     framework: args.framework ? String(args.framework) : 'static'
@@ -414,7 +414,7 @@ Usage:
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify]
-  html-to-storyblok plan --integration-id <id> --storyblok-prefix <prefix_> [--repository-namespace <path>]
+  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>]
   html-to-storyblok validate-plan --manifest <path>
   html-to-storyblok diff --manifest <path> --repo <path>
   html-to-storyblok validate --manifest <path> --repo <path>

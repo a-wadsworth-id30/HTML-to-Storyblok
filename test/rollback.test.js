@@ -10,7 +10,7 @@ import { createRollbackPreview, rollbackIntegration } from '../src/rollback.js';
 test('rollbackPreview lists only integration-owned repository paths for removal', async () => {
   const manifest = await createIntegrationPlan({
     integrationId: 'acme-homepage-v1',
-    storyblokPrefix: 'hts_acme_v1_',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
     templatePath: 'test/fixtures/basic-template',
     framework: 'static'
   });
@@ -26,7 +26,7 @@ test('rollbackIntegration removes generated local files only after integration c
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-rollback-'));
   const manifest = await createIntegrationPlan({
     integrationId: 'acme-homepage-v1',
-    storyblokPrefix: 'hts_acme_v1_',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
     templatePath: 'test/fixtures/basic-template',
     framework: 'static'
   });

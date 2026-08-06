@@ -10,7 +10,7 @@ test('createStoryblokComponents treats matching existing components as idempoten
       components: [
         {
           id: 123,
-          name: 'hts_acme_v1_hero',
+          name: 'hts_acme_homepage_v1_hero',
           display_name: 'Hero',
           is_root: false,
           is_nestable: true,
@@ -31,7 +31,7 @@ test('createStoryblokComponents treats matching existing components as idempoten
     storyblok: {
       components_to_create: [
         {
-          technical_name: 'hts_acme_v1_hero',
+          technical_name: 'hts_acme_homepage_v1_hero',
           display_name: 'Hero',
           component_type: 'nestable',
           preview_field: 'headline',
@@ -54,7 +54,7 @@ test('createStoryblokComponents treats matching existing components as idempoten
 
 test('createDraftStories treats matching draft stories as idempotent', async () => {
   const content = {
-    component: 'hts_acme_v1_template_page',
+    component: 'hts_acme_homepage_v1_template_page',
     body: []
   };
   mockFetch((url) => {
@@ -77,7 +77,7 @@ test('createDraftStories treats matching draft stories as idempotent', async () 
       stories_to_create: [
         {
           slug: 'integration-preview/acme-homepage-v1',
-          component: 'hts_acme_v1_template_page',
+          component: 'hts_acme_homepage_v1_template_page',
           content
         }
       ]
@@ -110,7 +110,7 @@ test('inspectStoryblokContentStory summarizes draft content without exposing tok
         slug: 'acme-homepage-v1',
         full_slug: 'integration-preview/acme-homepage-v1',
         content: {
-          component: 'hts_acme_v1_template_page'
+          component: 'hts_acme_homepage_v1_template_page'
         },
         published_at: null
       }
@@ -125,7 +125,7 @@ test('inspectStoryblokContentStory summarizes draft content without exposing tok
   });
 
   assert.equal(result.status, 'ok');
-  assert.equal(result.story.root_component, 'hts_acme_v1_template_page');
+  assert.equal(result.story.root_component, 'hts_acme_homepage_v1_template_page');
   assert.doesNotMatch(JSON.stringify(result), /preview-token/);
   restoreFetch();
 });

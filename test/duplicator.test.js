@@ -14,7 +14,7 @@ test('frontend duplication creates an isolated copy in namespace', async () => {
 
   const manifest = createDefaultManifest({
     integrationId: 'acme-homepage-v1',
-    storyblokPrefix: 'hts_acme_v1_',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
     repositoryNamespace: 'src/integrations/acme-homepage-v1'
   });
   manifest.repository.components_to_duplicate.push({

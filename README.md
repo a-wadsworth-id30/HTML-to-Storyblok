@@ -260,17 +260,22 @@ This checks whether the variable names needed for Storyblok Management API, Stor
 
 ### 6. Create an additive-only integration plan
 
-Choose:
+Provide an integration ID in lowercase kebab-case.
 
-- an integration ID in lowercase kebab-case
-- a Storyblok prefix that starts with `hts_` and ends with `_`
+The Storyblok prefix is derived from the integration ID:
+
+```text
+<integration-id> acme-homepage-v1
+<storyblok-prefix> hts_acme_homepage_v1_
+```
+
+You may pass `--storyblok-prefix` explicitly, but it must exactly match the derived value. This prevents collisions when multiple templates are imported into the same site.
 
 Example:
 
 ```sh
 html-to-storyblok plan \
   --integration-id acme-homepage-v1 \
-  --storyblok-prefix hts_acme_v1_ \
   --template templates/acme-homepage \
   --framework astro
 ```
@@ -293,7 +298,6 @@ You can override it:
 ```sh
 html-to-storyblok plan \
   --integration-id acme-homepage-v1 \
-  --storyblok-prefix hts_acme_v1_ \
   --repository-namespace src/integrations/acme-homepage-v1
 ```
 
@@ -314,6 +318,7 @@ Validation fails if the manifest attempts to:
 - use unsafe draft story slugs
 - use duplicate file paths, component names, story slugs, or asset names
 - allow unnamespaced nested Storyblok components
+- use a Storyblok prefix that is not derived from the integration ID
 - change dependencies
 - change deployment configuration
 - use unnamespaced Storyblok technical names
@@ -428,7 +433,7 @@ Duplication entries are manifest-driven. Example:
     "components_to_duplicate": [
       {
         "source_technical_name": "hero",
-        "technical_name": "hts_acme_v1_hero"
+        "technical_name": "hts_acme_homepage_v1_hero"
       }
     ]
   }
@@ -544,7 +549,7 @@ html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|publi
 html-to-storyblok inspect-netlify --repo <path>
 html-to-storyblok check-access
 html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify]
-html-to-storyblok plan --integration-id <id> --storyblok-prefix <prefix_> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static]
+html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static]
 html-to-storyblok validate-plan --manifest <path>
 html-to-storyblok diff --manifest <path> --repo <path>
 html-to-storyblok validate --manifest <path> --repo <path>
@@ -590,7 +595,6 @@ html-to-storyblok check-access
 
 html-to-storyblok plan \
   --integration-id acme-homepage-v1 \
-  --storyblok-prefix hts_acme_v1_ \
   --template templates/acme-homepage \
   --framework auto
 

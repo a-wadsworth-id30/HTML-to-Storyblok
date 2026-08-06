@@ -11,10 +11,10 @@ test('generate converts template HTML into isolated framework files', async () =
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-'));
   const manifest = createDefaultManifest({
     integrationId: 'acme-homepage-v1',
-    storyblokPrefix: 'hts_acme_v1_',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
     repositoryNamespace: 'src/integrations/acme-homepage-v1'
   });
-  manifest.storyblok.components_to_create.push({ technical_name: 'hts_acme_v1_template_page' });
+  manifest.storyblok.components_to_create.push({ technical_name: 'hts_acme_homepage_v1_template_page' });
   manifest.repository.files_to_create.push(
     'src/integrations/acme-homepage-v1/integration-manifest.json',
     'src/integrations/acme-homepage-v1/index.js',

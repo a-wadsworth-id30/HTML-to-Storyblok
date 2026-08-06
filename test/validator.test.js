@@ -11,7 +11,7 @@ test('validateIntegration passes for a generated isolated integration', async ()
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-validate-'));
   const manifest = await createIntegrationPlan({
     integrationId: 'acme-homepage-v1',
-    storyblokPrefix: 'hts_acme_v1_',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
     templatePath: 'test/fixtures/basic-template',
     framework: 'static'
   });
@@ -31,7 +31,7 @@ test('validateIntegration fails when a generated file imports an existing presen
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-validate-fail-'));
   const manifest = await createIntegrationPlan({
     integrationId: 'acme-homepage-v1',
-    storyblokPrefix: 'hts_acme_v1_',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
     templatePath: 'test/fixtures/basic-template',
     framework: 'static'
   });
@@ -53,7 +53,7 @@ test('diffIntegration reports local file existence against the manifest', async 
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-diff-'));
   const manifest = await createIntegrationPlan({
     integrationId: 'acme-homepage-v1',
-    storyblokPrefix: 'hts_acme_v1_',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
     templatePath: 'test/fixtures/basic-template',
     framework: 'static'
   });

@@ -16,7 +16,7 @@ test('report summarizes manifest, validation, and command failure evidence', asy
       '--integration-id',
       'acme-homepage-v1',
       '--storyblok-prefix',
-      'hts_acme_v1_',
+      'hts_acme_homepage_v1_',
       '--template',
       'test/fixtures/basic-template',
       '--framework',
@@ -49,7 +49,7 @@ test('apply dry-run executes the import pipeline without copying template assets
   const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-apply-dry-run-work-'));
   const manifest = await createIntegrationPlan({
     integrationId: 'acme-homepage-v1',
-    storyblokPrefix: 'hts_acme_v1_',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
     templatePath: 'test/fixtures/basic-template',
     framework: 'static'
   });

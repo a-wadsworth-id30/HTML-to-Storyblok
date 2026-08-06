@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { inspectTemplate } from './inspectors.js';
-import { createDefaultManifest, validatePlan } from './policy.js';
+import { createDefaultManifest, storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
 import { buildSchemaPlan } from './schema-generator.js';
 import { plannedTemplateFilePaths } from './template-converter.js';
 import { ensureArray, sha256 } from './utils.js';
@@ -13,9 +13,10 @@ export async function createIntegrationPlan({
   framework = 'static'
 }) {
   const namespace = repositoryNamespace || path.posix.join('src/integrations', integrationId);
+  const resolvedStoryblokPrefix = storyblokPrefix || storyblokPrefixForIntegrationId(integrationId);
   const manifest = createDefaultManifest({
     integrationId,
-    storyblokPrefix,
+    storyblokPrefix: resolvedStoryblokPrefix,
     repositoryNamespace: namespace
   });
 
@@ -26,7 +27,7 @@ export async function createIntegrationPlan({
     const schemaPlan = buildSchemaPlan({
       inventory,
       integrationId,
-      storyblokPrefix,
+      storyblokPrefix: resolvedStoryblokPrefix,
       repositoryNamespace: namespace,
       templatePath
     });
@@ -47,14 +48,14 @@ export async function createIntegrationPlan({
   } else {
     manifest.storyblok.components_to_create = [
       {
-        technical_name: `${storyblokPrefix}template_page`,
+        technical_name: `${resolvedStoryblokPrefix}template_page`,
         component_type: 'content_type',
-        allowed_children: [`${storyblokPrefix}section`]
+        allowed_children: [`${resolvedStoryblokPrefix}section`]
       },
-      { technical_name: `${storyblokPrefix}section`, component_type: 'nestable' }
+      { technical_name: `${resolvedStoryblokPrefix}section`, component_type: 'nestable' }
     ];
     manifest.storyblok.stories_to_create = [
-      { slug: `integration-preview/${integrationId}`, component: `${storyblokPrefix}template_page`, status: 'draft' }
+      { slug: `integration-preview/${integrationId}`, component: `${resolvedStoryblokPrefix}template_page`, status: 'draft' }
     ];
   }
 

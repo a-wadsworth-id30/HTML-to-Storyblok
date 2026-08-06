@@ -21,10 +21,11 @@ export function createDefaultManifest({
   storyblokPrefix,
   repositoryNamespace
 }) {
+  const resolvedStoryblokPrefix = storyblokPrefix || storyblokPrefixForIntegrationId(integrationId);
   return {
     integration_id: integrationId,
     policy: 'additive-only-isolated',
-    storyblok_prefix: storyblokPrefix,
+    storyblok_prefix: resolvedStoryblokPrefix,
     repository_namespace: repositoryNamespace,
     repository: {
       files_to_create: [],
@@ -75,12 +76,20 @@ export function validatePlan(manifest) {
     });
   }
 
+  const expectedStoryblokPrefix = storyblokPrefixForIntegrationId(manifest.integration_id || '');
   if (!/^hts_[a-z0-9_]+_$/.test(manifest.storyblok_prefix || '')) {
     violations.push({
       operation: 'validate',
       resource_type: 'storyblok',
       resource: 'storyblok_prefix',
       reason: 'Storyblok prefix must be lowercase, start with hts_, and end with underscore.'
+    });
+  } else if (manifest.storyblok_prefix !== expectedStoryblokPrefix) {
+    violations.push({
+      operation: 'validate',
+      resource_type: 'storyblok',
+      resource: 'storyblok_prefix',
+      reason: `Storyblok prefix must be derived from integration_id. Expected ${expectedStoryblokPrefix}.`
     });
   }
 
@@ -264,6 +273,10 @@ export function validatePlan(manifest) {
     permitted_operations: [...PERMITTED_OPERATIONS],
     violations
   };
+}
+
+export function storyblokPrefixForIntegrationId(integrationId) {
+  return `hts_${String(integrationId || '').replaceAll('-', '_')}_`;
 }
 
 function findDuplicates(values) {
