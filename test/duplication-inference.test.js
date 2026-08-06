@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { inferDuplicationCandidates } from '../src/duplication-inference.js';
-import { duplicateFrontendComponents } from '../src/duplicator.js';
+import { duplicateFrontendComponents, duplicateRepositoryAssets } from '../src/duplicator.js';
 import { createIntegrationPlan } from '../src/planner.js';
 
 test('inferDuplicationCandidates finds isolated frontend component targets', async () => {
@@ -137,6 +137,54 @@ test('inferDuplicationCandidates includes local style dependencies with scoped d
   assert.match(duplicatedCss, /hts-acme-homepage-v1-fade/);
 });
 
+test('inferDuplicationCandidates plans local style asset copies and CSS URL rewrites', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-style-assets-'));
+  await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
+  await mkdir(path.join(repoPath, 'src/assets'), { recursive: true });
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.jsx'),
+    [
+      "import './Hero.css';",
+      'export function Hero(){ return <section className="hero">Hero</section>; }',
+      ''
+    ].join('\n')
+  );
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.css'),
+    '.hero { background-image: url("../assets/hero.jpg?v=1"); }\n'
+  );
+  await writeFile(path.join(repoPath, 'src/assets/hero.jpg'), 'fake image');
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const inference = await inferDuplicationCandidates(manifest, { repoPath });
+  const entries = inference.repository.components_to_duplicate;
+  const root = entries.find((entry) => entry.source_path === 'src/components/Hero.jsx');
+  const heroCss = entries.find((entry) => entry.source_path === 'src/components/Hero.css');
+  const asset = inference.repository.assets_to_create[0];
+
+  assert.equal(inference.summary.frontend_components, 1);
+  assert.equal(inference.summary.frontend_asset_files, 1);
+  assert.equal(asset.source_path, 'src/assets/hero.jpg');
+  assert.equal(asset.target_path, 'src/integrations/acme-homepage-v1/assets/dependencies/src/assets/hero.jpg');
+  assert.equal(heroCss.asset_rewrites['../assets/hero.jpg?v=1'], '../../../../assets/dependencies/src/assets/hero.jpg?v=1');
+
+  manifest.repository.components_to_duplicate.push(...entries);
+  manifest.repository.assets_to_create.push(...inference.repository.assets_to_create);
+  await duplicateFrontendComponents(manifest, { repoPath });
+  await duplicateRepositoryAssets(manifest, { repoPath });
+  const duplicatedComponent = await readFile(path.join(repoPath, root.target_path), 'utf8');
+  const duplicatedCss = await readFile(path.join(repoPath, heroCss.target_path), 'utf8');
+  const copiedAsset = await readFile(path.join(repoPath, asset.target_path), 'utf8');
+
+  assert.match(duplicatedComponent, /import '\.\.\/styles\/dependencies\/src\/components\/Hero\.css'/);
+  assert.match(duplicatedCss, /url\("\.\.\/\.\.\/\.\.\/\.\.\/assets\/dependencies\/src\/assets\/hero\.jpg\?v=1"\)/);
+  assert.equal(copiedAsset, 'fake image');
+});
+
 test('inferDuplicationCandidates reports skipped frontend candidates with blockers', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-skip-'));
   await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
@@ -164,7 +212,7 @@ test('inferDuplicationCandidates reports skipped frontend candidates with blocke
   assert.equal(inference.summary.skipped_frontend_candidates, 1);
   assert.equal(inference.repository.skipped_candidates[0].source_path, 'src/components/Hero.jsx');
   assert.ok(inference.repository.skipped_candidates[0].blockers.some((blocker) =>
-    blocker.includes('style asset reference requires explicit asset copy')
+    blocker.includes('style asset reference could not be resolved')
   ));
 });
 

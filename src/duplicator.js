@@ -1,4 +1,4 @@
-import { copyFile, readFile } from 'node:fs/promises';
+import { copyFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { namespaceCss } from './css-isolation.js';
 import { ensureArray, pathExists, sha256, writeJson, writeText } from './utils.js';
@@ -53,6 +53,7 @@ export async function duplicateRepositoryAssets(manifest, { repoPath = process.c
     if (!(await pathExists(source))) throw new Error(`source asset does not exist: ${entry.source_path}`);
     if (await pathExists(target)) throw new Error(`refusing to overwrite asset target: ${entry.target_path}`);
     if (!dryRun) {
+      await mkdir(path.dirname(target), { recursive: true });
       await copyFile(source, target);
     }
     results.push({
@@ -90,6 +91,7 @@ function rewriteDuplicate(content, manifest, entry) {
 
 function rewriteStyleDuplicate(content, manifest, entry) {
   let rewritten = applyImportRewrites(content, entry);
+  rewritten = applyCssUrlRewrites(rewritten, entry);
   rewritten = namespaceCss(rewritten, manifest.integration_id);
   return `/* Duplicated and isolated for ${manifest.integration_id}. Source: ${entry.source_path || entry.source}. */\n${rewritten}\n`;
 }
@@ -126,6 +128,18 @@ function isStyleDuplicate(entry) {
   const source = entry.source_path || entry.source || '';
   const target = entry.target_path || entry.target || '';
   return entry.content_kind === 'style' || /\.(css|scss|sass|less)$/i.test(source) || /\.(css|scss|sass|less)$/i.test(target);
+}
+
+function applyCssUrlRewrites(content, entry) {
+  const rewrites = {
+    ...(entry.import_rewrites || {}),
+    ...(entry.asset_rewrites || {})
+  };
+  return String(content).replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (match, quote, ref) => {
+    const rewritten = rewrites[ref];
+    if (!rewritten) return match;
+    return `url(${quote || ''}${rewritten}${quote || ''})`;
+  });
 }
 
 function rewriteImportSpecifier(content, from, to) {
