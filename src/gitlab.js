@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { branchNameForManifest, currentGitBranch, prepareReviewBranch } from './git.js';
 import { envValue } from './utils.js';
 
 const execFileAsync = promisify(execFile);
@@ -12,11 +13,30 @@ export async function openDraftMergeRequest({
   sourceBranch,
   targetBranch = 'main',
   removeSourceBranch = false,
+  manifest = null,
+  prepareBranch = false,
+  commit = false,
+  push = false,
+  commitMessage,
+  remoteName = 'origin',
   dryRun = false,
   env = process.env
 } = {}) {
   const remote = project ? { project, webUrl: null } : await inferGitLabRemote(repoPath);
-  const currentBranch = sourceBranch || await currentGitBranch(repoPath);
+  const prepared = prepareBranch || commit || push
+    ? await prepareReviewBranch({
+      repoPath,
+      manifest,
+      branch: sourceBranch || branchNameForManifest(manifest),
+      base: targetBranch,
+      remote: remoteName,
+      commit,
+      push,
+      commitMessage,
+      dryRun
+    })
+    : null;
+  const currentBranch = prepared?.branch || sourceBranch || await currentGitBranch(repoPath);
   const draftTitle = ensureDraftTitle(title || `HTML-to-Storyblok integration: ${currentBranch}`);
   const payload = {
     source_branch: currentBranch,
@@ -31,6 +51,7 @@ export async function openDraftMergeRequest({
       action: 'open_draft_merge_request',
       dry_run: true,
       project: remote.project,
+      review_branch: prepared,
       payload
     };
   }
@@ -56,6 +77,7 @@ export async function openDraftMergeRequest({
     action: 'open_draft_merge_request',
     dry_run: false,
     project: remote.project,
+    review_branch: prepared,
     iid: data.iid,
     id: data.id,
     url: data.web_url,
@@ -84,11 +106,4 @@ function ensureDraftTitle(title) {
 
 function normalizeBaseUrl(value) {
   return String(value).replace(/\/+$/, '');
-}
-
-async function currentGitBranch(repoPath) {
-  const { stdout } = await execFileAsync('git', ['branch', '--show-current'], { cwd: repoPath });
-  const branch = stdout.trim();
-  if (!branch) throw new Error('could not determine current Git branch');
-  return branch;
 }

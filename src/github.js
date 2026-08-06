@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { branchNameForManifest, currentGitBranch, prepareReviewBranch } from './git.js';
 import { envValue } from './utils.js';
 
 const execFileAsync = promisify(execFile);
@@ -12,11 +13,30 @@ export async function openDraftPullRequest({
   body,
   head,
   base = 'main',
+  manifest = null,
+  prepareBranch = false,
+  commit = false,
+  push = false,
+  commitMessage,
+  remoteName = 'origin',
   dryRun = false,
   env = process.env
 } = {}) {
   const remote = owner && repo ? { owner, repo } : await inferGitHubRemote(repoPath);
-  const currentBranch = head || await currentGitBranch(repoPath);
+  const prepared = prepareBranch || commit || push
+    ? await prepareReviewBranch({
+      repoPath,
+      manifest,
+      branch: head || branchNameForManifest(manifest),
+      base,
+      remote: remoteName,
+      commit,
+      push,
+      commitMessage,
+      dryRun
+    })
+    : null;
+  const currentBranch = prepared?.branch || head || await currentGitBranch(repoPath);
   const payload = {
     title: title || `HTML-to-Storyblok integration: ${currentBranch}`,
     body: body || 'Draft pull request opened by html-to-storyblok.',
@@ -31,6 +51,7 @@ export async function openDraftPullRequest({
       action: 'open_draft_pull_request',
       dry_run: true,
       repository: `${remote.owner}/${remote.repo}`,
+      review_branch: prepared,
       payload
     };
   }
@@ -56,6 +77,7 @@ export async function openDraftPullRequest({
     action: 'open_draft_pull_request',
     dry_run: false,
     repository: `${remote.owner}/${remote.repo}`,
+    review_branch: prepared,
     number: data.number,
     url: data.html_url,
     status: data.draft ? 'draft' : 'open'
@@ -71,11 +93,3 @@ async function inferGitHubRemote(repoPath) {
   if (!match) throw new Error(`could not infer GitHub owner/repo from remote: ${remote}`);
   return { owner: match[1], repo: match[2] };
 }
-
-async function currentGitBranch(repoPath) {
-  const { stdout } = await execFileAsync('git', ['branch', '--show-current'], { cwd: repoPath });
-  const branch = stdout.trim();
-  if (!branch) throw new Error('could not determine current Git branch');
-  return branch;
-}
-
