@@ -222,15 +222,15 @@ test('createDraftStories hydrates draft asset fields from uploaded Storyblok ass
         return {
           story: {
             id: 22,
-            slug: 'integration-preview',
-            full_slug: 'integration-preview',
+            slug: 'acme-homepage-v1',
+            full_slug: 'acme-homepage-v1',
             is_folder: true,
             parent_id: 0
           }
         };
       }
       const image = payload.story.content.body[0].image;
-      assert.equal(payload.story.slug, 'acme-homepage-v1');
+      assert.equal(payload.story.slug, 'home');
       assert.equal(payload.story.parent_id, 22);
       assert.equal(image.id, 88);
       assert.equal(image.filename, 'https://a.storyblok.com/f/123/acme-homepage-v1/hero.svg');
@@ -239,8 +239,8 @@ test('createDraftStories hydrates draft asset fields from uploaded Storyblok ass
       return {
         story: {
           id: 457,
-          slug: 'integration-preview/acme-homepage-v1',
-          full_slug: 'integration-preview/acme-homepage-v1',
+          slug: 'home',
+          full_slug: 'acme-homepage-v1/home',
           published_at: null,
           content: payload.story.content
         }
@@ -261,7 +261,7 @@ test('createDraftStories hydrates draft asset fields from uploaded Storyblok ass
       ],
       stories_to_create: [
         {
-          slug: 'integration-preview/acme-homepage-v1',
+          slug: 'acme-homepage-v1/home',
           content: {
             component: 'hts_acme_homepage_v1_template_page',
             body: [
@@ -299,15 +299,15 @@ test('createDraftStories hydrates draft asset fields from uploaded Storyblok ass
   restoreFetch();
 });
 
-test('createDraftStories creates nested integration preview folder before draft story', async () => {
+test('createDraftStories creates one integration folder before imported draft stories', async () => {
   const calls = mockFetch((url, options = {}) => {
-    if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1')) {
+    if (url.includes('/stories?by_slugs=acme-homepage-v1%2Fhome')) {
       return { stories: [] };
     }
     if (url.includes('/stories?per_page=100')) {
       return { stories: [] };
     }
-    if (url.includes('/stories?by_slugs=integration-preview&per_page=1')) {
+    if (url.includes('/stories?by_slugs=acme-homepage-v1&per_page=1')) {
       return { stories: [] };
     }
     if (url.endsWith('/stories') && options.method === 'POST') {
@@ -316,28 +316,28 @@ test('createDraftStories creates nested integration preview folder before draft 
         assert.deepEqual(payload, {
           story: {
             is_folder: true,
-            name: 'Integration Preview',
-            slug: 'integration-preview',
+            name: 'Acme Homepage V1',
+            slug: 'acme-homepage-v1',
             parent_id: 0
           }
         });
         return {
           story: {
             id: 22,
-            slug: 'integration-preview',
-            full_slug: 'integration-preview',
+            slug: 'acme-homepage-v1',
+            full_slug: 'acme-homepage-v1',
             is_folder: true,
             parent_id: 0
           }
         };
       }
-      assert.equal(payload.story.slug, 'acme-homepage-v1');
+      assert.equal(payload.story.slug, 'home');
       assert.equal(payload.story.parent_id, 22);
       return {
         story: {
           id: 457,
-          slug: 'acme-homepage-v1',
-          full_slug: 'integration-preview/acme-homepage-v1',
+          slug: 'home',
+          full_slug: 'acme-homepage-v1/home',
           parent_id: 22,
           published_at: null,
           content: payload.story.content
@@ -351,7 +351,7 @@ test('createDraftStories creates nested integration preview folder before draft 
     storyblok: {
       stories_to_create: [
         {
-          slug: 'integration-preview/acme-homepage-v1',
+          slug: 'acme-homepage-v1/home',
           component: 'hts_acme_homepage_v1_template_page',
           content: {
             component: 'hts_acme_homepage_v1_template_page',
@@ -363,48 +363,34 @@ test('createDraftStories creates nested integration preview folder before draft 
   }, { env: storyblokEnv() });
 
   assert.equal(result[0].status, 'created');
-  assert.equal(result[0].slug, 'integration-preview/acme-homepage-v1');
+  assert.equal(result[0].slug, 'acme-homepage-v1/home');
   assert.equal(result[0].folder_results[0].status, 'created');
   assert.equal(calls.filter((call) => call.options.method === 'POST').length, 2);
   restoreFetch();
 });
 
-test('createDraftStories creates integration route folder for multi-page draft stories', async () => {
+test('createDraftStories reuses one integration folder for multi-page draft stories', async () => {
   const calls = mockFetch((url, options = {}) => {
-    if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1%2Fhome')) {
+    if (url.includes('/stories?by_slugs=acme-homepage-v1%2Fhome')) {
       return { stories: [] };
     }
     if (url.includes('/stories?per_page=100')) {
       return { stories: [] };
     }
-    if (url.includes('/stories?by_slugs=integration-preview&per_page=1')) {
-      return { stories: [] };
-    }
-    if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1&per_page=1')) {
+    if (url.includes('/stories?by_slugs=acme-homepage-v1&per_page=1')) {
       return { stories: [] };
     }
     if (url.endsWith('/stories') && options.method === 'POST') {
       const payload = JSON.parse(options.body);
-      if (payload.story.is_folder && payload.story.slug === 'integration-preview') {
-        return {
-          story: {
-            id: 22,
-            slug: 'integration-preview',
-            full_slug: 'integration-preview',
-            is_folder: true,
-            parent_id: 0
-          }
-        };
-      }
       if (payload.story.is_folder && payload.story.slug === 'acme-homepage-v1') {
-        assert.equal(payload.story.parent_id, 22);
+        assert.equal(payload.story.parent_id, 0);
         return {
           story: {
             id: 23,
             slug: 'acme-homepage-v1',
-            full_slug: 'integration-preview/acme-homepage-v1',
+            full_slug: 'acme-homepage-v1',
             is_folder: true,
-            parent_id: 22
+            parent_id: 0
           }
         };
       }
@@ -414,7 +400,7 @@ test('createDraftStories creates integration route folder for multi-page draft s
         story: {
           id: 457,
           slug: 'home',
-          full_slug: 'integration-preview/acme-homepage-v1/home',
+          full_slug: 'acme-homepage-v1/home',
           parent_id: 23,
           published_at: null,
           content: payload.story.content
@@ -428,7 +414,7 @@ test('createDraftStories creates integration route folder for multi-page draft s
     storyblok: {
       stories_to_create: [
         {
-          slug: 'integration-preview/acme-homepage-v1/home',
+          slug: 'acme-homepage-v1/home',
           component: 'hts_acme_homepage_v1_template_page',
           content: {
             component: 'hts_acme_homepage_v1_template_page',
@@ -440,12 +426,11 @@ test('createDraftStories creates integration route folder for multi-page draft s
   }, { env: storyblokEnv() });
 
   assert.equal(result[0].status, 'created');
-  assert.equal(result[0].slug, 'integration-preview/acme-homepage-v1/home');
+  assert.equal(result[0].slug, 'acme-homepage-v1/home');
   assert.deepEqual(result[0].folder_results.map((entry) => entry.slug), [
-    'integration-preview',
-    'integration-preview/acme-homepage-v1'
+    'acme-homepage-v1'
   ]);
-  assert.equal(calls.filter((call) => call.options.method === 'POST').length, 3);
+  assert.equal(calls.filter((call) => call.options.method === 'POST').length, 2);
   restoreFetch();
 });
 
@@ -755,13 +740,13 @@ test('deleteStoryblokIntegrationResources deletes only verified namespaced draft
 
 test('deleteStoryblokIntegrationResources deletes integration-owned story folders after route stories', async () => {
   const calls = mockFetch((url, options = {}) => {
-    if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1%2Fhome')) {
+    if (url.includes('/stories?by_slugs=acme-homepage-v1%2Fhome')) {
       return {
         stories: [
           {
             id: 11,
             slug: 'home',
-            full_slug: 'integration-preview/acme-homepage-v1/home',
+            full_slug: 'acme-homepage-v1/home',
             published_at: null,
             content: {
               component: 'hts_acme_homepage_v1_template_page'
@@ -775,18 +760,11 @@ test('deleteStoryblokIntegrationResources deletes integration-owned story folder
       return {
         stories: [
           {
-            id: 22,
-            slug: 'integration-preview',
-            full_slug: 'integration-preview',
-            is_folder: true,
-            parent_id: 0
-          },
-          {
             id: 23,
             slug: 'acme-homepage-v1',
-            full_slug: 'integration-preview/acme-homepage-v1',
+            full_slug: 'acme-homepage-v1',
             is_folder: true,
-            parent_id: 22
+            parent_id: 0
           }
         ]
       };
@@ -801,7 +779,7 @@ test('deleteStoryblokIntegrationResources deletes integration-owned story folder
     storyblok_prefix: 'hts_acme_homepage_v1_',
     storyblok: {
       stories_to_create: [
-        { slug: 'integration-preview/acme-homepage-v1/home' }
+        { slug: 'acme-homepage-v1/home' }
       ]
     }
   }, {
@@ -812,8 +790,7 @@ test('deleteStoryblokIntegrationResources deletes integration-owned story folder
 
   assert.equal(result.stories[0].status, 'deleted');
   assert.equal(result.story_folders[0].status, 'deleted');
-  assert.equal(result.story_folders[0].slug, 'integration-preview/acme-homepage-v1');
-  assert.ok(!calls.some((call) => call.url.endsWith('/stories/22') && call.options.method === 'DELETE'));
+  assert.equal(result.story_folders[0].slug, 'acme-homepage-v1');
   restoreFetch();
 });
 

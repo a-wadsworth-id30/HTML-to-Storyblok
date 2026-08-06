@@ -84,11 +84,11 @@ test('createIntegrationPlan creates one namespaced draft story per template rout
     'services.html'
   ]);
   assert.deepEqual(manifest.storyblok.stories_to_create.map((story) => story.slug), [
-    'integration-preview/acme-campaign-v1/home',
-    'integration-preview/acme-campaign-v1/about',
-    'integration-preview/acme-campaign-v1/contact',
-    'integration-preview/acme-campaign-v1/gallery',
-    'integration-preview/acme-campaign-v1/services'
+    'acme-campaign-v1/home',
+    'acme-campaign-v1/about',
+    'acme-campaign-v1/contact',
+    'acme-campaign-v1/gallery',
+    'acme-campaign-v1/services'
   ]);
   assert.equal(manifest.storyblok.stories_to_create[0].source_page, 'index.html');
 });

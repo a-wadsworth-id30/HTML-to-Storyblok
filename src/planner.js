@@ -69,7 +69,7 @@ export async function createIntegrationPlan({
       { technical_name: `${resolvedStoryblokPrefix}section`, component_type: 'nestable' }
     ];
     manifest.storyblok.stories_to_create = [
-      { slug: `integration-preview/${integrationId}`, component: `${resolvedStoryblokPrefix}template_page`, status: 'draft' }
+      { slug: `${integrationId}/home`, component: `${resolvedStoryblokPrefix}template_page`, status: 'draft' }
     ];
   }
 

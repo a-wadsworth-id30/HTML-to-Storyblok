@@ -239,12 +239,12 @@ export function validatePlan(manifest) {
         reason: 'Draft story slug must be a safe relative slug.'
       });
     }
-    if (isSafeStorySlug(slug) && !isInsideIntegrationPreview(manifest, slug)) {
+    if (isSafeStorySlug(slug) && !isInsideIntegrationStoryNamespace(manifest, slug)) {
       violations.push({
         operation: 'create',
         resource_type: 'storyblok_story',
         resource: slug,
-        reason: `Draft story slug must remain inside integration-preview/${manifest.integration_id}.`
+        reason: `Draft story slug must remain inside ${manifest.integration_id}/.`
       });
     }
     for (const componentName of storyComponentNames(story)) {
@@ -365,9 +365,12 @@ function collectStoryComponentNames(value, names) {
     .forEach(([, entry]) => collectStoryComponentNames(entry, names));
 }
 
-function isInsideIntegrationPreview(manifest, slug) {
-  const allowedPrefix = `integration-preview/${manifest.integration_id}`;
-  return slug === allowedPrefix || String(slug).startsWith(`${allowedPrefix}/`);
+function isInsideIntegrationStoryNamespace(manifest, slug) {
+  const currentPrefix = `${manifest.integration_id}/`;
+  const legacyPrefix = `integration-preview/${manifest.integration_id}`;
+  return String(slug).startsWith(currentPrefix) ||
+    slug === legacyPrefix ||
+    String(slug).startsWith(`${legacyPrefix}/`);
 }
 
 function isSafeStorySlug(slug) {

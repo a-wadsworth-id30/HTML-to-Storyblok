@@ -497,7 +497,7 @@ function buildDraftStory({ integrationId, rootName, page, blockDefinitions, mult
   const route = routeForPage(page);
   return {
     name: multiPage ? `${displayName(route.slug)} - ${displayName(integrationId)}` : `Integration Preview - ${displayName(integrationId)}`,
-    slug: multiPage ? `integration-preview/${integrationId}/${route.slug}` : `integration-preview/${integrationId}`,
+    slug: storySlugForRoute(integrationId, route),
     component: rootName,
     status: 'draft',
     source_page: page.page || null,
@@ -846,14 +846,16 @@ function buildStoryRouteMap({ definitionsByPage, integrationId, multiPage }) {
   const routeMap = new Map();
   for (const { page } of definitionsByPage) {
     const route = routeForPage(page);
-    const storySlug = multiPage
-      ? `integration-preview/${integrationId}/${route.slug}`
-      : `integration-preview/${integrationId}`;
+    const storySlug = storySlugForRoute(integrationId, route);
     for (const alias of routeAliasesForPage(page, route)) {
       routeMap.set(alias, storySlug);
     }
   }
   return routeMap;
+}
+
+function storySlugForRoute(integrationId, route) {
+  return `${integrationId}/${route.slug}`;
 }
 
 function routeAliasesForPage(page = {}, route = routeForPage(page)) {
@@ -1229,15 +1231,20 @@ function applyDraftStoryOverride(draftStory, override, { integrationId, storyblo
   if (override.name) draftStory.name = String(override.name);
   if (override.slug) {
     const slug = String(override.slug);
-    const allowedPrefix = `integration-preview/${integrationId}`;
-    if (slug !== allowedPrefix && !slug.startsWith(`${allowedPrefix}/`)) {
-      throw new Error(`draft story override slug must remain inside ${allowedPrefix}`);
+    if (!isAllowedDraftStorySlug(integrationId, slug)) {
+      throw new Error(`draft story override slug must remain inside ${integrationId}/`);
     }
     draftStory.slug = slug;
   }
   if (override.headline) draftStory.content.headline = String(override.headline);
   const values = override.field_values || override.fields || null;
   if (values) Object.assign(draftStory.content, normalizeDraftValue(values, { storyblokPrefix }));
+}
+
+function isAllowedDraftStorySlug(integrationId, slug) {
+  return String(slug).startsWith(`${integrationId}/`) ||
+    slug === `integration-preview/${integrationId}` ||
+    String(slug).startsWith(`integration-preview/${integrationId}/`);
 }
 
 function normalizeDraftValue(value, { storyblokPrefix }) {

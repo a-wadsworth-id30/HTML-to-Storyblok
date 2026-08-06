@@ -304,7 +304,7 @@ To verify that a draft story can be read through the Storyblok Content API:
 
 ```sh
 html-to-storyblok inspect-storyblok-content \
-  --slug integration-preview/acme-homepage-v1 \
+  --slug acme-homepage-v1/home \
   --version draft
 ```
 
@@ -459,7 +459,7 @@ Validation fails if the manifest attempts to:
 - modify existing Storyblok stories
 - modify existing Storyblok assets
 - use unsafe draft story slugs
-- create draft stories outside `integration-preview/<integration-id>`
+- create draft stories outside `<integration-id>/`
 - use duplicate file paths, component names, story slugs, or asset names
 - allow unnamespaced Storyblok content components
 - use a Storyblok prefix that is not derived from the integration ID
@@ -599,7 +599,7 @@ For business-specific fields that should not be embedded in the template HTML, p
 }
 ```
 
-Override component keys may use short generated names such as `hero` or full namespaced technical names. Nested block whitelists and seeded draft block `component` values are automatically rewritten into the integration Storyblok prefix. Draft story slug overrides are allowed only inside `integration-preview/<integration-id>`.
+Override component keys may use short generated names such as `hero` or full namespaced technical names. Nested block whitelists and seeded draft block `component` values are automatically rewritten into the integration Storyblok prefix. Draft story slug overrides are allowed only inside `<integration-id>/`.
 
 For multi-page templates, route-specific draft story overrides can be supplied with `draft_stories`:
 
@@ -714,7 +714,7 @@ html-to-storyblok create-draft-story \
   --dry-run
 ```
 
-Draft story creation uses `publish: false`. Single-page templates create `integration-preview/<integration-id>`. Multi-page templates create one draft story per route under `integration-preview/<integration-id>/<route>`, with `index.html` mapped to `home`. Internal template links that match generated routes, such as `/about`, `about.html`, `/contact`, or `/gallery#work`, are converted into Storyblok story links pointing at the generated draft stories. The `integration-preview` parent and integration-specific route folder are created or reused additively when needed. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers. If a draft story was created by an earlier version with unresolved local asset paths or at the root instead of `integration-preview/`, rerun with a new integration ID or use confirmed remote rollback for the integration-owned draft resources before applying again.
+Draft story creation uses `publish: false`. Templates create one integration-owned story folder named `<integration-id>` and place imported draft stories inside it. `index.html` is mapped to `<integration-id>/home`; multi-page templates create additional stories such as `<integration-id>/about`, `<integration-id>/services`, and `<integration-id>/contact`. Internal template links that match generated routes, such as `/about`, `about.html`, `/contact`, or `/gallery#work`, are converted into Storyblok story links pointing at the generated draft stories. The integration-specific story folder is created or reused additively when needed. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers. If a draft story was created by an earlier version with unresolved local asset paths or under `integration-preview/`, rerun with a new integration ID or use confirmed remote rollback for the integration-owned draft resources before applying again.
 
 Run the complete Storyblok-only workflow without a repository:
 

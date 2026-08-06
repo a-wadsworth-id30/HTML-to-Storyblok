@@ -104,7 +104,7 @@ test('unsafe draft story slugs are rejected', () => {
   assert.match(result.violations.at(-1).reason, /safe relative slug/);
 });
 
-test('draft story slugs must remain inside the integration preview namespace', () => {
+test('draft story slugs must remain inside the integration story folder', () => {
   const manifest = createDefaultManifest({
     integrationId: 'acme-homepage-v1',
     storyblokPrefix: 'hts_acme_homepage_v1_',
@@ -120,7 +120,25 @@ test('draft story slugs must remain inside the integration preview namespace', (
 
   const result = validatePlan(manifest);
   assert.equal(result.valid, false);
-  assert.match(result.violations.at(-1).reason, /integration-preview\/acme-homepage-v1/);
+  assert.match(result.violations.at(-1).reason, /acme-homepage-v1\//);
+});
+
+test('legacy integration preview draft story slugs remain valid for existing manifests', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.stories_to_create.push({
+    slug: 'integration-preview/acme-homepage-v1/home',
+    content: {
+      component: 'hts_acme_homepage_v1_template_page',
+      body: []
+    }
+  });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, true);
 });
 
 test('draft story content components must use the integration prefix', () => {
@@ -130,7 +148,7 @@ test('draft story content components must use the integration prefix', () => {
     repositoryNamespace: 'src/integrations/acme-homepage-v1'
   });
   manifest.storyblok.stories_to_create.push({
-    slug: 'integration-preview/acme-homepage-v1',
+    slug: 'acme-homepage-v1/home',
     content: {
       component: 'hts_acme_homepage_v1_template_page',
       body: [

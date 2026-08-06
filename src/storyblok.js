@@ -679,13 +679,12 @@ function plannedStoryTarget(story) {
 
 function plannedStoryFolderSlugs(manifest) {
   const folders = new Set();
-  const integrationRoot = `integration-preview/${manifest.integration_id}`;
   for (const story of ensureArray(manifest.storyblok?.stories_to_create)) {
     const parts = String(story.slug || story.full_slug || '').split('/').filter(Boolean);
-    for (let index = 1; index < parts.length - 1; index += 1) {
+    for (let index = 0; index < parts.length - 1; index += 1) {
       const folder = parts.slice(0, index + 1).join('/');
       if (folder === 'integration-preview') continue;
-      if (folder === integrationRoot || folder.startsWith(`${integrationRoot}/`)) folders.add(folder);
+      if (isIntegrationOwnedStorySlug(manifest, folder)) folders.add(folder);
     }
   }
   return [...folders].sort((left, right) => right.split('/').length - left.split('/').length || right.localeCompare(left));

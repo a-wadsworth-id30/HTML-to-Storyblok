@@ -451,7 +451,7 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
     ['Repository Namespace', repositoryNamespace, 'success'],
     ['CSS Root', `.hts-${integrationId}-root`, 'success'],
     ['Storyblok Components', `${storyblokPrefix}hero`, 'success'],
-    ['Draft Stories', draftStoryCount > 1 ? `${draftStoryCount} under integration-preview/${integrationId}` : `integration-preview/${integrationId}`, 'success']
+    ['Draft Stories', `${draftStoryCount} under ${integrationId}/`, 'success']
   ]);
 
   const manifest = await terminal.task('Create Integration Plan', async () => {
@@ -556,7 +556,7 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
     ['Repository Output', 'Skipped for this test', 'warning'],
     ['Repository Namespace', repositoryNamespace, 'warning'],
     ['Storyblok Components', `${storyblokPrefix}hero`, 'success'],
-    ['Draft Stories', draftStoryCount > 1 ? `${draftStoryCount} under integration-preview/${integrationId}` : `integration-preview/${integrationId}`, 'success']
+    ['Draft Stories', `${draftStoryCount} under ${integrationId}/`, 'success']
   ]);
 
   const manifest = await terminal.task('Create Storyblok Plan', async () => {

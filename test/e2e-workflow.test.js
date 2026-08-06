@@ -30,7 +30,7 @@ test('CLI runs the safe local import workflow from plan through rollback', async
   assert.equal(manifest.validation.valid, true);
   assert.equal(manifest.repository_namespace, 'src/integrations/acme-homepage-v1');
   assert.ok(manifest.storyblok.components_to_create.length > 0);
-  assert.ok(manifest.storyblok.stories_to_create.some((story) => story.slug === 'integration-preview/acme-homepage-v1'));
+  assert.ok(manifest.storyblok.stories_to_create.some((story) => story.slug === 'acme-homepage-v1/home'));
   assert.ok(manifest.storyblok.assets_to_create.some((asset) => asset.filename === 'acme-homepage-v1/hero.svg'));
 
   const planValidationOutput = await captureStdout(() => runCli([

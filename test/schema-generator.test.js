@@ -208,8 +208,8 @@ test('buildSchemaPlan uses index.html as the primary draft page when templates c
 
   assert.equal(plan.draft_story.content.headline, 'Home page');
   assert.deepEqual(plan.draft_stories.map((story) => story.slug), [
-    'integration-preview/multi-route-v1/home',
-    'integration-preview/multi-route-v1/about'
+    'multi-route-v1/home',
+    'multi-route-v1/about'
   ]);
   assert.equal(plan.draft_stories[0].source_page, 'index.html');
   assert.equal(plan.draft_stories[1].content.headline, 'About page');
@@ -249,19 +249,19 @@ test('buildSchemaPlan resolves template route links to generated draft stories',
 
   assert.deepEqual(linksByLabel.Home, {
     linktype: 'story',
-    cached_url: 'integration-preview/multi-route-v1/home'
+    cached_url: 'multi-route-v1/home'
   });
   assert.deepEqual(linksByLabel.About, {
     linktype: 'story',
-    cached_url: 'integration-preview/multi-route-v1/about'
+    cached_url: 'multi-route-v1/about'
   });
   assert.deepEqual(linksByLabel.Services, {
     linktype: 'story',
-    cached_url: 'integration-preview/multi-route-v1/services'
+    cached_url: 'multi-route-v1/services'
   });
   assert.deepEqual(linksByLabel.Gallery, {
     linktype: 'story',
-    cached_url: 'integration-preview/multi-route-v1/gallery',
+    cached_url: 'multi-route-v1/gallery',
     anchor: 'work'
   });
   assert.deepEqual(linksByLabel.Features, {
@@ -274,7 +274,7 @@ test('buildSchemaPlan resolves template route links to generated draft stories',
   });
   assert.deepEqual(contentSection.primary_cta, {
     linktype: 'story',
-    cached_url: 'integration-preview/multi-route-v1/contact'
+    cached_url: 'multi-route-v1/contact'
   });
 });
 
@@ -627,7 +627,7 @@ test('buildSchemaPlan rejects unsafe schema override targets and draft story slu
         }
       }
     }),
-    /must remain inside integration-preview\/campaign-template-v1/
+    /must remain inside campaign-template-v1\//
   );
 });
 

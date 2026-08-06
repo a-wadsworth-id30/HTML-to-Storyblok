@@ -14,11 +14,11 @@ The content uses this project as the example subject matter. It includes shared 
 
 When planned with this fixture, Storyblok draft stories are generated as:
 
-- `integration-preview/<integration-id>/home`
-- `integration-preview/<integration-id>/about`
-- `integration-preview/<integration-id>/services`
-- `integration-preview/<integration-id>/gallery`
-- `integration-preview/<integration-id>/contact`
+- `<integration-id>/home`
+- `<integration-id>/about`
+- `<integration-id>/services`
+- `<integration-id>/gallery`
+- `<integration-id>/contact`
 
 Useful commands:
 
