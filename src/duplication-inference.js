@@ -4,10 +4,16 @@ import { walkFiles } from './inspectors.js';
 import { ensureArray, relativeTo, sha256, unique } from './utils.js';
 
 const FRONTEND_COMPONENT_EXTENSIONS = new Set(['.astro', '.vue', '.js', '.jsx', '.ts', '.tsx', '.mjs']);
+const CODE_DEPENDENCY_EXTENSIONS = new Set([
+  ...FRONTEND_COMPONENT_EXTENSIONS,
+  '.cjs',
+  '.mts',
+  '.cts'
+]);
 const STYLE_DEPENDENCY_EXTENSIONS = new Set(['.css', '.scss', '.sass', '.less']);
 const DATA_DEPENDENCY_EXTENSIONS = new Set(['.json']);
 const FRONTEND_DEPENDENCY_EXTENSIONS = new Set([
-  ...FRONTEND_COMPONENT_EXTENSIONS,
+  ...CODE_DEPENDENCY_EXTENSIONS,
   ...STYLE_DEPENDENCY_EXTENSIONS,
   ...DATA_DEPENDENCY_EXTENSIONS
 ]);

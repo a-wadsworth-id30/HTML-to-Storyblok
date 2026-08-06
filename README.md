@@ -552,7 +552,7 @@ html-to-storyblok infer-duplicates \
   --storyblok-inspection .tmp/html-to-storyblok/storyblok-access.json
 ```
 
-Add `--write-manifest` to persist the inferred entries back into the manifest after reviewing the output. Frontend inference walks a bounded local import graph, duplicates safe local source dependencies into `components/dependencies/`, duplicates safe local style dependencies into `styles/dependencies/`, duplicates local JSON data dependencies into `data/dependencies/`, copies resolvable local CSS assets into `assets/dependencies/`, rewrites import and `url(...)` specifiers between copied files, and namespaces duplicated CSS with the integration root. Skipped candidates are reported with blockers such as unresolved imports, unsupported files, unsafe paths, oversized graphs, or unresolved asset references.
+Add `--write-manifest` to persist the inferred entries back into the manifest after reviewing the output. Frontend inference walks a bounded local import graph, duplicates safe local source dependencies (`.astro`, `.vue`, `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts`, `.cts`) into `components/dependencies/`, duplicates safe local style dependencies into `styles/dependencies/`, duplicates local JSON data dependencies into `data/dependencies/`, copies resolvable local CSS assets into `assets/dependencies/`, rewrites import and `url(...)` specifiers between copied files, and namespaces duplicated CSS with the integration root. Skipped candidates are reported with blockers such as unresolved imports, unsupported files, unsafe paths, oversized graphs, or unresolved asset references.
 
 Manual example:
 

@@ -228,6 +228,48 @@ test('inferDuplicationCandidates includes local JSON data dependencies without c
   });
 });
 
+test('inferDuplicationCandidates includes CommonJS sidecar code dependencies', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-cjs-'));
+  await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
+  await mkdir(path.join(repoPath, 'src/utils'), { recursive: true });
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.jsx'),
+    [
+      "import formatHero from '../utils/format-hero.cjs';",
+      'export function Hero(){ return <section className="hero">{formatHero("Hero")}</section>; }',
+      ''
+    ].join('\n')
+  );
+  await writeFile(
+    path.join(repoPath, 'src/utils/format-hero.cjs'),
+    'module.exports = function formatHero(value) { return String(value).toUpperCase(); };\n'
+  );
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const inference = await inferDuplicationCandidates(manifest, { repoPath });
+  const entries = inference.repository.components_to_duplicate;
+  const root = entries.find((entry) => entry.source_path === 'src/components/Hero.jsx');
+  const helper = entries.find((entry) => entry.source_path === 'src/utils/format-hero.cjs');
+
+  assert.equal(inference.summary.frontend_components, 1);
+  assert.equal(inference.summary.frontend_dependency_files, 1);
+  assert.equal(root.import_rewrites['../utils/format-hero.cjs'], './dependencies/src/utils/format-hero.cjs');
+  assert.equal(helper.content_kind, 'source');
+
+  manifest.repository.components_to_duplicate.push(...entries);
+  await duplicateFrontendComponents(manifest, { repoPath });
+  const duplicatedComponent = await readFile(path.join(repoPath, root.target_path), 'utf8');
+  const duplicatedHelper = await readFile(path.join(repoPath, helper.target_path), 'utf8');
+
+  assert.match(duplicatedComponent, /from '\.\/dependencies\/src\/utils\/format-hero\.cjs'/);
+  assert.match(duplicatedHelper, /Source: src\/utils\/format-hero\.cjs/);
+  assert.match(duplicatedHelper, /module\.exports/);
+});
+
 test('inferDuplicationCandidates reports skipped frontend candidates with blockers', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-skip-'));
   await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
