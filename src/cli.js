@@ -8,8 +8,10 @@ import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspect
 import { queryNetlifyDeployPreviews } from './netlify.js';
 import { createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
+import { createRollbackPreview, rollbackIntegration } from './rollback.js';
 import { createDraftStories, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption } from './utils.js';
+import { diffIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 
 const MUTATING_COMMANDS = new Set([
   'apply',
@@ -18,6 +20,7 @@ const MUTATING_COMMANDS = new Set([
   'generate',
   'open-mr',
   'open-pr',
+  'rollback',
   'storyblok-components',
   'upload-assets'
 ]);
@@ -77,20 +80,26 @@ export async function main(argv) {
     await writeArtifact(workDir, 'plan-validation.json', result);
     if (!result.valid) process.exitCode = 2;
   } else if (command === 'diff') {
-    result = {
-      status: 'not_implemented',
-      note: 'Diff generation will compare the manifest against repository and Storyblok snapshots in a later implementation.'
-    };
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await diffIntegration(manifest, {
+      repoPath: args.repo ? String(args.repo) : process.cwd()
+    });
+    await writeArtifact(workDir, 'diff-result.json', result);
   } else if (command === 'build') {
-    result = {
-      status: 'manual',
-      note: 'Run the selected repository build command directly; this CLI does not shell out yet.'
-    };
+    result = await runRepositoryScript({
+      repoPath: args.repo ? String(args.repo) : process.cwd(),
+      script: args.script ? String(args.script) : 'build',
+      dryRun: Boolean(args.dry_run)
+    });
+    await writeArtifact(workDir, 'build-result.json', result);
+    if (result.status === 'failed') process.exitCode = result.exit_code || 1;
   } else if (command === 'validate') {
-    result = {
-      status: 'manual',
-      note: 'Full validation requires a generated integration and target repository commands.'
-    };
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await validateIntegration(manifest, {
+      repoPath: args.repo ? String(args.repo) : process.cwd()
+    });
+    await writeArtifact(workDir, 'validation-result.json', result);
+    if (result.status === 'failed') process.exitCode = 2;
   } else if (command === 'report') {
     result = await createReport(workDir);
   } else if (command === 'storyblok-components') {
@@ -150,8 +159,18 @@ export async function main(argv) {
     await writeArtifact(workDir, 'gitlab-mr-result.json', result);
   } else if (command === 'rollback-preview') {
     const manifest = await readAndValidateManifest(args, workDir);
-    result = createRollbackPreview(manifest);
+    result = createRollbackPreview(manifest, {
+      repoPath: args.repo ? String(args.repo) : process.cwd()
+    });
     await writeArtifact(workDir, 'rollback-preview.json', result);
+  } else if (command === 'rollback') {
+    const manifest = await readAndValidateManifest(args, workDir);
+    result = await rollbackIntegration(manifest, {
+      repoPath: args.repo ? String(args.repo) : process.cwd(),
+      dryRun: Boolean(args.dry_run),
+      confirmIntegrationId: args.confirm_integration_id ? String(args.confirm_integration_id) : undefined
+    });
+    await writeArtifact(workDir, 'rollback-result.json', result);
   } else {
     throw new Error(`unknown command: ${command}`);
   }
@@ -235,22 +254,6 @@ async function applyManifest(manifest, args, workDir) {
   return result;
 }
 
-function createRollbackPreview(manifest) {
-  return {
-    action: 'rollback_preview',
-    dry_run: true,
-    policy: 'manual_approval_required',
-    repository_files_to_remove: manifest.repository?.files_to_create || [],
-    storyblok_components_to_remove: [
-      ...(manifest.storyblok?.components_to_create || []),
-      ...(manifest.storyblok?.components_to_duplicate || [])
-    ].map((component) => component.technical_name || component.name || component),
-    storyblok_stories_to_remove: (manifest.storyblok?.stories_to_create || []).map((story) => story.slug || story.full_slug),
-    storyblok_assets_to_remove: (manifest.storyblok?.assets_to_create || []).map((asset) => asset.id || asset.filename || asset.local_path),
-    note: 'Preview only. Rollback must verify ownership and external references before deletion.'
-  };
-}
-
 function redactArgs(args) {
   const redacted = {};
   for (const [key, value] of Object.entries(args)) {
@@ -272,6 +275,9 @@ Usage:
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>]
   html-to-storyblok plan --integration-id <id> --storyblok-prefix <prefix_> [--repository-namespace <path>]
   html-to-storyblok validate-plan --manifest <path>
+  html-to-storyblok diff --manifest <path> --repo <path>
+  html-to-storyblok validate --manifest <path> --repo <path>
+  html-to-storyblok build --repo <path> [--script build] [--dry-run]
   html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
   html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
   html-to-storyblok storyblok-components --manifest <path> [--dry-run]
@@ -280,7 +286,8 @@ Usage:
   html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
   html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--dry-run]
   html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--dry-run]
-  html-to-storyblok rollback-preview --manifest <path>
+  html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
+  html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--dry-run]
   html-to-storyblok report
 
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
