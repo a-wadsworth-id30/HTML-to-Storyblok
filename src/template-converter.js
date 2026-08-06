@@ -1,9 +1,8 @@
-import { copyFile, readFile, stat } from 'node:fs/promises';
+import { copyFile, mkdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { ASSET_EXTENSIONS, isExternalRef, parseAttributes, stripRefQuery } from './analyzer.js';
 import { inspectRepository, inspectTemplate } from './inspectors.js';
-import { ensureArray, pathExists, relativeTo, toPosixPath } from './utils.js';
-
-const ASSET_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|svg|mp4|webm|mov|mp3|wav|ogg|woff2?|ttf|otf|eot)$/i;
+import { ensureArray, pathExists, relativeTo, toPosixPath, unique } from './utils.js';
 
 export async function convertTemplate({
   templatePath,
@@ -22,25 +21,22 @@ export async function convertTemplate({
   const sourceHtml = await readFile(sourcePage, 'utf8');
   const sanitized = sanitizeHtml(sourceHtml);
   const cssFiles = inventory.files_inspected.filter((file) => /\.(css|scss|sass|less)$/i.test(file));
-  const css = await readTemplateCss(templateRoot, cssFiles, manifest.integration_id);
-  const assetRefs = findAssetRefs(sanitized.bodyHtml);
-  const assetCopies = [];
-  let convertedHtml = sanitized.bodyHtml;
+  const styleConversion = await readTemplateCss(templateRoot, cssFiles, manifest.integration_id);
+  const scriptConversion = await readTemplateScripts(templateRoot, sourcePage, sanitized.scripts, inventory.files_inspected, manifest.integration_id);
+  const assetCopies = planAssetCopies(templateRoot, manifest.repository_namespace, [
+    ...findHtmlAssetRefs(sanitized.bodyHtml).map((reference) => ({
+      sourceFile: sourcePage,
+      reference,
+      outputBase: '.'
+    })),
+    ...styleConversion.asset_references
+  ]);
 
-  for (const ref of assetRefs) {
-    if (isExternalRef(ref) || ref.startsWith('data:') || ref.startsWith('#')) continue;
-    const sourceAsset = path.resolve(path.dirname(sourcePage), ref.split(/[?#]/)[0]);
-    if (!(await pathExists(sourceAsset))) continue;
-    if (!(await isFile(sourceAsset))) continue;
-    const targetRel = `${manifest.repository_namespace}/assets/${path.basename(sourceAsset)}`;
-    const publicRef = `./assets/${path.basename(sourceAsset)}`;
-    convertedHtml = convertedHtml.split(ref).join(publicRef);
-    assetCopies.push({
-      source_path: sourceAsset,
-      target_path: targetRel,
-      original_ref: ref,
-      converted_ref: publicRef
-    });
+  let convertedHtml = sanitized.bodyHtml;
+  for (const asset of assetCopies) {
+    for (const original of asset.original_refs.filter((entry) => entry.output_base === '.')) {
+      convertedHtml = convertedHtml.split(original.reference).join(`./assets/${asset.asset_path}`);
+    }
   }
 
   const namespacedHtml = namespaceHtml(convertedHtml, manifest.integration_id);
@@ -50,12 +46,15 @@ export async function convertTemplate({
     source_page: relativeTo(templateRoot, sourcePage),
     removed_scripts: sanitized.removedScripts,
     removed_inline_handlers: sanitized.removedInlineHandlers,
+    excluded_external_scripts: sanitized.scripts.filter((script) => script.src && isExternalRef(script.src)).map((script) => script.src),
+    isolated_scripts: scriptConversion.sources,
     asset_copies: assetCopies,
     files: buildTemplateFiles({
       manifest,
       framework: frameworkName,
       html: namespacedHtml,
-      css
+      css: styleConversion.css,
+      behaviour: scriptConversion.module
     })
   };
 }
@@ -65,7 +64,8 @@ export function plannedTemplateFilePaths(manifest, framework = 'static') {
   const normalized = normalizeFramework(framework);
   const files = [
     `${namespace}/template-html.js`,
-    `${namespace}/styles/template.css`
+    `${namespace}/styles/template.css`,
+    `${namespace}/behaviour/${manifest.integration_id}.js`
   ];
   if (normalized === 'astro') files.push(`${namespace}/TemplatePage.astro`);
   else if (normalized === 'react' || normalized === 'next') files.push(`${namespace}/TemplatePage.jsx`);
@@ -82,6 +82,7 @@ export async function copyConvertedAssets(assetCopies, repoRoot, { dryRun = fals
       throw new Error(`refusing to overwrite existing asset: ${asset.target_path}`);
     }
     if (!dryRun) {
+      await mkdir(path.dirname(destination), { recursive: true });
       await copyFile(asset.source_path, destination);
     }
     const fileStat = await stat(asset.source_path);
@@ -94,7 +95,7 @@ export async function copyConvertedAssets(assetCopies, repoRoot, { dryRun = fals
   return copied;
 }
 
-function buildTemplateFiles({ manifest, framework, html, css }) {
+export function buildTemplateFiles({ manifest, framework, html, css, behaviour }) {
   const namespace = manifest.repository_namespace;
   const integrationId = manifest.integration_id;
   const renderer = renderTemplateModule(integrationId, html);
@@ -106,6 +107,10 @@ function buildTemplateFiles({ manifest, framework, html, css }) {
     {
       path: `${namespace}/styles/template.css`,
       content: css || defaultTemplateCss(integrationId)
+    },
+    {
+      path: `${namespace}/behaviour/${integrationId}.js`,
+      content: behaviour || renderBehaviourModule(integrationId, [])
     }
   ];
 
@@ -121,6 +126,10 @@ import './styles/template.css';
 const { blok = {} } = Astro.props;
 ---
 
+<script>
+  import './behaviour/${integrationId}.js';
+</script>
+
 <main class="hts-${integrationId}-root" data-integration="${integrationId}">
 ${astroHtml}
 </main>
@@ -133,6 +142,7 @@ ${astroHtml}
     files.push({
       path: `${namespace}/TemplatePage.jsx`,
       content: `import './styles/template.css';
+import './behaviour/${integrationId}.js';
 
 export function HtsTemplatePage({ blok = {} }) {
   return (
@@ -151,6 +161,7 @@ ${indent(jsxHtml, 6)}
       path: `${namespace}/TemplatePage.vue`,
       content: `<script setup>
 import './styles/template.css';
+import './behaviour/${integrationId}.js';
 
 const props = defineProps({
   blok: {
@@ -173,6 +184,7 @@ ${indent(vueHtml.replaceAll('blok.', 'props.blok.'), 4)}
       content: `<main class="hts-${integrationId}-root" data-integration="${integrationId}">
 ${html}
 </main>
+<script type="module" src="./behaviour/${integrationId}.js"></script>
 `
     });
   }
@@ -212,12 +224,17 @@ function defaultTemplateCss(integrationId) {
 
 async function readTemplateCss(templateRoot, cssFiles, integrationId) {
   const chunks = [];
+  const assetReferences = [];
   for (const rel of cssFiles) {
     const source = path.join(templateRoot, rel);
     const content = await readFile(source, 'utf8');
-    chunks.push(`/* Source: ${rel} */\n${namespaceCss(content, integrationId)}`);
+    const rewritten = rewriteCssAssetRefs(content, source, templateRoot, assetReferences);
+    chunks.push(`/* Source: ${rel} */\n${namespaceCss(rewritten, integrationId)}`);
   }
-  return chunks.join('\n\n');
+  return {
+    css: chunks.join('\n\n'),
+    asset_references: assetReferences
+  };
 }
 
 function selectSourcePage(templateRoot, pages) {
@@ -227,7 +244,15 @@ function selectSourcePage(templateRoot, pages) {
 }
 
 function sanitizeHtml(html) {
-  const removedScripts = [...html.matchAll(/<script\b[\s\S]*?<\/script>/gi)].length;
+  const scripts = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi)].map((match) => {
+    const attributes = parseAttributes(match[1] || '');
+    return {
+      attributes,
+      src: attributes.src || null,
+      content: match[2] || ''
+    };
+  });
+  const removedScripts = scripts.length;
   const removedInlineHandlers = [...html.matchAll(/\son[a-z]+\s*=\s*(['"]).*?\1/gi)].length;
   const withoutScripts = html.replace(/<script\b[\s\S]*?<\/script>/gi, '');
   const withoutHandlers = withoutScripts.replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, '');
@@ -235,7 +260,8 @@ function sanitizeHtml(html) {
   return {
     bodyHtml: (bodyMatch ? bodyMatch[1] : withoutHandlers).trim(),
     removedScripts,
-    removedInlineHandlers
+    removedInlineHandlers,
+    scripts
   };
 }
 
@@ -244,7 +270,9 @@ function namespaceHtml(html, integrationId) {
   let output = html
     .replace(/\bid=(['"])([^'"]+)\1/gi, (_match, quote, value) => `id=${quote}${prefix}-${value}${quote}`)
     .replace(/\bclass=(['"])([^'"]+)\1/gi, (_match, quote, value) => {
-      const classes = value.split(/\s+/).filter(Boolean).map((className) => `${prefix}-${className}`);
+      const classes = value.split(/\s+/).filter(Boolean).map((className) => (
+        className.startsWith(`${prefix}-`) ? className : `${prefix}-${className}`
+      ));
       return `class=${quote}${classes.join(' ')}${quote}`;
     });
   output = markFirst(output, /<h1\b([^>]*)>/i, '<h1$1 data-hts-field="headline">');
@@ -253,32 +281,18 @@ function namespaceHtml(html, integrationId) {
 }
 
 function namespaceCss(css, integrationId) {
-  const prefix = `.hts-${integrationId}-root`;
-  return css
-    .replace(/@keyframes\s+([a-zA-Z0-9_-]+)/g, `@keyframes hts-${integrationId}-$1`)
-    .split('}')
-    .map((block) => {
-      if (!block.trim() || block.includes('@keyframes')) return block;
-      const [selector, ...rest] = block.split('{');
-      if (rest.length === 0) return block;
-      if (selector.trim().startsWith('@')) return `${selector}{${rest.join('{')}`;
-      const scoped = selector
-        .split(',')
-        .map((part) => `${prefix} ${part.trim()}`)
-        .join(', ');
-      return `${scoped}{${rest.join('{')}`;
-    })
-    .join('}');
+  const keyframeNames = unique([...css.matchAll(/@keyframes\s+([a-zA-Z0-9_-]+)/g)].map((match) => match[1]));
+  let rewritten = css;
+  for (const name of keyframeNames) {
+    rewritten = rewritten.replace(new RegExp(`\\b${escapeRegExp(name)}\\b`, 'g'), `hts-${integrationId}-${name}`);
+  }
+  return scopeCssRules(rewritten, integrationId).trimEnd();
 }
 
-function findAssetRefs(html) {
-  return [...html.matchAll(/\b(?:src|href)=["']([^"']+)["']/gi)]
+function findHtmlAssetRefs(html) {
+  return [...html.matchAll(/\b(?:src|href|poster)=["']([^"']+)["']/gi)]
     .map((match) => match[1])
-    .filter((ref) => ASSET_EXTENSIONS.test(ref.split(/[?#]/)[0]));
-}
-
-function isExternalRef(ref) {
-  return /^(https?:)?\/\//i.test(ref) || /^(mailto|tel):/i.test(ref);
+    .filter((ref) => ASSET_EXTENSIONS.test(stripRefQuery(ref)));
 }
 
 function normalizeFramework(value) {
@@ -317,4 +331,240 @@ async function isFile(filePath) {
   } catch {
     return false;
   }
+}
+
+function planAssetCopies(templateRoot, repositoryNamespace, references) {
+  const bySource = new Map();
+  for (const entry of references) {
+    const ref = entry.reference;
+    if (!ref || isExternalRef(ref) || ref.startsWith('#') || path.isAbsolute(ref)) continue;
+    const sourceAsset = path.resolve(path.dirname(entry.sourceFile), stripRefQuery(ref));
+    const assetPath = toPosixPath(path.relative(templateRoot, sourceAsset));
+    if (!assetPath || assetPath.startsWith('..')) continue;
+    const targetPath = `${repositoryNamespace}/assets/${assetPath}`;
+    if (!bySource.has(sourceAsset)) {
+      bySource.set(sourceAsset, {
+        source_path: sourceAsset,
+        target_path: targetPath,
+        asset_path: assetPath,
+        original_refs: []
+      });
+    }
+    bySource.get(sourceAsset).original_refs.push({
+      reference: ref,
+      output_base: entry.outputBase
+    });
+  }
+  return [...bySource.values()];
+}
+
+function rewriteCssAssetRefs(css, sourceFile, templateRoot, assetReferences) {
+  return css.replace(/url\(\s*(['"]?)(.*?)\1\s*\)/gi, (match, quote, ref) => {
+    if (!ref || isExternalRef(ref) || ref.startsWith('#') || path.isAbsolute(ref)) return match;
+    const sourceAsset = path.resolve(path.dirname(sourceFile), stripRefQuery(ref));
+    const assetPath = toPosixPath(path.relative(templateRoot, sourceAsset));
+    if (!assetPath || assetPath.startsWith('..')) return match;
+    assetReferences.push({
+      sourceFile,
+      reference: ref,
+      outputBase: 'styles'
+    });
+    const suffix = ref.includes('?') ? `?${ref.split('?').slice(1).join('?')}` : '';
+    const rewrittenRef = `../assets/${assetPath}${suffix}`;
+    return `url(${quote || ''}${rewrittenRef}${quote || ''})`;
+  });
+}
+
+async function readTemplateScripts(templateRoot, sourcePage, scripts, files, integrationId) {
+  const sources = [];
+  for (const script of scripts) {
+    if (script.src) {
+      if (isExternalRef(script.src)) continue;
+      const source = path.resolve(path.dirname(sourcePage), stripRefQuery(script.src));
+      if (await pathExists(source) && await isFile(source)) {
+        sources.push({
+          source_file: relativeTo(templateRoot, source),
+          content: await readFile(source, 'utf8')
+        });
+      }
+      continue;
+    }
+    if (script.content.trim()) {
+      sources.push({
+        source_file: `${relativeTo(templateRoot, sourcePage)}#inline-script-${sources.length + 1}`,
+        content: script.content
+      });
+    }
+  }
+
+  for (const rel of files.filter((file) => /\.(js|mjs|cjs)$/i.test(file))) {
+    if (sources.some((source) => source.source_file === rel)) continue;
+    sources.push({
+      source_file: rel,
+      content: await readFile(path.join(templateRoot, rel), 'utf8')
+    });
+  }
+
+  return {
+    sources: sources.map((source) => source.source_file),
+    module: renderBehaviourModule(integrationId, sources)
+  };
+}
+
+function renderBehaviourModule(integrationId, sources) {
+  const functionName = `initHts${pascalCase(integrationId)}Behaviour`;
+  const rootClass = `hts-${integrationId}-root`;
+  const blocks = sources.map((source, index) => {
+    const isolated = isolateScriptSource(source.content, integrationId);
+    return `  runIsolatedScript(${JSON.stringify(source.source_file)}, ${index + 1}, (window, document, root) => {\n${indent(isolated, 4)}\n  });`;
+  }).join('\n');
+
+  return `const ROOT_SELECTOR = '.${rootClass}';
+
+export function ${functionName}(root = globalThis.document) {
+  if (typeof window === 'undefined' || !root) return () => {};
+  const integrationRoot = resolveIntegrationRoot(root);
+  if (!integrationRoot) return () => {};
+  const cleanup = [];
+  const scopedDocument = createScopedDocument(integrationRoot, cleanup);
+
+${blocks || '  // No local template scripts were found.'}
+
+  integrationRoot.dataset.htsBehaviourReady = 'true';
+  return () => {
+    while (cleanup.length > 0) {
+      const remove = cleanup.pop();
+      remove();
+    }
+    delete integrationRoot.dataset.htsBehaviourReady;
+  };
+}
+
+function resolveIntegrationRoot(root) {
+  if (root?.matches?.(ROOT_SELECTOR)) return root;
+  return root?.querySelector?.(ROOT_SELECTOR) || null;
+}
+
+function createScopedDocument(root, cleanup) {
+  const ownerDocument = root.ownerDocument || globalThis.document;
+  return {
+    querySelector: (selector) => root.querySelector(selector),
+    querySelectorAll: (selector) => root.querySelectorAll(selector),
+    getElementById: (id) => root.querySelector('#' + cssEscape(id)),
+    createElement: (...args) => ownerDocument.createElement(...args),
+    addEventListener: (type, listener, options) => {
+      ownerDocument.addEventListener(type, listener, options);
+      cleanup.push(() => ownerDocument.removeEventListener(type, listener, options));
+    },
+    removeEventListener: (...args) => ownerDocument.removeEventListener(...args),
+    documentElement: ownerDocument.documentElement,
+    body: root
+  };
+}
+
+function runIsolatedScript(sourceFile, index, callback) {
+  const root = resolveIntegrationRoot(globalThis.document);
+  if (!root) return;
+  try {
+    callback(globalThis.window, createScopedDocument(root, []), root);
+  } catch (error) {
+    console.warn(\`html-to-storyblok isolated behaviour failed in \${sourceFile} (#\${index}):\`, error);
+  }
+}
+
+function cssEscape(value) {
+  if (globalThis.CSS?.escape) return globalThis.CSS.escape(value);
+  return String(value).replace(/[^a-zA-Z0-9_-]/g, '\\\\$&');
+}
+
+if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+  const boot = () => ${functionName}(document);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', boot, { once: true });
+  } else {
+    boot();
+  }
+}
+`;
+}
+
+function isolateScriptSource(source, integrationId) {
+  return String(source)
+    .replace(/\bdocument\.getElementById\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g, (_match, _quote, id) => `document.getElementById('hts-${integrationId}-${id}')`)
+    .replace(/\bwindow\.on([a-z]+)\s*=/g, 'window.addEventListener("$1",');
+}
+
+function scopeCssRules(css, integrationId) {
+  let output = '';
+  let index = 0;
+  while (index < css.length) {
+    const open = css.indexOf('{', index);
+    if (open === -1) {
+      output += css.slice(index);
+      break;
+    }
+    const prelude = css.slice(index, open).trim();
+    const close = findMatchingBrace(css, open);
+    if (close === -1) {
+      output += css.slice(index);
+      break;
+    }
+    const body = css.slice(open + 1, close);
+    if (prelude.startsWith('@media') || prelude.startsWith('@supports') || prelude.startsWith('@container') || prelude.startsWith('@layer')) {
+      output += `${prelude} {\n${scopeCssRules(body, integrationId)}\n}\n`;
+    } else if (prelude.startsWith('@')) {
+      output += `${prelude} {${body}}\n`;
+    } else {
+      output += `${scopeSelectorList(prelude, integrationId)} {${body}}\n`;
+    }
+    index = close + 1;
+  }
+  return output;
+}
+
+function findMatchingBrace(value, openIndex) {
+  let depth = 0;
+  for (let index = openIndex; index < value.length; index += 1) {
+    const char = value[index];
+    if (char === '{') depth += 1;
+    if (char === '}') depth -= 1;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
+function scopeSelectorList(selectorList, integrationId) {
+  const root = `.hts-${integrationId}-root`;
+  return selectorList
+    .split(',')
+    .map((selector) => scopeSelector(selector.trim(), integrationId, root))
+    .join(', ');
+}
+
+function scopeSelector(selector, integrationId, root) {
+  if (!selector) return selector;
+  let rewritten = selector
+    .replace(/\.(-?[_a-zA-Z]+[_a-zA-Z0-9-]*)/g, (_match, className) => {
+      if (className.startsWith(`hts-${integrationId}-`)) return `.${className}`;
+      return `.hts-${integrationId}-${className}`;
+    })
+    .replace(/#(-?[_a-zA-Z]+[_a-zA-Z0-9-]*)/g, (_match, id) => {
+      if (id.startsWith(`hts-${integrationId}-`)) return `#${id}`;
+      return `#hts-${integrationId}-${id}`;
+    });
+  rewritten = rewritten.replace(/^html\b|^body\b|^:root\b/, root);
+  if (rewritten.startsWith(root)) return rewritten;
+  return `${root} ${rewritten}`;
+}
+
+function pascalCase(value) {
+  return String(value)
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join('');
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }

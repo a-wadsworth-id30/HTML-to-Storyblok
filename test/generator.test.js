@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp } from 'node:fs/promises';
+import { mkdtemp, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -33,7 +33,17 @@ test('generate converts template HTML into isolated framework files', async () =
   assert.equal(result.framework, 'astro');
   assert.equal(result.removed_scripts, 1);
   assert.equal(result.removed_inline_handlers, 1);
+  assert.deepEqual(result.excluded_external_scripts, ['https://example.com/tracker.js']);
   assert.ok(result.files.includes('src/integrations/acme-homepage-v1/TemplatePage.astro'));
   assert.ok(result.files.includes('src/integrations/acme-homepage-v1/template-html.js'));
+  assert.ok(result.files.includes('src/integrations/acme-homepage-v1/behaviour/acme-homepage-v1.js'));
   assert.deepEqual(result.assets, ['src/integrations/acme-homepage-v1/assets/hero.svg']);
+
+  const css = await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/styles/template.css'), 'utf8');
+  assert.match(css, /\.hts-acme-homepage-v1-root \.hts-acme-homepage-v1-site-header/);
+  assert.doesNotMatch(css, /\.site-header\s*{/);
+
+  const astro = await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/TemplatePage.astro'), 'utf8');
+  assert.match(astro, /import '\.\/behaviour\/acme-homepage-v1\.js'/);
+  assert.match(astro, /class="hts-acme-homepage-v1-site-header"/);
 });

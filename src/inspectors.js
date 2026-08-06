@@ -1,10 +1,11 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
+import { analyzeCss, analyzeHtml, analyzeScript, ASSET_EXTENSIONS, extractAssetReferences, findMissingLocalAssets } from './analyzer.js';
 import { relativeTo, sha256, unique } from './utils.js';
 
 const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.nuxt', '.astro', '.tmp']);
 const IMAGE_EXTENSIONS = new Set(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.avif', '.svg']);
-const FONT_EXTENSIONS = new Set(['.woff', '.woff2', '.ttf', '.otf', '.eot']);
+const FONT_EXTENSIONS = new Set(['.woff', '.woff2', '.ttf', '.otf', '.eot', '.woff']);
 const MEDIA_EXTENSIONS = new Set(['.mp4', '.webm', '.mov', '.mp3', '.wav', '.ogg']);
 
 export async function walkFiles(root) {
@@ -30,12 +31,17 @@ export async function inspectTemplate(templatePath) {
   const files = await walkFiles(root);
   const inventory = [];
   const pages = [];
+  const pageInventory = [];
   const sharedSections = new Set();
   const behaviours = new Set();
   const thirdParty = new Set();
   const accessibility = [];
   const assets = [];
   const fonts = [];
+  const cssInventory = [];
+  const scriptInventory = [];
+  const missingAssets = [];
+  const assetReferences = [];
 
   for (const file of files) {
     const ext = path.extname(file).toLowerCase();
@@ -47,33 +53,70 @@ export async function inspectTemplate(templatePath) {
     }
 
     if (ext === '.html') {
+      const facts = analyzeHtml(content, { sourceFile: rel });
       pages.push(rel);
-      if (/<header[\s>]/i.test(content)) sharedSections.add('header');
-      if (/<nav[\s>]/i.test(content)) sharedSections.add('navigation');
-      if (/<footer[\s>]/i.test(content)) sharedSections.add('footer');
-      if (/<form[\s>]/i.test(content)) behaviours.add('form submission');
-      if (/<dialog[\s>]|modal/i.test(content)) behaviours.add('dialog or modal');
-      if (/<img\b(?![^>]*\balt=)/i.test(content)) accessibility.push({ file: rel, issue: 'Image without explicit alt attribute' });
-      extractUrls(content).forEach((url) => {
-        if (/^https?:\/\//i.test(url)) thirdParty.add(url);
+      for (const [name, count] of Object.entries(facts.landmarks)) {
+        if (count > 0 && ['header', 'nav', 'footer'].includes(name)) sharedSections.add(name === 'nav' ? 'navigation' : name);
+      }
+      if (facts.forms.length > 0) behaviours.add('form submission');
+      if (facts.tag_counts.dialog || /modal/i.test(content)) behaviours.add('dialog or modal');
+      if (facts.scripts.length > 0 || facts.inline_handlers.length > 0) behaviours.add('client-side behaviour');
+      facts.external_urls.forEach((url) => thirdParty.add(url));
+      facts.accessibility_issues.forEach((issue) => accessibility.push(issue));
+      assetReferences.push(...facts.asset_references.map((reference) => ({ source_file: rel, reference })));
+      missingAssets.push(...await findMissingLocalAssets(root, rel, facts.asset_references));
+      pageInventory.push({
+        page: rel,
+        title: facts.title,
+        landmarks: facts.landmarks,
+        headings: facts.headings,
+        forms: facts.forms,
+        links: facts.links,
+        images: facts.images,
+        scripts: facts.scripts,
+        inline_handlers: facts.inline_handlers,
+        asset_references: facts.asset_references,
+        external_urls: facts.external_urls,
+        repeated_candidates: facts.repeated_candidates,
+        risks: facts.risks
       });
-      inventory.push(item(rel, 'Template root content type', content, stats.size));
+      inventory.push(item(rel, 'Template root content type', content, stats.size, {
+        editableContent: inferEditableContentFromFacts(facts),
+        behaviour: inferBehaviour(content, facts.risks),
+        assets: facts.asset_references,
+        risks: facts.risks.join('; ') || inferRisks(content)
+      }));
       continue;
     }
 
     if (['.css', '.scss', '.sass', '.less'].includes(ext)) {
-      const breakpoints = [...content.matchAll(/@media[^{]+/gi)].map((match) => match[0]);
-      if (breakpoints.length > 0) behaviours.add('responsive CSS breakpoints');
-      inventory.push(item(rel, 'Framework-only component', content, stats.size, breakpoints));
+      const facts = analyzeCss(content, { sourceFile: rel });
+      if (facts.breakpoints.length > 0) behaviours.add('responsive CSS breakpoints');
+      facts.asset_references.forEach((reference) => assetReferences.push({ source_file: rel, reference }));
+      missingAssets.push(...await findMissingLocalAssets(root, rel, facts.asset_references));
+      cssInventory.push(facts);
+      inventory.push(item(rel, 'Framework-only component', content, stats.size, {
+        behaviour: facts.breakpoints,
+        assets: facts.asset_references,
+        risks: facts.risks.join('; ') || inferRisks(content)
+      }));
       continue;
     }
 
     if (['.js', '.mjs', '.cjs', '.ts'].includes(ext)) {
-      if (/addEventListener|querySelector|IntersectionObserver|Swiper|gsap|anime|scroll/i.test(content)) {
+      const facts = analyzeScript(content, { sourceFile: rel });
+      if (facts.event_types.length > 0 || facts.selectors.length > 0 || facts.browser_apis.length > 0) {
         behaviours.add('client-side behaviour');
       }
-      extractUrls(content).forEach((url) => thirdParty.add(url));
-      inventory.push(item(rel, 'Client-side behaviour', content, stats.size));
+      facts.external_urls.forEach((url) => thirdParty.add(url));
+      facts.asset_references.forEach((reference) => assetReferences.push({ source_file: rel, reference }));
+      missingAssets.push(...await findMissingLocalAssets(root, rel, facts.asset_references));
+      scriptInventory.push(facts);
+      inventory.push(item(rel, 'Client-side behaviour', content, stats.size, {
+        behaviour: [...facts.event_types, ...facts.browser_apis],
+        assets: facts.asset_references,
+        risks: facts.risks.join('; ') || inferRisks(content)
+      }));
       continue;
     }
 
@@ -102,13 +145,27 @@ export async function inspectTemplate(templatePath) {
     template_path: root,
     files_inspected: files.map((file) => relativeTo(root, file)),
     pages,
+    page_inventory: pageInventory,
     shared_sections: [...sharedSections],
+    shared_section_inventory: [...sharedSections].map((name) => ({
+      name,
+      pages: pageInventory.filter((page) => page.landmarks[name === 'navigation' ? 'nav' : name] > 0).map((page) => page.page)
+    })),
     repeated_sections: inferRepeatedSections(files.map((file) => relativeTo(root, file))),
     behaviours: [...behaviours],
+    behaviour_inventory: scriptInventory,
     third_party_integrations: [...thirdParty],
+    third_party_integration_inventory: [...thirdParty].map((url) => ({ url, classification: 'Manual review required' })),
     accessibility_issues: accessibility,
+    accessibility_issue_inventory: accessibility,
     assets,
+    asset_inventory: assets,
+    asset_references: uniqueAssetReferences(assetReferences),
+    missing_assets: uniqueMissingAssets(missingAssets),
     fonts,
+    font_inventory: fonts,
+    css_inventory: cssInventory,
+    script_inventory: scriptInventory,
     inventory
   };
 }
@@ -135,6 +192,7 @@ export async function inspectRepository(repositoryPath) {
 
   const framework = detectFramework(dependencies, relFiles);
   const packageManager = detectPackageManager(relFiles);
+  const packageManagerVersion = detectPackageManagerVersion(packageJson, packageManager.name);
   const nodeVersion = await readOptional(root, ['.nvmrc', '.node-version']);
   const netlifyToml = relFiles.includes('netlify.toml') ? await readFile(path.join(root, 'netlify.toml'), 'utf8') : '';
   const storyblokEvidence = await scanFiles(root, files, [
@@ -151,17 +209,28 @@ export async function inspectRepository(repositoryPath) {
     repository_path: root,
     files_inspected: relFiles,
     package_json_present: Boolean(packageJson),
+    package_name: packageJson?.name || null,
+    scripts: packageJson?.scripts || {},
     framework,
     framework_version: dependencies[framework.package] || null,
     rendering_mode: inferRenderingMode(framework.name, relFiles, dependencies),
     package_manager: packageManager.name,
-    package_manager_version: packageManager.version,
+    package_manager_version: packageManagerVersion || packageManager.version,
     node_version: nodeVersion?.content?.trim() || null,
     typescript: relFiles.some((file) => file.endsWith('.ts') || file.endsWith('.tsx')),
     styling_system: detectStyling(dependencies, relFiles),
+    image_strategy: detectImageStrategy(dependencies, relFiles),
     storyblok_sdk: storyblokPackages,
     storyblok_rendering_pattern: unique(storyblokEvidence.map((entry) => entry.pattern)),
     component_discovery_pattern: inferComponentDiscovery(relFiles),
+    storyblok: {
+      env_variable_names: unique(storyblokEvidence.filter((entry) => /^STORYBLOK_/.test(entry.pattern)).map((entry) => entry.pattern)),
+      component_registry_candidates: relFiles.filter((file) => /storyblok.*components|components.*storyblok|blok.*resolver|component.*resolver/i.test(file)),
+      api_client_candidates: relFiles.filter((file) => /storyblok|cms|api/i.test(file) && /\.(js|jsx|ts|tsx|mjs|cjs)$/.test(file)),
+      route_candidates: relFiles.filter((file) => /(pages|app|routes|src\/pages).*\[(slug|path|params)|storyblok/i.test(file)),
+      generated_type_candidates: relFiles.filter((file) => /storyblok.*types|types.*storyblok|component-types/i.test(file))
+    },
+    commands: inferCommands(packageJson),
     netlify: parseNetlifyToml(netlifyToml),
     evidence: {
       storyblok: storyblokEvidence,
@@ -200,15 +269,16 @@ export function inspectStoryblokEnvironment(env = process.env) {
 }
 
 function item(sourceFile, classification, content, bytes, extra = []) {
+  const overrides = Array.isArray(extra) ? {} : extra;
   return {
     template_item: path.basename(sourceFile),
     source_file: sourceFile,
     classification,
     repeated: 'Unknown',
-    editable_content: inferEditableContent(content),
-    behaviour: inferBehaviour(content, extra),
-    assets: extractAssetRefs(content),
-    risks_or_notes: inferRisks(content)
+    editable_content: overrides.editableContent || inferEditableContent(content),
+    behaviour: overrides.behaviour || inferBehaviour(content, extra),
+    assets: overrides.assets || extractAssetReferences(content),
+    risks_or_notes: overrides.risks || inferRisks(content)
   };
 }
 
@@ -252,14 +322,6 @@ function inferRisks(content) {
   return risks.join('; ') || 'None detected';
 }
 
-function extractUrls(content) {
-  return [...content.matchAll(/https?:\/\/[^"')\s<>]+/gi)].map((match) => match[0]);
-}
-
-function extractAssetRefs(content) {
-  return unique([...content.matchAll(/(?:src|href)=["']([^"']+\.(?:png|jpe?g|gif|webp|avif|svg|mp4|webm|woff2?|ttf|otf))["']/gi)].map((match) => match[1]));
-}
-
 function inferRepeatedSections(files) {
   const names = files.map((file) => path.basename(file).toLowerCase());
   return ['card', 'item', 'grid', 'section', 'slide', 'testimonial', 'feature'].filter((needle) =>
@@ -284,6 +346,15 @@ function detectPackageManager(files) {
   return { name: 'npm', version: null };
 }
 
+function detectPackageManagerVersion(packageJson, packageManagerName) {
+  const packageManager = packageJson?.packageManager;
+  if (typeof packageManager === 'string') {
+    const [name, version] = packageManager.split('@');
+    if (name === packageManagerName && version) return version;
+  }
+  return null;
+}
+
 function inferRenderingMode(frameworkName, files, dependencies) {
   if (frameworkName === 'Astro' && Object.keys(dependencies).some((name) => name.includes('/netlify'))) return 'Hybrid or SSR';
   if (frameworkName === 'Next.js') return 'Hybrid';
@@ -301,10 +372,31 @@ function detectStyling(dependencies, files) {
   return systems.length ? systems.join(', ') : 'Uncertain';
 }
 
+function detectImageStrategy(dependencies, files) {
+  if (dependencies['@astrojs/image'] || dependencies.astro) return 'Framework image tooling or Astro assets';
+  if (dependencies.next) return 'Next image pipeline';
+  if (dependencies.nuxt || dependencies['@nuxt/image']) return 'Nuxt image pipeline';
+  if (files.some((file) => /image|picture|asset/i.test(file) && /\.(js|jsx|ts|tsx|vue|astro)$/.test(file))) return 'Repository image components';
+  if (files.some((file) => file.startsWith('public/'))) return 'Public static assets';
+  return 'Uncertain';
+}
+
 function inferComponentDiscovery(files) {
   if (files.some((file) => /storyblok.*components|components.*storyblok/i.test(file))) return 'Explicit Storyblok component registry';
   if (files.some((file) => file.includes('src/storyblok'))) return 'Storyblok directory convention';
+  if (files.some((file) => /import\.meta\.glob|globEager/i.test(file))) return 'Automatic glob discovery';
   return 'Uncertain';
+}
+
+function inferCommands(packageJson) {
+  const scripts = packageJson?.scripts || {};
+  return {
+    dev: scripts.dev || null,
+    build: scripts.build || null,
+    typecheck: scripts.typecheck || scripts['type-check'] || scripts.check || null,
+    lint: scripts.lint || null,
+    test: scripts.test || null
+  };
 }
 
 async function scanFiles(root, files, patterns) {
@@ -348,7 +440,15 @@ function parseNetlifyToml(content) {
     const match = content.match(new RegExp(`^\\s*${key}\\s*=\\s*["']?([^"'\\n]+)["']?`, 'm'));
     return match ? match[1].trim() : null;
   };
-  const envNames = [...content.matchAll(/^\s*([A-Z][A-Z0-9_]+)\s*=/gm)].map((match) => match[1]);
+  const envNames = [
+    ...content.matchAll(/^\s*([A-Z][A-Z0-9_]+)\s*=/gm),
+    ...content.matchAll(/^\s*environment\s*=\s*{([^}]+)}/gm)
+  ].flatMap((match) => {
+    if (match[1].includes('=')) {
+      return [...match[1].matchAll(/([A-Z][A-Z0-9_]+)\s*=/g)].map((entry) => entry[1]);
+    }
+    return match[1];
+  });
   return {
     present: true,
     build_command: get('command'),
@@ -357,7 +457,45 @@ function parseNetlifyToml(content) {
     site_name: get('name'),
     production_branch: get('production_branch'),
     deploy_previews: content.includes('context.deploy-preview') ? 'Configured in netlify.toml' : 'Default or unconfirmed',
-    environment_variables: unique(envNames)
+    environment_variables: unique(envNames),
+    contexts: unique([...content.matchAll(/^\s*\[context\.([^\]]+)]/gm)].map((match) => match[1])),
+    plugins: unique([...content.matchAll(/^\s*package\s*=\s*["']([^"']+)["']/gm)].map((match) => match[1])),
+    redirects: content.includes('[[redirects]]'),
+    headers: content.includes('[[headers]]'),
+    functions_directory: get('directory')
   };
 }
 
+function inferEditableContentFromFacts(facts) {
+  const fields = [];
+  if (facts.headings.length > 0) fields.push('headings');
+  if (facts.text_blocks.some((block) => ['p', 'li', 'blockquote'].includes(block.tag))) fields.push('body copy');
+  if (facts.links.length > 0) fields.push('links');
+  if (facts.images.length > 0) fields.push('images');
+  if (facts.forms.length > 0) fields.push('form labels');
+  return unique(fields);
+}
+
+function uniqueAssetReferences(references) {
+  const seen = new Set();
+  const output = [];
+  for (const entry of references) {
+    const key = `${entry.source_file}:${entry.reference}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(entry);
+  }
+  return output;
+}
+
+function uniqueMissingAssets(entries) {
+  const seen = new Set();
+  const output = [];
+  for (const entry of entries) {
+    const key = `${entry.source_file}:${entry.reference}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    output.push(entry);
+  }
+  return output;
+}

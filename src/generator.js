@@ -50,6 +50,8 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     assets: conversion?.asset_copies?.map((asset) => asset.target_path) || [],
     removed_scripts: conversion?.removed_scripts || 0,
     removed_inline_handlers: conversion?.removed_inline_handlers || 0,
+    excluded_external_scripts: conversion?.excluded_external_scripts || [],
+    isolated_scripts: conversion?.isolated_scripts || [],
     note: 'Generated files are isolated. Existing registries and routes are not modified.'
   };
 }
