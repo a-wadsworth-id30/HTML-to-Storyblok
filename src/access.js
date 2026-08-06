@@ -1,9 +1,10 @@
 import { getNetlifyConfig } from './netlify.js';
-import { getStoryblokConfig } from './storyblok.js';
+import { getStoryblokConfig, getStoryblokContentConfig } from './storyblok.js';
 import { envValue } from './utils.js';
 
 export function checkLiveAccess(env = process.env) {
   const storyblok = getStoryblokConfig(env);
+  const storyblokContent = getStoryblokContentConfig(env);
   const netlify = getNetlifyConfig(env);
   const githubToken = envValue(['GITHUB_TOKEN', 'GH_TOKEN'], env);
   const gitlabToken = envValue(['GITLAB_TOKEN', 'GITLAB_PRIVATE_TOKEN'], env);
@@ -11,6 +12,13 @@ export function checkLiveAccess(env = process.env) {
     storyblok: {
       ready: Boolean(storyblok.token && storyblok.spaceId),
       required_variable_names: ['STORYBLOK_MANAGEMENT_TOKEN', 'STORYBLOK_SPACE_ID'],
+      optional_variable_names: ['STORYBLOK_REGION'],
+      available_variable_names: Object.keys(env).filter((name) => /STORYBLOK|SB_/i.test(name)).sort()
+    },
+    storyblok_content: {
+      ready: Boolean(storyblokContent.token),
+      required_variable_names: ['STORYBLOK_PREVIEW_TOKEN'],
+      alternative_variable_names: ['STORYBLOK_PUBLIC_TOKEN', 'STORYBLOK_DELIVERY_TOKEN'],
       optional_variable_names: ['STORYBLOK_REGION'],
       available_variable_names: Object.keys(env).filter((name) => /STORYBLOK|SB_/i.test(name)).sort()
     },

@@ -8,7 +8,7 @@ import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspect
 import { queryNetlifyDeployPreviews } from './netlify.js';
 import { createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
-import { createDraftStories, createStoryblokComponents, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
+import { createDraftStories, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption } from './utils.js';
 
 const MUTATING_COMMANDS = new Set([
@@ -52,6 +52,12 @@ export async function main(argv) {
   } else if (command === 'inspect-storyblok') {
     result = args.remote ? await inspectStoryblokSpace() : inspectStoryblokEnvironment();
     await writeArtifact(workDir, 'storyblok-access.json', result);
+  } else if (command === 'inspect-storyblok-content') {
+    result = await inspectStoryblokContentStory({
+      slug: requireOption(args, 'slug'),
+      version: args.version ? String(args.version) : 'draft'
+    });
+    await writeArtifact(workDir, 'storyblok-content-result.json', result);
   } else if (command === 'netlify-preview') {
     result = await queryNetlifyDeployPreviews({
       siteId: args.site_id ? String(args.site_id) : undefined,
@@ -260,6 +266,7 @@ Usage:
   html-to-storyblok inspect-template --template <path>
   html-to-storyblok inspect-repository --repo <path>
   html-to-storyblok inspect-storyblok
+  html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>]
