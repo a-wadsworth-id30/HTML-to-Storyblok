@@ -198,25 +198,33 @@ export async function promptSecret(terminal, {
 
   return new Promise((resolve) => {
     let value = '';
+    let settled = false;
     const input = terminal.input;
     const output = terminal.output;
     const wasRaw = input.isRaw;
 
-    const cleanup = () => {
+    const finish = (nextValue) => {
+      if (settled) return;
+      settled = true;
       input.off('keypress', onKeypress);
+      input.off('end', onEnd);
+      input.off('close', onEnd);
       if (input.setRawMode) input.setRawMode(wasRaw);
       output.write('\n');
+      resolve(nextValue);
+    };
+
+    const onEnd = () => {
+      finish(value);
     };
 
     const onKeypress = (str, key = {}) => {
       if (key.name === 'return') {
-        cleanup();
-        resolve(value);
+        finish(value);
         return;
       }
       if ((key.ctrl && key.name === 'c') || key.name === 'escape') {
-        cleanup();
-        resolve('');
+        finish('');
         return;
       }
       if (key.name === 'backspace' || key.name === 'delete') {
@@ -235,6 +243,9 @@ export async function promptSecret(terminal, {
     output.write(`${message}: `);
     readline.emitKeypressEvents(input);
     if (input.setRawMode) input.setRawMode(true);
+    if (input.resume) input.resume();
+    input.once('end', onEnd);
+    input.once('close', onEnd);
     input.on('keypress', onKeypress);
   });
 }

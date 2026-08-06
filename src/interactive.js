@@ -271,7 +271,9 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
 
   const storyblok = await terminal.task('Inspect Storyblok', async () => {
     const shouldInspectRemote = args.remote || (terminal.interactive && checkLiveAccess(sessionEnv).storyblok.ready);
-    const inspection = shouldInspectRemote ? await inspectStoryblokSpace({ env: sessionEnv }) : inspectStoryblokEnvironment(sessionEnv);
+    const inspection = shouldInspectRemote
+      ? await safeInspectStoryblokSpace({ terminal, env: sessionEnv })
+      : inspectStoryblokEnvironment(sessionEnv);
     await writeArtifact(workDir, 'storyblok-access.json', inspection);
     return inspection;
   });
@@ -373,7 +375,9 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
 
   const storyblok = await terminal.task('Inspect Storyblok', async () => {
     const shouldInspectRemote = args.remote || (terminal.interactive && checkLiveAccess(sessionEnv).storyblok.ready);
-    const inspection = shouldInspectRemote ? await inspectStoryblokSpace({ env: sessionEnv }) : inspectStoryblokEnvironment(sessionEnv);
+    const inspection = shouldInspectRemote
+      ? await safeInspectStoryblokSpace({ terminal, env: sessionEnv })
+      : inspectStoryblokEnvironment(sessionEnv);
     await writeArtifact(workDir, 'storyblok-access.json', inspection);
     return inspection;
   });
@@ -560,7 +564,9 @@ async function runReviewStoryblok({ terminal, args, config, workDir, answers, cw
   sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: false });
   const inspection = await terminal.task('Review Storyblok', async () => {
     const shouldInspectRemote = args.remote || (terminal.interactive && checkLiveAccess(sessionEnv).storyblok.ready);
-    const result = shouldInspectRemote ? await inspectStoryblokSpace({ env: sessionEnv }) : inspectStoryblokEnvironment(sessionEnv);
+    const result = shouldInspectRemote
+      ? await safeInspectStoryblokSpace({ terminal, env: sessionEnv })
+      : inspectStoryblokEnvironment(sessionEnv);
     await writeArtifact(workDir, 'storyblok-access.json', result);
     return result;
   });
@@ -589,14 +595,14 @@ async function promptForStoryblokCredentials({ terminal, env, config, answers, r
 
   if (needsManagement && !hasAny(nextEnv, ['STORYBLOK_MANAGEMENT_TOKEN', 'STORYBLOK_OAUTH_TOKEN', 'STORYBLOK_PERSONAL_ACCESS_TOKEN'])) {
     const token = await promptSecret(terminal, {
-      message: required ? 'Management API token' : 'Management API token (optional)',
+      message: required ? 'Management API token' : 'Management API token (optional, press Enter to skip)',
       answers
     });
     if (token) nextEnv.STORYBLOK_MANAGEMENT_TOKEN = token;
   }
   if (needsManagement && !hasAny(nextEnv, ['STORYBLOK_SPACE_ID', 'SB_SPACE_ID'])) {
     const spaceId = await promptInput(terminal, {
-      message: required ? 'Storyblok Space ID' : 'Storyblok Space ID (optional)',
+      message: required ? 'Storyblok Space ID' : 'Storyblok Space ID (optional, press Enter to skip)',
       answers
     });
     if (spaceId) nextEnv.STORYBLOK_SPACE_ID = spaceId;
@@ -611,7 +617,7 @@ async function promptForStoryblokCredentials({ terminal, env, config, answers, r
   }
   if (needsPreview && !hasAny(nextEnv, ['STORYBLOK_PREVIEW_TOKEN', 'STORYBLOK_PUBLIC_TOKEN', 'STORYBLOK_DELIVERY_TOKEN'])) {
     const previewToken = await promptSecret(terminal, {
-      message: 'Preview API token (optional)',
+      message: 'Preview API token (optional, press Enter to skip)',
       answers
     });
     if (previewToken) nextEnv.STORYBLOK_PREVIEW_TOKEN = previewToken;
@@ -622,6 +628,28 @@ async function promptForStoryblokCredentials({ terminal, env, config, answers, r
     terminal.status('Storyblok Management API credentials are required for real apply', 'error');
   }
   return nextEnv;
+}
+
+async function safeInspectStoryblokSpace({ terminal, env }) {
+  try {
+    return await inspectStoryblokSpace({ env });
+  } catch (error) {
+    const fallback = inspectStoryblokEnvironment(env);
+    terminal.status('Storyblok remote inspection failed', 'warning', 'Continuing with local credential readiness.');
+    return {
+      ...fallback,
+      status: 'inspection_failed',
+      remote_inspection_failed: true,
+      reason: redactCredentialError(error?.message || String(error))
+    };
+  }
+}
+
+function redactCredentialError(message) {
+  return String(message)
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]')
+    .replace(/Authorization:\s*[A-Za-z0-9._-]+/gi, 'Authorization: [REDACTED]')
+    .replace(/(token|secret|password|key)=([^&\s]+)/gi, '$1=[REDACTED]');
 }
 
 function hasAny(env, names) {

@@ -105,6 +105,43 @@ test('interactive create flow prompts for session-only Storyblok credentials', a
   }
 });
 
+test('interactive Storyblok-only flow continues when optional remote inspection fails', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  const output = new CaptureOutput({ isTTY: true });
+  mockFailingStoryblokFetch();
+  try {
+    const result = await runInteractiveApp({
+      args: {
+        config: path.join(root, 'config.json'),
+        work_dir: workDir
+      },
+      input: { isTTY: true },
+      output,
+      cwd: root,
+      answers: [
+        'storyblok-only',
+        path.join(root, 'templates/acme-homepage'),
+        'management-token',
+        '294359959203001',
+        '',
+        'acme-homepage-storyblok-v1',
+        'no'
+      ]
+    });
+
+    assert.equal(result.status, 'dry_run_complete');
+    assert.equal(result.validation.valid, true);
+    const storyblokAccess = await readFile(path.join(workDir, 'storyblok-access.json'), 'utf8');
+    assert.match(storyblokAccess, /inspection_failed/);
+    assert.doesNotMatch(storyblokAccess, /management-token/);
+    assert.match(output.text(), /Storyblok remote inspection failed/);
+    assert.doesNotMatch(output.text(), /management-token/);
+  } finally {
+    restoreFetch();
+  }
+});
+
 test('interactive create flow can skip repository for a Storyblok-only test', async () => {
   const root = await createFixtureWorkspace();
   const workDir = path.join(root, 'work');
@@ -343,6 +380,15 @@ function mockStoryblokFetch() {
     };
   };
   return calls;
+}
+
+function mockFailingStoryblokFetch() {
+  originalFetch = global.fetch;
+  global.fetch = async () => ({
+    ok: false,
+    status: 401,
+    text: async () => JSON.stringify({ error: 'Unauthorized' })
+  });
 }
 
 function restoreFetch() {

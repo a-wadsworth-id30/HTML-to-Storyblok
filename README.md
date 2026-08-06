@@ -116,6 +116,7 @@ Credential handling:
 
 - Interactive mode asks for missing Storyblok credentials when inspection or real apply needs them.
 - Tokens entered in the wizard are kept in memory for that CLI run only.
+- The Preview API token prompt is optional; press `Enter` to skip it when you only need Management API component, asset, and draft-story testing.
 - Scriptable commands read credentials from shell environment variables and local `.env` / `.env.local` files.
 - Shell environment variables override `.env` values.
 - `.env` values are loaded from the current working directory and, when `--repo` or a selected repository is available, the target repository.
