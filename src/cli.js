@@ -11,15 +11,16 @@ import { validatePlan } from './policy.js';
 import { createReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
 import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
-import { commandName, parseArgs, readJson, requireOption } from './utils.js';
+import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
 import { diffIntegration, runRepositoryScript, validateIntegration } from './validator.js';
-import { applyManifest, createPlanFromArgs, readAndValidateManifest } from './workflow.js';
+import { applyManifest, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
 
 const MUTATING_COMMANDS = new Set([
   'apply',
   'create-draft-story',
   'duplicate',
   'generate',
+  'infer-duplicates',
   'open-mr',
   'open-pr',
   'rollback',
@@ -112,6 +113,25 @@ export async function main(argv) {
     } else if (command === 'plan') {
       result = await createPlanFromArgs(args, workDir);
       await writeArtifact(workDir, 'integration-manifest.json', result);
+    } else if (command === 'infer-duplicates') {
+      const manifestPath = requireOption(args, 'manifest');
+      const manifest = await readAndValidateManifest(args, workDir);
+      const storyblokInspection = args.storyblok_inspection ? await readJson(String(args.storyblok_inspection)) : null;
+      const inferred = await inferDuplicatesForManifest(manifest, {
+        repoPath: args.repo ? String(args.repo) : process.cwd(),
+        storyblokInspection
+      });
+      if (args.write_manifest) {
+        await writeJson(manifestPath, inferred.manifest);
+      }
+      result = {
+        action: 'infer_duplicates',
+        manifest_written: Boolean(args.write_manifest),
+        inference: inferred.inference,
+        validation: inferred.manifest.validation
+      };
+      await writeArtifact(workDir, 'duplication-inference.json', result);
+      if (!inferred.manifest.validation.valid) process.exitCode = 2;
     } else if (command === 'validate-plan') {
       const manifest = await readJson(requireOption(args, 'manifest'));
       result = validatePlan(manifest);
@@ -270,7 +290,8 @@ Usage:
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait]
-  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>]
+  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--infer-duplicates --repo <path>]
+  html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
   html-to-storyblok diff --manifest <path> --repo <path>
   html-to-storyblok validate --manifest <path> --repo <path>

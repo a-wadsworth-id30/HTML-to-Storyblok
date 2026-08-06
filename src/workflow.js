@@ -1,24 +1,42 @@
 import { duplicateAll } from './duplicator.js';
 import { writeArtifact } from './evidence.js';
 import { generateIntegration } from './generator.js';
-import { createIntegrationPlan } from './planner.js';
+import { buildOperations, createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
 import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, uploadStoryblokAssets } from './storyblok.js';
 import { readJson, requireOption } from './utils.js';
 import { validateIntegration } from './validator.js';
+import { applyInferredDuplicationCandidates } from './duplication-inference.js';
 
 export async function createPlanFromArgs(args, workDir) {
+  const storyblokInspection = args.storyblok_inspection ? await readJson(String(args.storyblok_inspection)) : null;
   const manifest = await createIntegrationPlan({
     integrationId: requireOption(args, 'integration_id'),
     storyblokPrefix: args.storyblok_prefix ? String(args.storyblok_prefix) : undefined,
     repositoryNamespace: args.repository_namespace ? String(args.repository_namespace) : undefined,
     templatePath: args.template ? String(args.template) : undefined,
-    framework: args.framework ? String(args.framework) : 'static'
+    framework: args.framework ? String(args.framework) : 'static',
+    repoPath: args.repo ? String(args.repo) : undefined,
+    inferDuplicates: Boolean(args.infer_duplicates),
+    storyblokInspection
   });
   const validation = validatePlan(manifest);
   await writeArtifact(workDir, 'plan-validation.json', validation);
   manifest.validation = validation;
   return manifest;
+}
+
+export async function inferDuplicatesForManifest(manifest, {
+  repoPath = process.cwd(),
+  storyblokInspection = null
+} = {}) {
+  const inference = await applyInferredDuplicationCandidates(manifest, {
+    repoPath,
+    storyblokInspection
+  });
+  manifest.operations = buildOperations(manifest);
+  manifest.validation = validatePlan(manifest);
+  return { manifest, inference };
 }
 
 export async function readAndValidateManifest(args, workDir) {

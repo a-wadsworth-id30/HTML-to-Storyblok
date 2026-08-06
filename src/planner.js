@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { inspectTemplate } from './inspectors.js';
+import { applyInferredDuplicationCandidates } from './duplication-inference.js';
 import { createDefaultManifest, storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
 import { buildSchemaPlan } from './schema-generator.js';
 import { plannedTemplateFilePaths } from './template-converter.js';
@@ -10,7 +11,10 @@ export async function createIntegrationPlan({
   storyblokPrefix,
   repositoryNamespace,
   templatePath,
-  framework = 'static'
+  framework = 'static',
+  repoPath,
+  inferDuplicates = false,
+  storyblokInspection = null
 }) {
   const namespace = repositoryNamespace || path.posix.join('src/integrations', integrationId);
   const resolvedStoryblokPrefix = storyblokPrefix || storyblokPrefixForIntegrationId(integrationId);
@@ -60,6 +64,13 @@ export async function createIntegrationPlan({
     ];
   }
 
+  if (inferDuplicates) {
+    await applyInferredDuplicationCandidates(manifest, {
+      repoPath: repoPath || process.cwd(),
+      storyblokInspection
+    });
+  }
+
   manifest.operations = buildOperations(manifest);
   manifest.validation = validatePlan(manifest);
   return manifest;
@@ -79,12 +90,17 @@ function addBaseRepositoryFiles(manifest, framework, hasTemplate) {
   }
 }
 
-function buildOperations(manifest) {
+export function buildOperations(manifest) {
   return [
     ...ensureArray(manifest.repository?.files_to_create).map((resource) => ({
       type: 'create_new_resource',
       resource_type: 'repository_file',
       resource
+    })),
+    ...ensureArray(manifest.repository?.components_to_duplicate).map((component) => ({
+      type: 'duplicate_existing_resource',
+      resource_type: 'repository_component',
+      resource: component.target_path || component.target
     })),
     ...ensureArray(manifest.repository?.assets_to_create).map((asset) => ({
       type: 'create_new_resource',
