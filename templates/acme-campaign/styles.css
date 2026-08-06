@@ -1,0 +1,278 @@
+:root {
+  color-scheme: light;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #1d2530;
+  background: #f7f9fc;
+}
+
+body {
+  margin: 0;
+}
+
+a {
+  color: inherit;
+}
+
+.site-header,
+.hero,
+.stats,
+.feature-grid,
+.pricing,
+.team,
+.faq,
+.lead-form,
+.site-footer {
+  width: min(1120px, calc(100% - 32px));
+  margin: 0 auto;
+}
+
+.site-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 24px 0;
+}
+
+.brand,
+.primary-nav,
+.hero-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.brand {
+  font-weight: 800;
+  text-decoration: none;
+}
+
+.brand img {
+  width: 36px;
+  height: 36px;
+}
+
+.primary-nav a {
+  text-decoration: none;
+  font-weight: 650;
+}
+
+.hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
+  gap: 48px;
+  align-items: center;
+  padding: 72px 0 40px;
+}
+
+.hero h1 {
+  margin: 0;
+  max-width: 11ch;
+  font-size: clamp(3rem, 9vw, 6.2rem);
+  line-height: 0.92;
+}
+
+.lede {
+  max-width: 620px;
+  font-size: 1.25rem;
+  line-height: 1.7;
+}
+
+.eyebrow {
+  margin: 0 0 12px;
+  color: #116466;
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.button,
+button {
+  min-height: 44px;
+  border: 0;
+  border-radius: 6px;
+  padding: 12px 18px;
+  font: inherit;
+  font-weight: 800;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.button.primary,
+button {
+  color: #ffffff;
+  background: #184e77;
+}
+
+.button.secondary {
+  color: #184e77;
+  background: #d8edf2;
+}
+
+.hero-media {
+  margin: 0;
+}
+
+.hero-media img {
+  width: 100%;
+  border: 1px solid #d9e3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.hero-media figcaption {
+  margin-top: 10px;
+  color: #596779;
+  font-size: 0.9rem;
+}
+
+.stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  padding: 32px 0;
+}
+
+.stats article,
+.feature-card,
+.pricing-card,
+.profile-card,
+.faq details,
+.lead-form form {
+  border: 1px solid #d9e3ee;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.stats article {
+  padding: 24px;
+}
+
+.stats strong {
+  display: block;
+  font-size: 2.2rem;
+  color: #184e77;
+}
+
+.section-heading {
+  max-width: 680px;
+  margin-bottom: 28px;
+}
+
+.section-heading h2 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3.4rem);
+  line-height: 1;
+}
+
+.cards,
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+
+.pricing-grid {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.feature-grid,
+.pricing,
+.team,
+.faq,
+.lead-form {
+  padding: 56px 0;
+}
+
+.feature-card,
+.pricing-card {
+  padding: 24px;
+}
+
+.feature-card img {
+  width: 52px;
+  height: 52px;
+}
+
+.price {
+  font-size: 2rem;
+  font-weight: 850;
+}
+
+.featured {
+  border-color: #116466;
+}
+
+.profile-card {
+  display: grid;
+  grid-template-columns: 140px minmax(0, 1fr);
+  gap: 20px;
+  max-width: 640px;
+  padding: 24px;
+}
+
+.profile-card img {
+  width: 140px;
+  height: 140px;
+}
+
+.faq details {
+  padding: 18px 20px;
+  margin-bottom: 12px;
+}
+
+.faq summary {
+  cursor: pointer;
+  font-weight: 800;
+}
+
+.lead-form form {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 16px;
+  padding: 24px;
+}
+
+.lead-form label {
+  display: grid;
+  gap: 8px;
+  font-weight: 750;
+}
+
+.lead-form input,
+.lead-form select {
+  min-height: 42px;
+  border: 1px solid #b9c8d8;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.lead-form .checkbox,
+.lead-form button {
+  align-self: end;
+}
+
+.site-footer {
+  padding: 40px 0 64px;
+  color: #596779;
+}
+
+@media (max-width: 760px) {
+  .site-header,
+  .primary-nav,
+  .hero,
+  .stats,
+  .cards,
+  .pricing-grid,
+  .profile-card,
+  .lead-form form {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .hero {
+    padding-top: 36px;
+  }
+}

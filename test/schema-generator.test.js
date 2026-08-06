@@ -394,3 +394,55 @@ test('buildSchemaPlan rejects unsafe schema override targets and draft story slu
     /must remain inside integration-preview\/campaign-template-v1/
   );
 });
+
+test('buildSchemaPlan deduplicates shared nested components and repeated Storyblok asset sources', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'acme-campaign-v1',
+    storyblokPrefix: 'hts_acme_campaign_v1_',
+    repositoryNamespace: 'src/integrations/acme-campaign-v1',
+    templatePath: 'templates/acme-campaign',
+    inventory: {
+      page_inventory: [
+        {
+          page: 'index.html',
+          title: 'Acme Campaign',
+          landmarks: {
+            header: 1,
+            nav: 1,
+            footer: 0
+          },
+          tag_counts: {},
+          classes: ['feature-card'],
+          headings: [{ level: 1, text: 'Campaign' }],
+          text_blocks: [
+            { tag: 'p', text: 'Feature one.' },
+            { tag: 'p', text: 'Feature two.' },
+            { tag: 'p', text: 'Feature three.' },
+            { tag: 'p', text: 'Feature four.' }
+          ],
+          repeated_candidates: [
+            { class_name: 'feature-card', count: 4 }
+          ],
+          images: [
+            { src: './assets/card.svg', alt: 'Card' },
+            { src: './assets/card.svg', alt: 'Card duplicate' },
+            { src: './assets/hero.svg', alt: 'Hero' }
+          ],
+          links: [
+            { href: '/one', text: 'One' },
+            { href: '/two', text: 'Two' },
+            { href: '/three', text: 'Three' }
+          ],
+          forms: []
+        }
+      ],
+      asset_inventory: []
+    }
+  });
+
+  const componentNames = plan.components.map((component) => component.technical_name);
+  const storyblokAssetFilenames = plan.storyblok_assets.map((asset) => asset.filename);
+
+  assert.equal(componentNames.filter((name) => name === 'hts_acme_campaign_v1_navigation_item').length, 1);
+  assert.deepEqual(storyblokAssetFilenames.sort(), ['acme-campaign-v1/card.svg', 'acme-campaign-v1/hero.svg']);
+});

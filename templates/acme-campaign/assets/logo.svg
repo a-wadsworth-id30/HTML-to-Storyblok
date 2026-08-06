@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Acme Studio logo</title>
+  <rect width="64" height="64" rx="12" fill="#184e77"/>
+  <path d="M18 46 32 14l14 32h-8l-2.4-6.2H28.4L26 46h-8Zm13-13h10l-5-13-5 13Z" fill="#fff"/>
+</svg>

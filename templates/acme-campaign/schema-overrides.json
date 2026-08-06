@@ -1,0 +1,51 @@
+{
+  "components": {
+    "hero": {
+      "display_name": "Campaign Hero",
+      "preview_field": "campaign_code",
+      "fields": {
+        "campaign_code": {
+          "type": "text",
+          "description": "Internal campaign code used by CRM and analytics teams."
+        },
+        "related_services": {
+          "type": "options",
+          "source": "stories",
+          "folder_slug": "services/",
+          "description": "Optional related service stories for editorial linking."
+        },
+        "supporting_cards": {
+          "type": "bloks",
+          "component_whitelist": ["feature_item"],
+          "maximum": 3,
+          "description": "Optional integration-owned cards shown beneath the hero."
+        }
+      },
+      "draft": {
+        "campaign_code": "acme-campaign-v1",
+        "supporting_cards": [
+          {
+            "component": "feature_item",
+            "headline": "Safe import review"
+          }
+        ]
+      }
+    },
+    "form": {
+      "fields": {
+        "crm_segment": {
+          "type": "option",
+          "options": ["starter", "scale", "enterprise"],
+          "description": "CRM segment for submitted leads."
+        }
+      },
+      "draft": {
+        "crm_segment": "scale"
+      }
+    }
+  },
+  "draft_story": {
+    "name": "Acme Campaign Import Preview",
+    "headline": "Acme Campaign Preview"
+  }
+}

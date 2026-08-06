@@ -136,12 +136,16 @@ function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
   if (definitions.length === 0) add('section', 'Template section', { field_hints: hasFieldHints });
 
   const nested = [];
+  const nestedNames = new Set(definitions.map((definition) => definition.technical_name));
   for (const definition of definitions) {
     if (definition.nested_key) {
+      const technicalName = `${storyblokPrefix}${snakeCase(definition.nested_key)}`;
+      if (nestedNames.has(technicalName)) continue;
+      nestedNames.add(technicalName);
       nested.push({
         key: definition.nested_key,
         label: displayName(definition.nested_key),
-        technical_name: `${storyblokPrefix}${snakeCase(definition.nested_key)}`,
+        technical_name: technicalName,
         parent: definition.key
       });
     }
@@ -606,18 +610,28 @@ function buildRepositoryAssetPlan({ inventory, templatePath, repositoryNamespace
 
 function buildStoryblokAssetPlan({ inventory, templatePath, integrationId }) {
   const root = templatePath ? path.resolve(templatePath) : null;
-  return (inventory.page_inventory || []).flatMap((page) => page.images || []).map((image) => {
-    const clean = image.src ? image.src.replace(/^\.\//, '') : '';
-    const absolute = root && clean ? path.resolve(root, clean) : clean;
-    return {
-      local_path: absolute,
-      filename: `${integrationId}/${path.basename(clean || 'asset')}`,
-      asset_folder_path: integrationId,
-      alt: image.alt || '',
-      source_ref: image.src,
-      status: 'planned'
-    };
-  });
+  const seenSources = new Set();
+  const reservedFilenames = new Set();
+  const assets = [];
+  for (const page of inventory.page_inventory || []) {
+    for (const image of page.images || []) {
+      const clean = image.src ? image.src.replace(/^\.\//, '') : '';
+      const absolute = root && clean ? path.resolve(root, clean) : clean;
+      const sourceKey = absolute || clean;
+      if (!sourceKey || seenSources.has(sourceKey)) continue;
+      seenSources.add(sourceKey);
+      const filename = uniqueStoryblokAssetFilename(`${integrationId}/${path.basename(clean || 'asset')}`, reservedFilenames);
+      assets.push({
+        local_path: absolute,
+        filename,
+        asset_folder_path: integrationId,
+        alt: image.alt || '',
+        source_ref: image.src,
+        status: 'planned'
+      });
+    }
+  }
+  return assets;
 }
 
 function buildAssetFolderPlan({ inventory, integrationId }) {
@@ -630,6 +644,20 @@ function buildAssetFolderPlan({ inventory, integrationId }) {
       parent_id: 0
     }
   ];
+}
+
+function uniqueStoryblokAssetFilename(filename, reservedFilenames) {
+  if (!reservedFilenames.has(filename)) {
+    reservedFilenames.add(filename);
+    return filename;
+  }
+  const ext = path.extname(filename);
+  const base = filename.slice(0, -ext.length);
+  let index = 2;
+  while (reservedFilenames.has(`${base}-${index}${ext}`)) index += 1;
+  const uniqueFilename = `${base}-${index}${ext}`;
+  reservedFilenames.add(uniqueFilename);
+  return uniqueFilename;
 }
 
 function textField(description) {

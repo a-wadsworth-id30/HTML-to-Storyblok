@@ -146,16 +146,17 @@ templates/<template-name>/
 Example:
 
 ```text
-templates/acme-homepage/
+templates/acme-campaign/
   index.html
-  about.html
-  css/
-  js/
-  images/
-  fonts/
+  styles.css
+  behaviour.js
+  schema-overrides.json
+  assets/
 ```
 
 Keep the template source unchanged so discovery can compare the original files with generated integration output later.
+
+This repository includes `templates/acme-campaign/` as a smoke-test fixture. It contains a realistic landing-page template with local assets, local CSS, local JavaScript, repeated image references, form fields, explicit `data-hts-field` hints, and additive schema overrides. It also includes external form and analytics references so inspection/reporting can surface the expected review warnings.
 
 If you want to preview a raw static template in the browser before running inspection, start a simple server from the project root:
 
@@ -166,7 +167,7 @@ python3 -m http.server 8080
 Then open:
 
 ```text
-http://127.0.0.1:8080/templates/acme-homepage/
+http://127.0.0.1:8080/templates/acme-campaign/
 ```
 
 ## Working directory
@@ -838,17 +839,16 @@ The CLI rejects plans that modify existing repository files, reuse existing fron
 ## Example end-to-end dry run
 
 ```sh
-mkdir -p templates/acme-homepage
-
-html-to-storyblok inspect-template --template templates/acme-homepage
+html-to-storyblok inspect-template --template templates/acme-campaign
 html-to-storyblok inspect-repository --repo ../client-site
 html-to-storyblok inspect-storyblok
 html-to-storyblok inspect-netlify --repo ../client-site
 html-to-storyblok check-access
 
 html-to-storyblok plan \
-  --integration-id acme-homepage-v1 \
-  --template templates/acme-homepage \
+  --integration-id acme-campaign-v1 \
+  --template templates/acme-campaign \
+  --schema-overrides templates/acme-campaign/schema-overrides.json \
   --framework auto
 
 html-to-storyblok validate-plan \
@@ -857,7 +857,7 @@ html-to-storyblok validate-plan \
 html-to-storyblok apply \
   --manifest .tmp/html-to-storyblok/integration-manifest.json \
   --repo ../client-site \
-  --template templates/acme-homepage \
+  --template templates/acme-campaign \
   --framework auto \
   --dry-run
 

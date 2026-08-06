@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Acme Campaign</title>
+    <meta name="description" content="A sample campaign template for HTML-to-Storyblok testing.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/" data-hts-field="brand_name">
+        <img src="./assets/logo.svg" alt="Acme Studio logo">
+        Acme Studio
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <a href="#features">Features</a>
+        <a href="#pricing">Pricing</a>
+        <a href="#faq">FAQ</a>
+        <a href="/contact" data-hts-field="nav_contact_link">Contact</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="hero" id="top">
+        <div class="hero-copy">
+          <p class="eyebrow" data-hts-field="hero_eyebrow">Launch campaign</p>
+          <h1 data-hts-field="hero_headline">Turn a static campaign page into editable Storyblok content.</h1>
+          <p class="lede" data-hts-field="hero_intro">
+            A realistic test template with assets, sections, form controls, pricing, and reusable content blocks.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="/book-demo" data-hts-field="primary_cta">Book demo</a>
+            <a class="button secondary" href="#features" data-hts-field="secondary_cta">View features</a>
+          </div>
+        </div>
+        <figure class="hero-media">
+          <img src="./assets/hero.svg" alt="Dashboard preview for campaign import" data-hts-field="hero_image">
+          <figcaption>Preview-safe isolated import.</figcaption>
+        </figure>
+      </section>
+
+      <section class="stats" aria-label="Campaign metrics">
+        <article>
+          <strong data-hts-field="stat_one_value">24</strong>
+          <span data-hts-field="stat_one_label">editable blocks</span>
+        </article>
+        <article>
+          <strong data-hts-field="stat_two_value">100%</strong>
+          <span data-hts-field="stat_two_label">additive output</span>
+        </article>
+        <article>
+          <strong data-hts-field="stat_three_value">0</strong>
+          <span data-hts-field="stat_three_label">production mutations</span>
+        </article>
+      </section>
+
+      <section class="feature-grid" id="features">
+        <div class="section-heading">
+          <p class="eyebrow">Integration workflow</p>
+          <h2 data-hts-field="features_headline">Everything needed for a safe review.</h2>
+          <p data-hts-field="features_intro">The content below is intentionally structured to exercise schema inference and draft story generation.</p>
+        </div>
+        <div class="cards">
+          <article class="feature-card">
+            <img src="./assets/card-import.svg" alt="">
+            <h3>Template inspection</h3>
+            <p>Finds pages, sections, scripts, CSS, local assets, missing assets, and accessibility warnings.</p>
+          </article>
+          <article class="feature-card">
+            <img src="./assets/card-import.svg" alt="">
+            <h3>Namespaced output</h3>
+            <p>Generated frontend files, CSS selectors, Storyblok components, and assets use the integration ID.</p>
+          </article>
+          <article class="feature-card">
+            <img src="./assets/card-import.svg" alt="">
+            <h3>Rollback ready</h3>
+            <p>Every local file and draft Storyblok resource remains isolated and can be reviewed before removal.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="pricing" id="pricing">
+        <div class="section-heading">
+          <p class="eyebrow">Pricing</p>
+          <h2>Choose your launch package.</h2>
+        </div>
+        <div class="pricing-grid">
+          <article class="pricing-card">
+            <h3>Starter</h3>
+            <p class="price">$49 / month</p>
+            <p>Best for a single campaign landing page.</p>
+            <a href="/pricing/starter">Start small</a>
+          </article>
+          <article class="pricing-card featured">
+            <h3>Scale</h3>
+            <p class="price">$149 / month</p>
+            <p>Best for teams migrating a reusable campaign system.</p>
+            <a href="/pricing/scale">Scale up</a>
+          </article>
+        </div>
+      </section>
+
+      <section class="team">
+        <div class="section-heading">
+          <p class="eyebrow">Team</p>
+          <h2>Reviewed by delivery specialists.</h2>
+        </div>
+        <article class="profile-card">
+          <img src="./assets/team-ada.svg" alt="Ada Lovelace profile illustration">
+          <div>
+            <h3>Ada Lovelace</h3>
+            <p>Technical Director</p>
+            <p>Ada reviews import plans, rollback evidence, and publishing readiness before launch.</p>
+          </div>
+        </article>
+      </section>
+
+      <section class="faq" id="faq">
+        <div class="section-heading">
+          <p class="eyebrow">FAQ</p>
+          <h2>Common launch questions.</h2>
+        </div>
+        <details>
+          <summary>Does this modify production content?</summary>
+          <p>No. The import creates namespaced draft resources and isolated repository files.</p>
+        </details>
+        <details>
+          <summary>Can assets be reviewed first?</summary>
+          <p>Yes. The manifest and dry-run report list planned local and Storyblok asset operations.</p>
+        </details>
+      </section>
+
+      <section class="lead-form">
+        <div class="section-heading">
+          <p class="eyebrow">Next step</p>
+          <h2 data-hts-field="form_headline">Request an import review.</h2>
+        </div>
+        <form action="https://forms.example.com/acme-campaign" method="post">
+          <label>
+            Work email
+            <input type="email" name="email" placeholder="you@example.com" required data-hts-field="lead_email">
+          </label>
+          <label>
+            Package
+            <select name="package" data-hts-field="preferred_package">
+              <option value="starter">Starter</option>
+              <option value="scale">Scale</option>
+            </select>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="updates" checked data-hts-field="accept_updates">
+            Send launch updates
+          </label>
+          <button type="submit">Request review</button>
+        </form>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>Acme Studio. Sample template for import testing.</p>
+    </footer>
+
+    <script src="./behaviour.js"></script>
+    <script src="https://example.com/analytics.js"></script>
+  </body>
+</html>

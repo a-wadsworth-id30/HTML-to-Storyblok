@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-labelledby="title">
+  <title id="title">Ada Lovelace profile illustration</title>
+  <rect width="180" height="180" rx="20" fill="#f1f7fb"/>
+  <circle cx="90" cy="68" r="34" fill="#184e77"/>
+  <path d="M42 154c6-34 31-52 48-52s42 18 48 52" fill="#d8edf2"/>
+  <circle cx="78" cy="64" r="5" fill="#fff"/>
+  <circle cx="102" cy="64" r="5" fill="#fff"/>
+  <path d="M76 84c9 8 20 8 29 0" stroke="#fff" stroke-width="5" stroke-linecap="round"/>
+</svg>

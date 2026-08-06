@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-labelledby="title">
+  <title id="title">Import card icon</title>
+  <rect x="12" y="14" width="72" height="68" rx="12" fill="#d8edf2"/>
+  <path d="M48 26v28m0 0L36 42m12 12 12-12" stroke="#184e77" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M30 66h36" stroke="#116466" stroke-width="7" stroke-linecap="round"/>
+</svg>
