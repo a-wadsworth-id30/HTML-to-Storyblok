@@ -84,6 +84,8 @@ function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
   const repeated = primaryPage.repeated_candidates || [];
   const textBlocks = primaryPage.text_blocks || [];
   const classNames = primaryPage.classes || [];
+  const classText = classNames.join(' ');
+  const tagCounts = primaryPage.tag_counts || {};
   const hasHero = (primaryPage.headings || []).some((heading) => heading.level === 1) || images.length > 0;
 
   if (landmarks.header) {
@@ -98,6 +100,11 @@ function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
     add('feature_grid', 'Repeated content grid', { nested_key: 'feature_item', source_candidates: repeated });
   }
   if (images.length >= 3) add('gallery', 'Media gallery', { nested_key: 'media_item', assets: images.map((image) => image.src) });
+  if (hasStatsPattern(textBlocks, classText)) add('stats_grid', 'Stats grid', { nested_key: 'stat_item' });
+  if (hasPricingPattern(textBlocks, classText, repeated)) add('pricing_table', 'Pricing table', { nested_key: 'pricing_plan' });
+  if (hasStepsPattern(textBlocks, classText)) add('steps', 'Steps', { nested_key: 'step_item' });
+  if (hasFaqPattern(textBlocks, classText, tagCounts)) add('faq_list', 'FAQ list', { nested_key: 'faq_item' });
+  if (hasTeamPattern(textBlocks, classText, images)) add('team_grid', 'Team grid', { nested_key: 'team_member' });
   if (textBlocks.some((block) => block.tag === 'blockquote') || classNames.some((className) => /testimonial|quote|review/i.test(className))) {
     add('testimonial_list', 'Testimonials', { nested_key: 'testimonial_item' });
   }
@@ -212,6 +219,107 @@ function buildComponentForDefinition(definition, primaryPage, storyblokPrefix) {
       quote: textareaField('Quote'),
       author: textField('Author'),
       role: textField('Role or attribution')
+    });
+  }
+  if (definition.key === 'stats_grid') {
+    return nestableComponent(definition, {
+      headline: textField('Stats headline'),
+      items: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}stat_item`],
+        maximum: 12,
+        description: 'Integration-owned statistics.'
+      }
+    });
+  }
+  if (definition.key === 'stat_item') {
+    return nestableComponent(definition, {
+      value: textField('Statistic value'),
+      label: textField('Statistic label'),
+      description: textareaField('Optional statistic description')
+    });
+  }
+  if (definition.key === 'pricing_table') {
+    return nestableComponent(definition, {
+      headline: textField('Pricing headline'),
+      intro: richtextField('Pricing introduction'),
+      plans: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}pricing_plan`],
+        maximum: 12,
+        description: 'Integration-owned pricing plans.'
+      }
+    });
+  }
+  if (definition.key === 'pricing_plan') {
+    return nestableComponent(definition, {
+      name: textField('Plan name'),
+      price: textField('Price'),
+      summary: textareaField('Plan summary'),
+      features: textareaField('One feature per line'),
+      cta_label: textField('CTA label'),
+      cta_link: linkField('CTA link'),
+      featured: booleanField('Featured plan')
+    });
+  }
+  if (definition.key === 'steps') {
+    return nestableComponent(definition, {
+      headline: textField('Steps headline'),
+      items: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}step_item`],
+        maximum: 16,
+        description: 'Integration-owned process steps.'
+      }
+    });
+  }
+  if (definition.key === 'step_item') {
+    return nestableComponent(definition, {
+      step_number: textField('Step number'),
+      headline: textField('Step headline'),
+      body: richtextField('Step body copy')
+    });
+  }
+  if (definition.key === 'faq_list') {
+    return nestableComponent(definition, {
+      headline: textField('FAQ headline'),
+      items: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}faq_item`],
+        maximum: 40,
+        description: 'Integration-owned frequently asked questions.'
+      }
+    });
+  }
+  if (definition.key === 'faq_item') {
+    return nestableComponent(definition, {
+      question: textField('Question'),
+      answer: richtextField('Answer')
+    });
+  }
+  if (definition.key === 'team_grid') {
+    return nestableComponent(definition, {
+      headline: textField('Team headline'),
+      members: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}team_member`],
+        maximum: 48,
+        description: 'Integration-owned team members or profile cards.'
+      }
+    });
+  }
+  if (definition.key === 'team_member') {
+    return nestableComponent(definition, {
+      name: textField('Name'),
+      role: textField('Role'),
+      bio: richtextField('Biography'),
+      image: assetField('Profile image'),
+      link: linkField('Profile link')
     });
   }
   if (definition.key === 'cta_group') {
@@ -367,6 +475,57 @@ function draftBlock(definition, primaryPage, integrationId) {
         author: '',
         role: ''
       }));
+  }
+  if (definition.key === 'stats_grid') {
+    block.items = inferStats(primaryPage.text_blocks || []).slice(0, 12).map((stat, index) => ({
+      _uid: stableUid(integrationId, `stat-item-${index}-${stat.value}-${stat.label}`),
+      component: definition.technical_name.replace(/stats_grid$/, 'stat_item'),
+      value: stat.value,
+      label: stat.label,
+      description: stat.description
+    }));
+  }
+  if (definition.key === 'pricing_table') {
+    const links = primaryPage.links || [];
+    block.plans = inferPricingPlans(primaryPage.text_blocks || [], links).slice(0, 12).map((plan, index) => ({
+      _uid: stableUid(integrationId, `pricing-plan-${index}-${plan.name}-${plan.price}`),
+      component: definition.technical_name.replace(/pricing_table$/, 'pricing_plan'),
+      name: plan.name,
+      price: plan.price,
+      summary: plan.summary,
+      features: plan.features.join('\n'),
+      cta_label: links[index]?.text || '',
+      cta_link: links[index]?.href ? toStoryblokLink(links[index].href) : emptyStoryblokLink(),
+      featured: index === 0
+    }));
+  }
+  if (definition.key === 'steps') {
+    block.items = inferSteps(primaryPage.text_blocks || []).slice(0, 16).map((step, index) => ({
+      _uid: stableUid(integrationId, `step-item-${index}-${step.headline}`),
+      component: definition.technical_name.replace(/steps$/, 'step_item'),
+      step_number: String(index + 1),
+      headline: step.headline,
+      body: richTextDocument(step.body)
+    }));
+  }
+  if (definition.key === 'faq_list') {
+    block.items = inferFaqs(primaryPage.text_blocks || []).slice(0, 40).map((faq, index) => ({
+      _uid: stableUid(integrationId, `faq-item-${index}-${faq.question}`),
+      component: definition.technical_name.replace(/faq_list$/, 'faq_item'),
+      question: faq.question,
+      answer: richTextDocument(faq.answer)
+    }));
+  }
+  if (definition.key === 'team_grid') {
+    block.members = inferTeamMembers(primaryPage.text_blocks || [], primaryPage.images || [], primaryPage.links || []).slice(0, 48).map((member, index) => ({
+      _uid: stableUid(integrationId, `team-member-${index}-${member.name}`),
+      component: definition.technical_name.replace(/team_grid$/, 'team_member'),
+      name: member.name,
+      role: member.role,
+      bio: richTextDocument(member.bio),
+      image: draftImage(member.image),
+      link: member.link ? toStoryblokLink(member.link.href) : emptyStoryblokLink()
+    }));
   }
   if (definition.key === 'cta_group') {
     block.items = (primaryPage.links || [])
@@ -545,6 +704,137 @@ function normalizeInputType(input) {
   const type = String(input.type || 'text').toLowerCase();
   if (['text', 'email', 'tel', 'number', 'checkbox', 'radio', 'hidden'].includes(type)) return type;
   return 'text';
+}
+
+function emptyStoryblokLink() {
+  return { linktype: 'url', url: '' };
+}
+
+function hasStatsPattern(textBlocks, classText) {
+  return /stat|metric|kpi|counter|number/i.test(classText) ||
+    textBlocks.some((block) => /\b\d{2,}[%+x]?\b/.test(block.text || ''));
+}
+
+function hasPricingPattern(textBlocks, classText, repeated) {
+  return /pricing|price|plan|package|tier/i.test(classText) ||
+    repeated.some((item) => /pricing|price|plan|package|tier/i.test(item.class_name || '')) ||
+    textBlocks.some((block) => /[$£€]\s?\d|\b\d+\s?(?:\/|per)\s?(month|mo|year|yr)\b/i.test(block.text || ''));
+}
+
+function hasStepsPattern(textBlocks, classText) {
+  return /step|timeline|process|how-it-works|journey/i.test(classText) ||
+    textBlocks.some((block) => /^(step\s*)?\d+[.)]\s+/i.test(block.text || ''));
+}
+
+function hasFaqPattern(textBlocks, classText, tagCounts) {
+  return /faq|accordion|question|answers?/i.test(classText) ||
+    Number(tagCounts.details || 0) > 0 ||
+    textBlocks.some((block) => /\?$/.test(block.text || '') || /^(q:|question:)/i.test(block.text || ''));
+}
+
+function hasTeamPattern(textBlocks, classText, images) {
+  return /team|person|people|profile|bio|avatar|staff|leader/i.test(classText) ||
+    (images.length >= 2 && textBlocks.some((block) => /\b(founder|director|manager|designer|developer|consultant|lead|ceo|cto|cfo)\b/i.test(block.text || '')));
+}
+
+function inferStats(textBlocks) {
+  return textBlocks
+    .map((block) => String(block.text || '').trim())
+    .map((text) => {
+      const match = text.match(/(\d[\d,.]*\s?[%+x]?)\s*(.*)/);
+      if (!match) return null;
+      return {
+        value: match[1].trim(),
+        label: cleanDraftText(match[2]).slice(0, 80) || 'Statistic',
+        description: cleanDraftText(text)
+      };
+    })
+    .filter(Boolean);
+}
+
+function inferPricingPlans(textBlocks, links) {
+  const prices = textBlocks
+    .map((block) => cleanDraftText(block.text))
+    .filter((text) => /[$£€]\s?\d|\b\d+\s?(?:\/|per)\s?(month|mo|year|yr)\b/i.test(text));
+  if (prices.length === 0) return [];
+  return prices.map((priceText, index) => ({
+    name: previousMeaningfulText(textBlocks, priceText) || `Plan ${index + 1}`,
+    price: priceText,
+    summary: nextMeaningfulText(textBlocks, priceText) || '',
+    features: textBlocks
+      .map((block) => cleanDraftText(block.text))
+      .filter((text) => text && text !== priceText && !links.some((link) => link.text === text))
+      .slice(index * 4, index * 4 + 4)
+  }));
+}
+
+function inferSteps(textBlocks) {
+  const numbered = textBlocks
+    .map((block) => cleanDraftText(block.text))
+    .filter((text) => /^(step\s*)?\d+[.)]\s+/i.test(text))
+    .map((text) => {
+      const withoutNumber = text.replace(/^(step\s*)?\d+[.)]\s+/i, '');
+      return {
+        headline: withoutNumber.slice(0, 80),
+        body: withoutNumber
+      };
+    });
+  if (numbered.length > 0) return numbered;
+  return textBlocks
+    .map((block) => cleanDraftText(block.text))
+    .filter(Boolean)
+    .slice(0, 6)
+    .map((text) => ({
+      headline: text.slice(0, 80),
+      body: text
+    }));
+}
+
+function inferFaqs(textBlocks) {
+  const texts = textBlocks.map((block) => cleanDraftText(block.text)).filter(Boolean);
+  const faqs = [];
+  for (let index = 0; index < texts.length; index += 1) {
+    const text = texts[index];
+    if (!/\?$/.test(text) && !/^(q:|question:)/i.test(text)) continue;
+    faqs.push({
+      question: text.replace(/^(q:|question:)\s*/i, ''),
+      answer: texts[index + 1] && !/\?$/.test(texts[index + 1]) ? texts[index + 1].replace(/^(a:|answer:)\s*/i, '') : ''
+    });
+  }
+  return faqs;
+}
+
+function inferTeamMembers(textBlocks, images, links) {
+  const texts = textBlocks.map((block) => cleanDraftText(block.text)).filter(Boolean);
+  const rolePattern = /\b(founder|director|manager|designer|developer|consultant|lead|ceo|cto|cfo|head|president|partner)\b/i;
+  const roleIndexes = texts
+    .map((text, index) => ({ text, index }))
+    .filter((entry) => rolePattern.test(entry.text));
+  return roleIndexes.map((entry, memberIndex) => ({
+    name: texts[entry.index - 1] || `Team Member ${memberIndex + 1}`,
+    role: entry.text,
+    bio: texts[entry.index + 1] || '',
+    image: images[memberIndex] || null,
+    link: links[memberIndex] || null
+  }));
+}
+
+function previousMeaningfulText(textBlocks, currentText) {
+  const texts = textBlocks.map((block) => cleanDraftText(block.text)).filter(Boolean);
+  const index = texts.indexOf(currentText);
+  if (index <= 0) return '';
+  return texts[index - 1];
+}
+
+function nextMeaningfulText(textBlocks, currentText) {
+  const texts = textBlocks.map((block) => cleanDraftText(block.text)).filter(Boolean);
+  const index = texts.indexOf(currentText);
+  if (index < 0 || index >= texts.length - 1) return '';
+  return texts[index + 1];
+}
+
+function cleanDraftText(value) {
+  return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
 function stableUid(integrationId, seed) {

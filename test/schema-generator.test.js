@@ -97,3 +97,80 @@ test('buildSchemaPlan infers richer nested schemas from complex template facts',
   assert.equal(gallery.items.length, 3);
   assert.equal(gallery.items[0].component, 'hts_acme_homepage_v1_media_item');
 });
+
+test('buildSchemaPlan infers bespoke editorial patterns without exposing child items at root', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'summit-template-v1',
+    storyblokPrefix: 'hts_summit_template_v1_',
+    repositoryNamespace: 'src/integrations/summit-template-v1',
+    templatePath: 'templates/summit-template',
+    inventory: {
+      page_inventory: [
+        {
+          page: 'index.html',
+          title: 'Summit',
+          landmarks: {
+            header: 0,
+            nav: 0,
+            footer: 0
+          },
+          tag_counts: {
+            details: 2
+          },
+          classes: ['stats-grid', 'pricing-card', 'timeline-step', 'team-profile', 'faq-accordion'],
+          headings: [{ level: 1, text: 'Summit' }],
+          text_blocks: [
+            { tag: 'p', text: '95% customer satisfaction' },
+            { tag: 'p', text: 'Starter' },
+            { tag: 'p', text: '$49 / month' },
+            { tag: 'p', text: 'Best for small teams' },
+            { tag: 'p', text: 'Step 1. Choose your plan' },
+            { tag: 'p', text: 'How does billing work?' },
+            { tag: 'p', text: 'Billing is monthly and can be cancelled.' },
+            { tag: 'p', text: 'Ada Lovelace' },
+            { tag: 'p', text: 'Technical Director' },
+            { tag: 'p', text: 'Ada leads the technical programme.' }
+          ],
+          repeated_candidates: [
+            { class_name: 'pricing-card', count: 3 }
+          ],
+          images: [
+            { src: 'ada.jpg', alt: 'Ada Lovelace' },
+            { src: 'team-2.jpg', alt: 'Team member' }
+          ],
+          links: [
+            { href: '/buy', text: 'Buy now' },
+            { href: '/ada', text: 'Ada profile' }
+          ],
+          forms: []
+        }
+      ],
+      asset_inventory: []
+    }
+  });
+
+  const names = plan.components.map((component) => component.technical_name);
+  assert.ok(names.includes('hts_summit_template_v1_stats_grid'));
+  assert.ok(names.includes('hts_summit_template_v1_pricing_table'));
+  assert.ok(names.includes('hts_summit_template_v1_steps'));
+  assert.ok(names.includes('hts_summit_template_v1_faq_list'));
+  assert.ok(names.includes('hts_summit_template_v1_team_grid'));
+
+  const rootWhitelist = plan.components.find((component) =>
+    component.technical_name === 'hts_summit_template_v1_template_page'
+  ).schema.body.component_whitelist;
+  assert.ok(rootWhitelist.includes('hts_summit_template_v1_pricing_table'));
+  assert.ok(!rootWhitelist.includes('hts_summit_template_v1_pricing_plan'));
+  assert.ok(!rootWhitelist.includes('hts_summit_template_v1_faq_item'));
+  assert.ok(!rootWhitelist.includes('hts_summit_template_v1_team_member'));
+
+  const stats = plan.draft_story.content.body.find((block) => block.component === 'hts_summit_template_v1_stats_grid');
+  const pricing = plan.draft_story.content.body.find((block) => block.component === 'hts_summit_template_v1_pricing_table');
+  const faq = plan.draft_story.content.body.find((block) => block.component === 'hts_summit_template_v1_faq_list');
+  const team = plan.draft_story.content.body.find((block) => block.component === 'hts_summit_template_v1_team_grid');
+
+  assert.equal(stats.items[0].value, '95%');
+  assert.equal(pricing.plans[0].price, '$49 / month');
+  assert.equal(faq.items[0].question, 'How does billing work?');
+  assert.equal(team.members[0].name, 'Ada Lovelace');
+});
