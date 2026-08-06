@@ -1,4 +1,5 @@
 import { checkLiveAccess } from './access.js';
+import { CLI_CREDIT } from './branding.js';
 import { duplicateAll } from './duplicator.js';
 import { loadEnvironment } from './env.js';
 import { ensureWorkDir, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from './evidence.js';
@@ -313,6 +314,7 @@ function redactMessage(message) {
 
 function printHelp() {
   console.log(`html-to-storyblok
+${CLI_CREDIT}
 
 Usage:
   html-to-storyblok
