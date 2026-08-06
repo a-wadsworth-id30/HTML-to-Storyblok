@@ -35,12 +35,7 @@ export function analyzeHtml(content, { sourceFile = '' } = {}) {
   const forms = extractPairedTagText(content, /^form$/i).map((entry) => ({
     action: entry.attributes.action || '',
     method: (entry.attributes.method || 'get').toLowerCase(),
-    inputs: extractTags(entry.innerHtml).filter((tag) => ['input', 'select', 'textarea', 'button'].includes(tag.name)).map((tag) => ({
-      tag: tag.name,
-      name: tag.attributes.name || '',
-      type: tag.attributes.type || null,
-      required: Object.hasOwn(tag.attributes, 'required')
-    }))
+    inputs: extractFormControls(entry.innerHtml)
   }));
   const scripts = extractScripts(content);
   const inlineHandlers = extractInlineHandlers(tags);
@@ -271,6 +266,45 @@ function extractInlineHandlers(tags) {
       .filter((name) => /^on[a-z]+$/i.test(name))
       .map((name) => ({ tag: tag.name, attribute: name }))
   );
+}
+
+function extractFormControls(html) {
+  const labelByFor = new Map(extractPairedTagText(html, /^label$/i)
+    .filter((entry) => entry.attributes.for)
+    .map((entry) => [entry.attributes.for, cleanText(entry.text)]));
+  const controls = [];
+  const push = (tag, attributes, innerHtml = '') => {
+    controls.push({
+      tag,
+      name: attributes.name || '',
+      type: tag === 'input' ? attributes.type || 'text' : tag,
+      required: Object.hasOwn(attributes, 'required'),
+      id: attributes.id || null,
+      label: labelByFor.get(attributes.id) || attributes['aria-label'] || attributes.placeholder || attributes.name || '',
+      placeholder: attributes.placeholder || null,
+      value: attributes.value || null,
+      options: tag === 'select'
+        ? extractPairedTagText(innerHtml, /^option$/i).map((option) => ({
+          label: cleanText(option.text),
+          value: option.attributes.value || cleanText(option.text)
+        }))
+        : []
+    });
+  };
+
+  for (const tag of extractTags(html).filter((entry) => entry.name === 'input')) {
+    push('input', tag.attributes);
+  }
+  for (const entry of extractPairedTagText(html, /^select$/i)) {
+    push('select', entry.attributes, entry.innerHtml);
+  }
+  for (const entry of extractPairedTagText(html, /^textarea$/i)) {
+    push('textarea', entry.attributes, entry.innerHtml);
+  }
+  for (const entry of extractPairedTagText(html, /^button$/i)) {
+    push('button', entry.attributes, entry.innerHtml);
+  }
+  return controls;
 }
 
 function inferRepeatedHtmlCandidates(tags) {

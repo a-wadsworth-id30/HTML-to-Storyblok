@@ -2,7 +2,8 @@ import path from 'node:path';
 import { sha256 } from './utils.js';
 
 export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, repositoryNamespace, templatePath }) {
-  const primaryPage = inventory.page_inventory?.[0] || {};
+  const pages = inventory.page_inventory || [];
+  const primaryPage = pages[0] || {};
   const components = [];
   const blocks = [];
   const mapping = [];
@@ -12,7 +13,7 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
   for (const definition of blockDefinitions) {
     const component = buildComponentForDefinition(definition, primaryPage, storyblokPrefix);
     components.push(component);
-    if (component.component_type === 'nestable') blocks.push(component.technical_name);
+    if (component.component_type === 'nestable' && !definition.parent) blocks.push(component.technical_name);
     mapping.push({
       template_section: definition.label,
       new_framework_component: `Hts${pascalCase(integrationId)}${pascalCase(definition.key)}`,
@@ -81,16 +82,30 @@ function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
   const links = primaryPage.links || [];
   const forms = primaryPage.forms || [];
   const repeated = primaryPage.repeated_candidates || [];
+  const textBlocks = primaryPage.text_blocks || [];
+  const classNames = primaryPage.classes || [];
   const hasHero = (primaryPage.headings || []).some((heading) => heading.level === 1) || images.length > 0;
 
-  if (landmarks.header) add('header', 'Header', { assets: images.slice(0, 1).map((image) => image.src) });
+  if (landmarks.header) {
+    add('header', 'Header', {
+      assets: images.slice(0, 1).map((image) => image.src),
+      nested_key: links.length > 0 ? 'navigation_item' : undefined
+    });
+  }
   if (landmarks.nav || links.length >= 3) add('navigation', 'Navigation', { nested_key: 'navigation_item', links: links.slice(0, 12) });
   if (hasHero) add('hero', 'Hero', { assets: images.slice(0, 1).map((image) => image.src) });
-  if (repeated.some((item) => /grid|card|item|feature/i.test(item.class_name))) {
-    add('feature_grid', 'Repeated content grid', { nested_key: 'feature_item' });
+  if (repeated.some((item) => /grid|card|item|feature|tile|product/i.test(item.class_name)) || textBlocks.length >= 4) {
+    add('feature_grid', 'Repeated content grid', { nested_key: 'feature_item', source_candidates: repeated });
   }
-  if ((primaryPage.text_blocks || []).length > 0) add('content_section', 'Content section');
-  if (forms.length > 0) add('form', 'Form', { risk: 'External form behaviour requires endpoint review' });
+  if (images.length >= 3) add('gallery', 'Media gallery', { nested_key: 'media_item', assets: images.map((image) => image.src) });
+  if (textBlocks.some((block) => block.tag === 'blockquote') || classNames.some((className) => /testimonial|quote|review/i.test(className))) {
+    add('testimonial_list', 'Testimonials', { nested_key: 'testimonial_item' });
+  }
+  if (links.filter((link) => link.href && !link.href.startsWith('#')).length >= 2 && !landmarks.nav) {
+    add('cta_group', 'Call-to-action group', { nested_key: 'cta_item' });
+  }
+  if (textBlocks.length > 0) add('content_section', 'Content section');
+  if (forms.length > 0) add('form', 'Form', { nested_key: 'form_field', risk: 'External form behaviour requires endpoint review' });
   if (landmarks.footer) add('footer', 'Footer');
   if (definitions.length === 0) add('section', 'Template section');
 
@@ -109,12 +124,26 @@ function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
 }
 
 function buildComponentForDefinition(definition, primaryPage, storyblokPrefix) {
+  if (definition.key === 'header') {
+    return nestableComponent(definition, {
+      headline: textField('Header headline'),
+      logo: assetField('Optional header logo'),
+      links: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}navigation_item`],
+        maximum: 12,
+        description: 'Optional integration-owned header links.'
+      }
+    });
+  }
   if (definition.key === 'navigation') {
     return nestableComponent(definition, {
       items: {
         type: 'bloks',
         restrict_components: true,
         component_whitelist: [`${storyblokPrefix}navigation_item`],
+        maximum: 20,
         description: 'Integration-owned navigation links.'
       }
     });
@@ -128,10 +157,13 @@ function buildComponentForDefinition(definition, primaryPage, storyblokPrefix) {
   if (definition.key === 'feature_grid') {
     return nestableComponent(definition, {
       headline: textField('Grid headline'),
+      intro: richtextField('Grid introduction'),
+      layout: optionField('Grid layout', ['grid', 'carousel', 'stack']),
       items: {
         type: 'bloks',
         restrict_components: true,
         component_whitelist: [`${storyblokPrefix}feature_item`],
+        maximum: 24,
         description: 'Integration-owned repeated grid items.'
       }
     });
@@ -139,19 +171,95 @@ function buildComponentForDefinition(definition, primaryPage, storyblokPrefix) {
   if (definition.key === 'feature_item') {
     return nestableComponent(definition, {
       headline: textField('Item headline'),
-      body: textareaField('Item body copy'),
-      image: assetField('Optional item image')
+      body: richtextField('Item body copy'),
+      image: assetField('Optional item image'),
+      link: linkField('Optional item link')
+    });
+  }
+  if (definition.key === 'gallery') {
+    return nestableComponent(definition, {
+      headline: textField('Gallery headline'),
+      items: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}media_item`],
+        maximum: 48,
+        description: 'Integration-owned media items.'
+      }
+    });
+  }
+  if (definition.key === 'media_item') {
+    return nestableComponent(definition, {
+      image: assetField('Media asset'),
+      alt: textField('Alternative text'),
+      caption: textareaField('Optional caption')
+    });
+  }
+  if (definition.key === 'testimonial_list') {
+    return nestableComponent(definition, {
+      headline: textField('Testimonials headline'),
+      items: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}testimonial_item`],
+        maximum: 24,
+        description: 'Integration-owned testimonials.'
+      }
+    });
+  }
+  if (definition.key === 'testimonial_item') {
+    return nestableComponent(definition, {
+      quote: textareaField('Quote'),
+      author: textField('Author'),
+      role: textField('Role or attribution')
+    });
+  }
+  if (definition.key === 'cta_group') {
+    return nestableComponent(definition, {
+      headline: textField('CTA headline'),
+      body: richtextField('CTA body copy'),
+      items: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}cta_item`],
+        maximum: 8,
+        description: 'Integration-owned calls to action.'
+      }
+    });
+  }
+  if (definition.key === 'cta_item') {
+    return nestableComponent(definition, {
+      label: textField('CTA label'),
+      link: linkField('CTA link'),
+      style: optionField('CTA style', ['primary', 'secondary', 'text'])
     });
   }
   if (definition.key === 'form') {
     return nestableComponent(definition, {
       headline: textField('Form headline'),
-      body: textareaField('Form supporting copy'),
+      body: richtextField('Form supporting copy'),
+      fields: {
+        type: 'bloks',
+        restrict_components: true,
+        component_whitelist: [`${storyblokPrefix}form_field`],
+        maximum: 40,
+        description: 'Integration-owned form field definitions.'
+      },
       submit_label: textField('Submit button label'),
       endpoint_reference: {
         type: 'text',
         description: 'Reference name for the approved form endpoint. Do not store credentials here.'
       }
+    });
+  }
+  if (definition.key === 'form_field') {
+    return nestableComponent(definition, {
+      label: textField('Field label'),
+      name: textField('Field name'),
+      input_type: optionField('Input type', ['text', 'email', 'tel', 'number', 'textarea', 'select', 'checkbox', 'radio', 'hidden']),
+      required: booleanField('Required field'),
+      placeholder: textField('Placeholder'),
+      options: textareaField('One select/radio option per line')
     });
   }
   return nestableComponent(definition, commonSectionSchema(primaryPage));
@@ -160,7 +268,7 @@ function buildComponentForDefinition(definition, primaryPage, storyblokPrefix) {
 function commonSectionSchema(primaryPage) {
   const schema = {
     headline: textField('Section headline'),
-    body: textareaField('Section body copy')
+    body: richtextField('Section body copy')
   };
   if ((primaryPage.images || []).length > 0) schema.image = assetField('Section image');
   if ((primaryPage.links || []).length > 0) {
@@ -206,7 +314,7 @@ function draftBlock(definition, primaryPage, integrationId) {
     _uid: stableUid(integrationId, definition.key),
     component: definition.technical_name,
     headline: title,
-    body
+    body: richTextDocument(body)
   };
   const firstImage = primaryPage.images?.[0];
   if (firstImage) {
@@ -235,12 +343,68 @@ function draftBlock(definition, primaryPage, integrationId) {
       _uid: stableUid(integrationId, `feature-item-${index}-${entry.text}`),
       component: definition.technical_name.replace(/feature_grid$/, 'feature_item'),
       headline: entry.text.slice(0, 80),
-      body: entry.text
+      body: richTextDocument(entry.text),
+      image: draftImage(primaryPage.images?.[index])
     }));
   }
+  if (definition.key === 'gallery') {
+    block.items = (primaryPage.images || []).slice(0, 24).map((image, index) => ({
+      _uid: stableUid(integrationId, `media-item-${index}-${image.src}`),
+      component: definition.technical_name.replace(/gallery$/, 'media_item'),
+      image: draftImage(image),
+      alt: image.alt || '',
+      caption: image.alt || ''
+    }));
+  }
+  if (definition.key === 'testimonial_list') {
+    block.items = (primaryPage.text_blocks || [])
+      .filter((entry) => entry.tag === 'blockquote' || /testimonial|quote|review/i.test(entry.text))
+      .slice(0, 12)
+      .map((entry, index) => ({
+        _uid: stableUid(integrationId, `testimonial-item-${index}-${entry.text}`),
+        component: definition.technical_name.replace(/testimonial_list$/, 'testimonial_item'),
+        quote: entry.text,
+        author: '',
+        role: ''
+      }));
+  }
+  if (definition.key === 'cta_group') {
+    block.items = (primaryPage.links || [])
+      .filter((link) => link.href && !link.href.startsWith('#'))
+      .slice(0, 8)
+      .map((link, index) => ({
+        _uid: stableUid(integrationId, `cta-item-${index}-${link.href}`),
+        component: definition.technical_name.replace(/cta_group$/, 'cta_item'),
+        label: link.text || link.href || `CTA ${index + 1}`,
+        link: toStoryblokLink(link.href),
+        style: index === 0 ? 'primary' : 'secondary'
+      }));
+  }
   if (definition.key === 'form') {
+    const form = primaryPage.forms?.[0];
+    block.fields = (form?.inputs || [])
+      .filter((input) => input.tag !== 'button')
+      .map((input, index) => ({
+        _uid: stableUid(integrationId, `form-field-${index}-${input.name || input.label}`),
+        component: definition.technical_name.replace(/form$/, 'form_field'),
+        label: input.label || input.name || `Field ${index + 1}`,
+        name: input.name || `field_${index + 1}`,
+        input_type: normalizeInputType(input),
+        required: Boolean(input.required),
+        placeholder: input.placeholder || '',
+        options: (input.options || []).map((option) => option.label || option.value).filter(Boolean).join('\n')
+      }));
     block.submit_label = 'Submit';
-    block.endpoint_reference = '';
+    block.endpoint_reference = form?.action && /^https?:\/\//i.test(form.action) ? 'external-endpoint-review-required' : '';
+  }
+  if (definition.key === 'header') {
+    block.logo = draftImage(primaryPage.images?.[0]);
+    block.links = (primaryPage.links || []).slice(0, 8).map((link, index) => ({
+      _uid: stableUid(integrationId, `header-link-${index}-${link.href}`),
+      component: definition.technical_name.replace(/header$/, 'navigation_item'),
+      label: link.text || link.href || `Link ${index + 1}`,
+      link: toStoryblokLink(link.href)
+    }));
   }
   return block;
 }
@@ -300,6 +464,30 @@ function textareaField(description) {
   };
 }
 
+function richtextField(description) {
+  return {
+    type: 'richtext',
+    translatable: true,
+    description
+  };
+}
+
+function booleanField(description) {
+  return {
+    type: 'boolean',
+    description
+  };
+}
+
+function optionField(description, options) {
+  return {
+    type: 'option',
+    source: 'self',
+    options: options.map((value) => ({ value, name: displayName(value) })),
+    description
+  };
+}
+
 function assetField(description) {
   return {
     type: 'asset',
@@ -320,6 +508,43 @@ function toStoryblokLink(href = '') {
   if (/^https?:\/\//i.test(href)) return { linktype: 'url', url: href };
   if (href.startsWith('#')) return { linktype: 'url', url: href };
   return { linktype: 'story', cached_url: href.replace(/^\//, '') };
+}
+
+function draftImage(image) {
+  if (!image) return null;
+  return {
+    id: null,
+    filename: image.src,
+    alt: image.alt || ''
+  };
+}
+
+function richTextDocument(text = '') {
+  const value = String(text || '').trim();
+  return {
+    type: 'doc',
+    content: value
+      ? [
+        {
+          type: 'paragraph',
+          content: [
+            {
+              type: 'text',
+              text: value
+            }
+          ]
+        }
+      ]
+      : []
+  };
+}
+
+function normalizeInputType(input) {
+  if (input.tag === 'textarea') return 'textarea';
+  if (input.tag === 'select') return 'select';
+  const type = String(input.type || 'text').toLowerCase();
+  if (['text', 'email', 'tel', 'number', 'checkbox', 'radio', 'hidden'].includes(type)) return type;
+  return 'text';
 }
 
 function stableUid(integrationId, seed) {

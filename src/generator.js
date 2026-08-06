@@ -108,7 +108,7 @@ function renderComponents(integrationId, componentNames) {
     const fn = functionName(name);
     return `export function ${fn}(blok = {}) {
   const headline = escapeHtml(blok.headline || blok.name || '');
-  const body = escapeHtml(blok.body || '');
+  const body = escapeHtml(toPlainText(blok.body || ''));
   return \`<section class="${rootClass}__section" data-component="${name}">
     \${headline ? \`<h2>\${headline}</h2>\` : ''}
     \${body ? \`<p>\${body}</p>\` : ''}
@@ -140,6 +140,16 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function toPlainText(value) {
+  if (typeof value === 'string') return value;
+  if (Array.isArray(value)) return value.map(toPlainText).filter(Boolean).join(' ');
+  if (value && typeof value === 'object') {
+    if (typeof value.text === 'string') return value.text;
+    if (Array.isArray(value.content)) return value.content.map(toPlainText).filter(Boolean).join(' ');
+  }
+  return '';
 }
 `;
 }
