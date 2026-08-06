@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { checkLiveAccess } from './access.js';
-import { CLI_CREDIT } from './branding.js';
+import { CLI_BRANDING_LINES } from './branding.js';
 import { DEFAULT_CONFIG, loadConfig, parseSettingAssignment, saveConfig, updateConfigValue } from './config.js';
 import { discoverRepositories, discoverTemplates, isRepository } from './discovery.js';
 import { createDoctorReport } from './doctor.js';
@@ -77,7 +77,9 @@ async function renderOpeningBanner(terminal) {
   if (!terminal.interactive) return;
   const banner = await readOpeningBanner();
   if (banner) terminal.line(terminal.style('cyan', banner.trimEnd()));
-  terminal.line(terminal.style('dim', CLI_CREDIT));
+  for (const line of CLI_BRANDING_LINES) {
+    terminal.line(terminal.style('dim', line));
+  }
   terminal.line('');
 }
 

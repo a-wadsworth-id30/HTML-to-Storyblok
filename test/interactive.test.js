@@ -230,8 +230,9 @@ test('interactive app returns to the home screen after a completed action', asyn
   assert.equal(result.action, 'exit');
   assert.equal(input.paused, true);
   assert.equal(headers.length >= 2, true);
-  assert.match(output.text(), /\$\$\$\$\$\$\$\$\$\$\$/);
-  assert.match(output.text(), /Copyright ID30\. Developer: Adam Wadsworth - a\.wadsworth@id30\.com/);
+  assert.match(output.text(), /HTML -> STORYBLOK/);
+  assert.match(output.text(), /Copyright 2026 ID30\. Developer: Adam Wadsworth - a\.wadsworth@id30\.com/);
+  assert.match(output.text(), /Legal Notice: This software is the proprietary property of iD30\./);
   assert.match(output.text(), /Next/);
 });
 
@@ -375,7 +376,8 @@ test('no-command non-interactive CLI path prints help without launching the wiza
   const output = await captureStdout(async () => {
     await main(['node', 'html-to-storyblok', '--no-interactive']);
   });
-  assert.match(output, /Copyright ID30\. Developer: Adam Wadsworth - a\.wadsworth@id30\.com/);
+  assert.match(output, /Copyright 2026 ID30\. Developer: Adam Wadsworth - a\.wadsworth@id30\.com/);
+  assert.match(output, /Legal Notice: This software is the proprietary property of iD30\./);
   assert.match(output, /html-to-storyblok dashboard/);
 });
 
