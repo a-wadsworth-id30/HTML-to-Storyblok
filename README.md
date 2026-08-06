@@ -57,7 +57,7 @@ Run the command without arguments to launch the guided terminal experience:
 html-to-storyblok
 ```
 
-Interactive startup displays the compact ID30 ASCII banner from `ascii-art.txt`, the ID30 developer credit, and the proprietary-use legal notice, then opens the guided menu. Non-interactive help output also includes the same branding and legal notice.
+Interactive startup displays the compact ID30 ASCII banner in `ascii-art.txt`, converted from `id30-logo.svg`, followed by the ID30 developer credit and proprietary-use legal notice. Non-interactive help output also includes the same branding and legal notice.
 
 The home screen provides task-oriented actions so first-time users do not need to remember the lower-level command names:
 
