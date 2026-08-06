@@ -216,6 +216,68 @@ test('buildSchemaPlan uses index.html as the primary draft page when templates c
   assert.equal(plan.components[0].source, 'index.html');
 });
 
+test('buildSchemaPlan resolves template route links to generated draft stories', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'multi-route-v1',
+    storyblokPrefix: 'hts_multi_route_v1_',
+    repositoryNamespace: 'src/integrations/multi-route-v1',
+    templatePath: 'templates/multi-route',
+    inventory: {
+      page_inventory: [
+        multiRoutePage('index.html', 'Home page', [
+          { href: '/home', text: 'Home' },
+          { href: '/about', text: 'About' },
+          { href: '/services.html', text: 'Services' },
+          { href: '/gallery#work', text: 'Gallery' },
+          { href: '/contact', text: 'Contact', field_hint: 'primary_cta' },
+          { href: '#features', text: 'Features' },
+          { href: 'https://example.com', text: 'External' }
+        ]),
+        multiRoutePage('about.html', 'About page'),
+        multiRoutePage('services.html', 'Services page'),
+        multiRoutePage('gallery.html', 'Gallery page'),
+        multiRoutePage('contact.html', 'Contact page')
+      ],
+      asset_inventory: []
+    }
+  });
+
+  const homeStory = plan.draft_stories.find((story) => story.source_page === 'index.html');
+  const navigation = homeStory.content.body.find((block) => block.component === 'hts_multi_route_v1_navigation');
+  const linksByLabel = Object.fromEntries(navigation.items.map((item) => [item.label, item.link]));
+  const contentSection = homeStory.content.body.find((block) => block.component === 'hts_multi_route_v1_content_section');
+
+  assert.deepEqual(linksByLabel.Home, {
+    linktype: 'story',
+    cached_url: 'integration-preview/multi-route-v1/home'
+  });
+  assert.deepEqual(linksByLabel.About, {
+    linktype: 'story',
+    cached_url: 'integration-preview/multi-route-v1/about'
+  });
+  assert.deepEqual(linksByLabel.Services, {
+    linktype: 'story',
+    cached_url: 'integration-preview/multi-route-v1/services'
+  });
+  assert.deepEqual(linksByLabel.Gallery, {
+    linktype: 'story',
+    cached_url: 'integration-preview/multi-route-v1/gallery',
+    anchor: 'work'
+  });
+  assert.deepEqual(linksByLabel.Features, {
+    linktype: 'url',
+    url: '#features'
+  });
+  assert.deepEqual(linksByLabel.External, {
+    linktype: 'url',
+    url: 'https://example.com'
+  });
+  assert.deepEqual(contentSection.primary_cta, {
+    linktype: 'story',
+    cached_url: 'integration-preview/multi-route-v1/contact'
+  });
+});
+
 test('buildSchemaPlan applies route-specific draft story overrides to multi-page templates', () => {
   const plan = buildSchemaPlan({
     integrationId: 'multi-route-v1',
@@ -620,3 +682,23 @@ test('buildSchemaPlan deduplicates shared nested components and repeated Storybl
   assert.equal(componentNames.filter((name) => name === 'hts_acme_campaign_v1_navigation_item').length, 1);
   assert.deepEqual(storyblokAssetFilenames.sort(), ['acme-campaign-v1/card.svg', 'acme-campaign-v1/hero.svg']);
 });
+
+function multiRoutePage(page, headline, links = []) {
+  return {
+    page,
+    title: headline,
+    landmarks: {
+      nav: links.length > 0 ? 1 : 0
+    },
+    tag_counts: {},
+    classes: [],
+    headings: [{ level: 1, text: headline }],
+    text_blocks: [
+      { tag: 'p', text: `${headline} content.` }
+    ],
+    repeated_candidates: [],
+    images: [],
+    links,
+    forms: []
+  };
+}

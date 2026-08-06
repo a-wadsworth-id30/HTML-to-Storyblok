@@ -474,19 +474,25 @@ function nestableComponent(definition, schema) {
 
 function buildDraftStories({ integrationId, rootName, definitionsByPage }) {
   const multiPage = definitionsByPage.length > 1;
+  const routeMap = buildStoryRouteMap({
+    definitionsByPage,
+    integrationId,
+    multiPage
+  });
   return definitionsByPage.map(({ page, definitions }) => buildDraftStory({
     integrationId,
     rootName,
     page,
     blockDefinitions: definitions,
-    multiPage
+    multiPage,
+    routeMap
   }));
 }
 
-function buildDraftStory({ integrationId, rootName, page, blockDefinitions, multiPage = false }) {
+function buildDraftStory({ integrationId, rootName, page, blockDefinitions, multiPage = false, routeMap = null }) {
   const blocks = blockDefinitions
     .filter((definition) => !definition.parent)
-    .map((definition) => draftBlock(definition, page, integrationId));
+    .map((definition) => draftBlock(definition, page, integrationId, routeMap));
   const title = page.headings?.[0]?.text || page.title || displayName(integrationId);
   const route = routeForPage(page);
   return {
@@ -504,7 +510,7 @@ function buildDraftStory({ integrationId, rootName, page, blockDefinitions, mult
   };
 }
 
-function draftBlock(definition, primaryPage, integrationId) {
+function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
   const title = primaryPage.headings?.[0]?.text || displayName(definition.label);
   const body = primaryPage.text_blocks?.find((block) => block.tag === 'p')?.text || '';
   const contentImages = contentImagesForDraft(primaryPage.images || []);
@@ -521,7 +527,7 @@ function draftBlock(definition, primaryPage, integrationId) {
     const cta = selectPrimaryCtaLink(primaryPage.links || []);
     if (cta) {
       block.cta_label = cta.text || 'Learn more';
-      block.cta_link = toStoryblokLink(cta.href);
+      block.cta_link = toStoryblokLink(cta.href, routeMap);
     }
   }
   if (definition.key === 'navigation') {
@@ -529,7 +535,7 @@ function draftBlock(definition, primaryPage, integrationId) {
       _uid: stableUid(integrationId, `navigation-item-${index}-${link.href}`),
       component: definition.technical_name.replace(/navigation$/, 'navigation_item'),
       label: link.text || link.href || `Item ${index + 1}`,
-      link: toStoryblokLink(link.href)
+      link: toStoryblokLink(link.href, routeMap)
     }));
   }
   if (definition.key === 'feature_grid') {
@@ -591,7 +597,7 @@ function draftBlock(definition, primaryPage, integrationId) {
       summary: plan.summary,
       features: plan.features.join('\n'),
       cta_label: links[index]?.text || '',
-      cta_link: links[index]?.href ? toStoryblokLink(links[index].href) : emptyStoryblokLink(),
+      cta_link: links[index]?.href ? toStoryblokLink(links[index].href, routeMap) : emptyStoryblokLink(),
       featured: index === 0
     }));
   }
@@ -623,7 +629,7 @@ function draftBlock(definition, primaryPage, integrationId) {
       role: member.role,
       bio: richTextDocument(member.bio),
       image: draftImage(member.image),
-      link: member.link ? toStoryblokLink(member.link.href) : emptyStoryblokLink()
+      link: member.link ? toStoryblokLink(member.link.href, routeMap) : emptyStoryblokLink()
     }));
   }
   if (definition.key === 'cta_group') {
@@ -636,7 +642,7 @@ function draftBlock(definition, primaryPage, integrationId) {
         _uid: stableUid(integrationId, `cta-item-${index}-${link.href}`),
         component: definition.technical_name.replace(/cta_group$/, 'cta_item'),
         label: link.text || link.href || `CTA ${index + 1}`,
-        link: toStoryblokLink(link.href),
+        link: toStoryblokLink(link.href, routeMap),
         style: index === 0 ? 'primary' : 'secondary'
       }));
   }
@@ -667,7 +673,7 @@ function draftBlock(definition, primaryPage, integrationId) {
       _uid: stableUid(integrationId, `header-link-${index}-${link.href}`),
       component: definition.technical_name.replace(/header$/, 'navigation_item'),
       label: link.text || link.href || `Link ${index + 1}`,
-      link: toStoryblokLink(link.href)
+      link: toStoryblokLink(link.href, routeMap)
     }));
   }
   if (definition.key === 'content_section' || definition.key === 'section' || definition.key === 'footer') {
@@ -683,12 +689,12 @@ function draftBlock(definition, primaryPage, integrationId) {
         : selectPrimaryCtaLink(primaryPage.links || []);
       if (cta) {
         block.cta_label = cta.text || 'Learn more';
-        block.cta_link = toStoryblokLink(cta.href);
+        block.cta_link = toStoryblokLink(cta.href, routeMap);
       }
     }
   }
   if (definition.field_hints) {
-    Object.assign(block, draftExplicitFieldValues(primaryPage, block));
+    Object.assign(block, draftExplicitFieldValues(primaryPage, block, routeMap));
   }
   return block;
 }
@@ -812,10 +818,80 @@ function linkField(description) {
   };
 }
 
-function toStoryblokLink(href = '') {
-  if (/^https?:\/\//i.test(href)) return { linktype: 'url', url: href };
-  if (href.startsWith('#')) return { linktype: 'url', url: href };
-  return { linktype: 'story', cached_url: href.replace(/^\//, '') };
+function toStoryblokLink(href = '', routeMap = null) {
+  const value = String(href || '').trim();
+  const routeLink = resolveStoryRouteLink(value, routeMap);
+  if (routeLink) {
+    return {
+      linktype: 'story',
+      cached_url: routeLink.cached_url,
+      ...(routeLink.anchor ? { anchor: routeLink.anchor } : {})
+    };
+  }
+  if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return { linktype: 'url', url: value };
+  if (value.startsWith('#')) return { linktype: 'url', url: value };
+  return { linktype: 'story', cached_url: value.replace(/^\//, '') };
+}
+
+function resolveStoryRouteLink(href, routeMap) {
+  if (!routeMap || !href || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+  const [withoutAnchor, anchor = ''] = href.split('#', 2);
+  const [withoutQuery] = withoutAnchor.split('?', 1);
+  const alias = normalizeRouteAlias(withoutQuery);
+  const cachedUrl = routeMap.get(alias);
+  return cachedUrl ? { cached_url: cachedUrl, anchor } : null;
+}
+
+function buildStoryRouteMap({ definitionsByPage, integrationId, multiPage }) {
+  const routeMap = new Map();
+  for (const { page } of definitionsByPage) {
+    const route = routeForPage(page);
+    const storySlug = multiPage
+      ? `integration-preview/${integrationId}/${route.slug}`
+      : `integration-preview/${integrationId}`;
+    for (const alias of routeAliasesForPage(page, route)) {
+      routeMap.set(alias, storySlug);
+    }
+  }
+  return routeMap;
+}
+
+function routeAliasesForPage(page = {}, route = routeForPage(page)) {
+  const aliases = new Set();
+  const add = (value) => {
+    const alias = normalizeRouteAlias(value);
+    if (alias) aliases.add(alias);
+  };
+  const source = String(page.page || '');
+  add(source);
+  add(path.basename(source));
+  add(source.replace(/\.[^.]+$/, ''));
+  add(path.basename(source).replace(/\.[^.]+$/, ''));
+  add(route.slug);
+  add(route.path);
+  if (route.slug === 'home') {
+    add('/');
+    add('/home');
+    add('home');
+    add('/index.html');
+    add('index.html');
+  }
+  return [...aliases];
+}
+
+function normalizeRouteAlias(value = '') {
+  const [withoutAnchor] = String(value || '').trim().replaceAll('\\', '/').split('#', 1);
+  const [withoutQuery] = withoutAnchor.split('?', 1);
+  const clean = withoutQuery
+    .replace(/^\.\//, '')
+    .replace(/^\/+|\/+$/g, '')
+    .replace(/\.html?$/i, '');
+  if (!clean || /^index$/i.test(clean)) return 'home';
+  return clean
+    .split('/')
+    .filter(Boolean)
+    .map((part, index, parts) => index === parts.length - 1 && /^index$/i.test(part) ? 'home' : kebabCase(part))
+    .join('/');
 }
 
 function draftImage(image) {
@@ -951,13 +1027,13 @@ function explicitFieldHintSchema(primaryPage, existingSchema = {}) {
   return schema;
 }
 
-function draftExplicitFieldValues(primaryPage, existingValues = {}) {
+function draftExplicitFieldValues(primaryPage, existingValues = {}, routeMap = null) {
   const values = {};
   for (const hint of collectExplicitFieldHints(primaryPage).slice(0, 24)) {
     const fieldName = safeFieldName(hint.field_hint);
     if (!fieldName || Object.hasOwn(existingValues, fieldName) || Object.hasOwn(values, fieldName)) continue;
     const field = fieldForHint(hint);
-    values[fieldName] = draftValueForHint(hint, field);
+    values[fieldName] = draftValueForHint(hint, field, routeMap);
   }
   return values;
 }
@@ -1224,9 +1300,9 @@ function fieldForInputHint(input = {}, label) {
   return textField(`Explicit template field: ${label}`);
 }
 
-function draftValueForHint(hint, field) {
+function draftValueForHint(hint, field, routeMap = null) {
   if (field.type === 'asset') return draftImage(hint.image);
-  if (field.type === 'multilink') return toStoryblokLink(hint.link?.href || '');
+  if (field.type === 'multilink') return toStoryblokLink(hint.link?.href || '', routeMap);
   if (field.type === 'boolean') return Boolean(hint.input?.checked);
   if (field.type === 'option') {
     return hint.input?.value || field.options?.[0]?.value || '';
