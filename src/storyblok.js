@@ -201,6 +201,75 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
   return results;
 }
 
+export async function createStoryblokAssetFolders(manifest, { dryRun = false, env = process.env } = {}) {
+  const config = getStoryblokConfig(env);
+  const folders = plannedAssetFolders(manifest);
+  const results = [];
+  if (!config.available && !dryRun) {
+    throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
+  }
+
+  if (dryRun) {
+    return folders.map((folder) => ({
+      action: 'create_asset_folder',
+      dry_run: true,
+      folder_path: folder.path,
+      payload: {
+        asset_folder: {
+          name: folder.name,
+          parent_id: folder.parent_id || 0
+        }
+      },
+      collision_policy: 'reuse_matching_folder_or_create'
+    }));
+  }
+
+  const existingFolders = await listStoryblokAssetFolders(config);
+  const resolved = new Map();
+  for (const folder of folders) {
+    const parentId = folder.parent_path ? resolved.get(folder.parent_path)?.id : folder.parent_id || 0;
+    if (folder.parent_path && !parentId) throw new Error(`parent Storyblok asset folder was not resolved: ${folder.parent_path}`);
+    const existing = existingFolders.find((entry) => entry.name === folder.name && Number(entry.parent_id || 0) === Number(parentId || 0));
+    if (existing) {
+      const summary = summarizeAssetFolder(existing, folder.path);
+      resolved.set(folder.path, summary);
+      results.push({
+        action: 'create_asset_folder',
+        dry_run: false,
+        status: 'already_exists',
+        folder_path: folder.path,
+        id: summary.id,
+        verification: summary
+      });
+      continue;
+    }
+
+    const payload = {
+      asset_folder: {
+        name: folder.name,
+        parent_id: parentId || 0
+      }
+    };
+    const response = await storyblokRequest(config, `/spaces/${config.spaceId}/asset_folders/`, {
+      method: 'POST',
+      body: payload
+    });
+    const created = response.asset_folder || response;
+    existingFolders.push(created);
+    const summary = summarizeAssetFolder(created, folder.path);
+    resolved.set(folder.path, summary);
+    results.push({
+      action: 'create_asset_folder',
+      dry_run: false,
+      status: 'created',
+      folder_path: folder.path,
+      id: summary.id,
+      verification: summary
+    });
+  }
+  return results;
+}
+
 export async function uploadStoryblokAssets(manifest, { dryRun = false, env = process.env } = {}) {
   const config = getStoryblokConfig(env);
   const assets = ensureArray(manifest.storyblok?.assets_to_create);
@@ -209,15 +278,22 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
     throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
   }
 
+  const folderIds = dryRun ? new Map() : await resolveAssetFolderIds(manifest, { env });
+
   for (const asset of assets) {
     const localPath = asset.local_path || asset.file || asset.path;
     if (!localPath) throw new Error('asset entry is missing local_path');
     if (!(await pathExists(localPath))) throw new Error(`asset file does not exist: ${localPath}`);
     const filename = asset.filename || path.basename(localPath);
     const fileStat = await stat(localPath);
+    const assetFolderPath = asset.asset_folder_path || defaultAssetFolderPath(manifest);
+    const resolvedFolderId = asset.asset_folder_id || (assetFolderPath ? folderIds.get(assetFolderPath) : null);
+    if (!dryRun && assetFolderPath && !resolvedFolderId) {
+      throw new Error(`Storyblok asset folder was not resolved for asset ${filename}: ${assetFolderPath}`);
+    }
     const signPayload = {
       filename,
-      asset_folder_id: asset.asset_folder_id || undefined,
+      asset_folder_id: resolvedFolderId || undefined,
       size: asset.size || '',
       validate_upload: 1
     };
@@ -227,8 +303,12 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
         dry_run: true,
         local_path: localPath,
         filename,
+        asset_folder_path: assetFolderPath || null,
         bytes: fileStat.size,
-        sign_payload: signPayload
+        sign_payload: {
+          ...signPayload,
+          asset_folder_path: assetFolderPath || undefined
+        }
       });
       continue;
     }
@@ -242,6 +322,8 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
         status: 'already_exists',
         local_path: localPath,
         filename,
+        asset_folder_path: assetFolderPath || null,
+        asset_folder_id: resolvedFolderId || null,
         id: existing.id || null,
         verification: summarizeAsset(existing)
       });
@@ -263,6 +345,8 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
       status: 'created',
       local_path: localPath,
       filename,
+      asset_folder_path: assetFolderPath || null,
+      asset_folder_id: resolvedFolderId || null,
       id: finished.asset?.id || assetId || null,
       verification: finished.asset ? summarizeAsset(finished.asset) : finished
     });
@@ -424,6 +508,11 @@ async function storyblokContentRequest(config, endpoint, params = {}) {
 async function listStoryblokComponents(config) {
   const response = await storyblokRequest(config, `/spaces/${config.spaceId}/components/`);
   return ensureArray(response.components);
+}
+
+async function listStoryblokAssetFolders(config) {
+  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/asset_folders/`);
+  return ensureArray(response.asset_folders);
 }
 
 async function findStoryBySlug(config, slug) {
@@ -599,6 +688,16 @@ function summarizeAsset(asset) {
   };
 }
 
+function summarizeAssetFolder(folder, folderPath = null) {
+  return {
+    id: folder.id,
+    uuid: folder.uuid || null,
+    name: folder.name,
+    parent_id: folder.parent_id || 0,
+    folder_path: folderPath
+  };
+}
+
 function summarizeContentStory(story) {
   return {
     name: story.name,
@@ -620,6 +719,46 @@ function titleFromTechnicalName(name) {
 
 function lastSlugSegment(slug) {
   return String(slug).split('/').filter(Boolean).at(-1) || 'Integration Preview';
+}
+
+async function resolveAssetFolderIds(manifest, { env = process.env } = {}) {
+  const folders = await createStoryblokAssetFolders(manifest, { env });
+  return new Map(folders.filter((folder) => folder.id).map((folder) => [folder.folder_path, folder.id]));
+}
+
+function plannedAssetFolders(manifest) {
+  const explicit = ensureArray(manifest.storyblok?.asset_folders_to_create);
+  const fromAssets = ensureArray(manifest.storyblok?.assets_to_create)
+    .map((asset) => asset.asset_folder_path || asset.asset_folder)
+    .filter(Boolean)
+    .map((folderPath) => ({ path: folderPath }));
+  const planned = [];
+  const seen = new Set();
+  for (const entry of [...explicit, ...fromAssets]) {
+    for (const folder of expandAssetFolder(entry, manifest)) {
+      if (seen.has(folder.path)) continue;
+      seen.add(folder.path);
+      planned.push(folder);
+    }
+  }
+  return planned.sort((left, right) => left.path.split('/').length - right.path.split('/').length || left.path.localeCompare(right.path));
+}
+
+function expandAssetFolder(entry, manifest) {
+  const folderPath = String(entry.path || entry.name || entry || defaultAssetFolderPath(manifest) || '').replace(/^\/+|\/+$/g, '');
+  if (!folderPath) return [];
+  const parts = folderPath.split('/').filter(Boolean);
+  return parts.map((part, index) => ({
+    path: parts.slice(0, index + 1).join('/'),
+    name: index === parts.length - 1 && entry.name ? entry.name : part,
+    parent_path: index > 0 ? parts.slice(0, index).join('/') : null,
+    parent_id: index === 0 ? entry.parent_id || 0 : undefined
+  }));
+}
+
+function defaultAssetFolderPath(manifest) {
+  const first = ensureArray(manifest.storyblok?.asset_folders_to_create)[0];
+  return first?.path || first?.name || null;
 }
 
 function safeError(data) {

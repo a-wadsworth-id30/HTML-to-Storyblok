@@ -312,9 +312,12 @@ html-to-storyblok netlify-preview \
   --site-id <site-id> \
   --branch <branch> \
   --verify \
+  --wait \
   --expected-build-command "npm run build" \
   --expected-publish-directory dist
 ```
+
+`--wait` polls the deploy preview until it reaches a terminal state or the timeout expires. Use `--timeout-ms` and `--interval-ms` to tune polling. Verification records the deploy log page URL and any deploy error message, but it does not print raw deploy logs or expose Netlify log access metadata.
 
 Netlify API lookup requires:
 
@@ -456,6 +459,7 @@ html-to-storyblok apply \
 - convert supplied template HTML/CSS/assets into isolated framework files
 - validate the generated local integration before remote mutations
 - create new Storyblok components
+- create or reuse matching integration-owned Storyblok asset folders
 - upload new Storyblok assets listed in the manifest
 - create new draft Storyblok stories
 
@@ -535,6 +539,16 @@ html-to-storyblok storyblok-components \
 ```
 
 Real Storyblok component creation is idempotent: if a namespaced component already exists and matches the manifest, the CLI reports it as `already_exists`; if it differs, the CLI stops and reports drift.
+
+Create Storyblok asset folders listed in `storyblok.asset_folders_to_create`:
+
+```sh
+html-to-storyblok storyblok-asset-folders \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --dry-run
+```
+
+Real asset folder creation is additive. Matching folders under the same parent are reused; existing folders are never renamed or updated.
 
 Upload Storyblok assets listed in `storyblok.assets_to_create`:
 
@@ -637,7 +651,7 @@ html-to-storyblok inspect-storyblok
 html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
 html-to-storyblok inspect-netlify --repo <path>
 html-to-storyblok check-access
-html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify]
+html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait]
 html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static]
 html-to-storyblok validate-plan --manifest <path>
 html-to-storyblok diff --manifest <path> --repo <path>
@@ -646,6 +660,7 @@ html-to-storyblok build --repo <path> [--script build] [--dry-run]
 html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
 html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
 html-to-storyblok storyblok-components --manifest <path> [--dry-run]
+html-to-storyblok storyblok-asset-folders --manifest <path> [--dry-run]
 html-to-storyblok upload-assets --manifest <path> [--dry-run]
 html-to-storyblok create-draft-story --manifest <path> [--dry-run]
 html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
@@ -706,14 +721,12 @@ html-to-storyblok report
 
 ## Current limitations
 
-- Template conversion handles static HTML, CSS, local assets, and local JavaScript isolation. Arbitrary vendor scripts and inline event handlers are removed from rendered HTML and recorded for review.
-- React/Next JSX conversion is intentionally conservative and may require manual follow-up for complex attributes, inline styles, or custom elements.
+- Template conversion handles static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation. Arbitrary vendor scripts and inline event handlers are removed from rendered HTML and recorded for review.
 - Existing component duplication is implemented for manifest-listed frontend files, repository assets, and Storyblok components, but it does not infer duplication candidates automatically yet.
-- Storyblok asset upload supports manifest-listed local files, but does not yet create asset folders.
 - Storyblok schema generation infers a safe component family from template structure, but complex editorial models may require manual schema refinement through a new namespaced version.
 - GitHub pull-request creation uses the GitHub REST API, but branch creation, commit staging, and push orchestration remain manual.
 - GitLab merge-request creation uses the GitLab REST API, but branch creation, commit staging, and push orchestration remain manual.
-- Netlify preview verification reads deploy records and site build settings, but does not yet poll until completion or inspect full build logs.
+- Netlify preview verification can poll until a deploy reaches a terminal state and records the deploy log page URL. Raw deploy logs are not exposed through the Netlify REST API; use the Netlify UI or Netlify CLI logs for full deploy output.
 - Local rollback removes integration-owned repository files only. Remote Storyblok resource deletion is intentionally not automatic.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.

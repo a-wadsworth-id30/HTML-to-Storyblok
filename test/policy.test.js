@@ -104,6 +104,19 @@ test('unsafe draft story slugs are rejected', () => {
   assert.match(result.violations.at(-1).reason, /safe relative slug/);
 });
 
+test('unnamespaced Storyblok asset folder paths are rejected', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.asset_folders_to_create.push({ path: 'shared-assets' });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.match(result.violations.at(-1).reason, /asset folder paths must be safe and namespaced/);
+});
+
 test('generator produces isolated files inside repository namespace', () => {
   const manifest = createDefaultManifest({
     integrationId: 'acme-homepage-v1',

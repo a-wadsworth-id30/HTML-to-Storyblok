@@ -3,7 +3,7 @@ import { writeArtifact } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
-import { createDraftStories, createStoryblokComponents, uploadStoryblokAssets } from './storyblok.js';
+import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, uploadStoryblokAssets } from './storyblok.js';
 import { readJson, requireOption } from './utils.js';
 import { validateIntegration } from './validator.js';
 
@@ -38,16 +38,16 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   const steps = [];
   const progress = typeof onProgress === 'function' ? onProgress : async () => {};
 
-  await progress({ label: 'Creating Frontend', current: 0, total: 6 });
+  await progress({ label: 'Creating Frontend', current: 0, total: 7 });
   steps.push(await duplicateAll(manifest, { repoPath, dryRun }));
-  await progress({ label: 'Creating Frontend', current: 1, total: 6 });
+  await progress({ label: 'Creating Frontend', current: 1, total: 7 });
   steps.push(await generateIntegration(manifest, {
     repoPath,
     templatePath: args.template ? String(args.template) : undefined,
     framework: args.framework ? String(args.framework) : 'auto',
     dryRun
   }));
-  await progress({ label: 'Validating Local Output', current: 2, total: 6 });
+  await progress({ label: 'Validating Local Output', current: 2, total: 7 });
   const localValidation = dryRun
     ? { action: 'validate_integration', status: 'skipped', reason: 'dry-run does not write generated files' }
     : await validateIntegration(manifest, { repoPath });
@@ -58,22 +58,27 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   if (localValidation.status === 'failed') {
     throw new Error('local validation failed after generation; refusing remote Storyblok mutations');
   }
-  await progress({ label: 'Creating Storyblok Components', current: 3, total: 6 });
+  await progress({ label: 'Creating Storyblok Components', current: 3, total: 7 });
   steps.push({
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun })
   });
-  await progress({ label: 'Uploading Assets', current: 4, total: 6 });
+  await progress({ label: 'Creating Storyblok Asset Folders', current: 4, total: 7 });
+  steps.push({
+    action: 'storyblok_asset_folders',
+    results: await createStoryblokAssetFolders(manifest, { dryRun })
+  });
+  await progress({ label: 'Uploading Assets', current: 5, total: 7 });
   steps.push({
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun })
   });
-  await progress({ label: 'Creating Draft Story', current: 5, total: 6 });
+  await progress({ label: 'Creating Draft Story', current: 6, total: 7 });
   steps.push({
     action: 'storyblok_draft_stories',
     results: await createDraftStories(manifest, { dryRun })
   });
-  await progress({ label: 'Done', current: 6, total: 6 });
+  await progress({ label: 'Done', current: 7, total: 7 });
   const result = {
     action: 'apply_manifest',
     dry_run: dryRun,

@@ -10,7 +10,7 @@ import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlif
 import { validatePlan } from './policy.js';
 import { createReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
-import { createDraftStories, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
+import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption } from './utils.js';
 import { diffIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 import { applyManifest, createPlanFromArgs, readAndValidateManifest } from './workflow.js';
@@ -23,6 +23,7 @@ const MUTATING_COMMANDS = new Set([
   'open-mr',
   'open-pr',
   'rollback',
+  'storyblok-asset-folders',
   'storyblok-components',
   'upload-assets'
 ]);
@@ -93,7 +94,10 @@ export async function main(argv) {
           deployId: args.deploy_id ? String(args.deploy_id) : undefined,
           expectedBuildCommand: args.expected_build_command ? String(args.expected_build_command) : undefined,
           expectedPublishDirectory: args.expected_publish_directory ? String(args.expected_publish_directory) : undefined,
-          expectedContext: args.expected_context ? String(args.expected_context) : 'deploy-preview'
+          expectedContext: args.expected_context ? String(args.expected_context) : 'deploy-preview',
+          wait: Boolean(args.wait),
+          timeoutMs: args.timeout_ms ? Number(args.timeout_ms) : undefined,
+          intervalMs: args.interval_ms ? Number(args.interval_ms) : undefined
         })
         : await queryNetlifyDeployPreviews({
           siteId: args.site_id ? String(args.site_id) : undefined,
@@ -145,6 +149,10 @@ export async function main(argv) {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await createStoryblokComponents(manifest, { dryRun: Boolean(args.dry_run) });
       await writeArtifact(workDir, 'storyblok-components-result.json', result);
+    } else if (command === 'storyblok-asset-folders') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createStoryblokAssetFolders(manifest, { dryRun: Boolean(args.dry_run) });
+      await writeArtifact(workDir, 'storyblok-asset-folders-result.json', result);
     } else if (command === 'upload-assets') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await uploadStoryblokAssets(manifest, { dryRun: Boolean(args.dry_run) });
@@ -261,7 +269,7 @@ Usage:
   html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
-  html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify]
+  html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait]
   html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>]
   html-to-storyblok validate-plan --manifest <path>
   html-to-storyblok diff --manifest <path> --repo <path>
@@ -270,6 +278,7 @@ Usage:
   html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
   html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
   html-to-storyblok storyblok-components --manifest <path> [--dry-run]
+  html-to-storyblok storyblok-asset-folders --manifest <path> [--dry-run]
   html-to-storyblok upload-assets --manifest <path> [--dry-run]
   html-to-storyblok create-draft-story --manifest <path> [--dry-run]
   html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]

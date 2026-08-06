@@ -74,6 +74,70 @@ test('verifyNetlifyDeployPreview fails when the deploy preview is not ready', as
   restoreFetch();
 });
 
+test('verifyNetlifyDeployPreview can poll until the deploy preview is ready', async () => {
+  let deployReads = 0;
+  mockFetch((url) => {
+    if (url.endsWith('/sites/site-123')) {
+      return {
+        id: 'site-123',
+        name: 'client-site',
+        build_settings: {}
+      };
+    }
+    if (url.includes('/deploys?')) {
+      return [
+        {
+          id: 'deploy-1',
+          site_id: 'site-123',
+          state: 'building',
+          branch: 'feature/html-template',
+          context: 'deploy-preview',
+          deploy_ssl_url: 'https://deploy-preview-1.netlify.app',
+          log_access_attributes: {
+            token: 'log-token'
+          }
+        }
+      ];
+    }
+    if (url.endsWith('/deploys/deploy-1')) {
+      deployReads += 1;
+      return {
+        id: 'deploy-1',
+        site_id: 'site-123',
+        state: deployReads > 1 ? 'ready' : 'building',
+        branch: 'feature/html-template',
+        context: 'deploy-preview',
+        deploy_ssl_url: 'https://deploy-preview-1.netlify.app',
+        updated_at: `2026-08-06T12:00:0${deployReads}Z`,
+        log_access_attributes: {
+          token: 'log-token'
+        }
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await verifyNetlifyDeployPreview({
+    siteId: 'site-123',
+    branch: 'feature/html-template',
+    wait: true,
+    intervalMs: 0,
+    timeoutMs: 1_000,
+    env: {
+      NETLIFY_AUTH_TOKEN: 'netlify-token'
+    }
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.polling.waited, true);
+  assert.equal(result.polling.timed_out, false);
+  assert.deepEqual(result.polling.attempts.map((attempt) => attempt.state), ['building', 'building', 'ready']);
+  assert.equal(result.deploy_log.deploy_log_url, 'https://app.netlify.com/sites/client-site/deploys/deploy-1');
+  assert.equal(result.deploy.log_access_metadata_present, true);
+  assert.doesNotMatch(JSON.stringify(result), /log-token|netlify-token/);
+  restoreFetch();
+});
+
 let originalFetch;
 
 function mockFetch(handler) {

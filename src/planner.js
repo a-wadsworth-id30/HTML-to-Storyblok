@@ -43,6 +43,7 @@ export async function createIntegrationPlan({
     manifest.mapping = schemaPlan.mapping;
     manifest.storyblok.components_to_create = schemaPlan.components;
     manifest.storyblok.stories_to_create = [schemaPlan.draft_story];
+    manifest.storyblok.asset_folders_to_create = schemaPlan.asset_folders;
     manifest.storyblok.assets_to_create = schemaPlan.storyblok_assets;
     manifest.repository.assets_to_create = schemaPlan.repository_assets;
   } else {
@@ -99,6 +100,11 @@ function buildOperations(manifest) {
       type: 'duplicate_existing_resource',
       resource_type: 'storyblok_component',
       resource: component.technical_name || component.name
+    })),
+    ...ensureArray(manifest.storyblok?.asset_folders_to_create).map((folder) => ({
+      type: 'create_new_resource',
+      resource_type: 'storyblok_asset_folder',
+      resource: folder.path || folder.name || folder
     })),
     ...ensureArray(manifest.storyblok?.assets_to_create).map((asset) => ({
       type: 'create_new_resource',

@@ -40,6 +40,7 @@ export function createDefaultManifest({
       existing_components_reused: [],
       stories_to_create: [],
       stories_to_modify: [],
+      asset_folders_to_create: [],
       assets_to_create: [],
       assets_to_modify: []
     },
@@ -264,6 +265,26 @@ export function validatePlan(manifest) {
       resource_type: 'storyblok_asset',
       resource: filename,
       reason: 'Duplicate Storyblok asset filename in manifest.'
+    });
+  }
+
+  const assetFolderPaths = ensureArray(manifest.storyblok?.asset_folders_to_create).map((folder) => folder.path || folder.name || folder);
+  for (const folderPath of assetFolderPaths) {
+    if (!isSafeStorySlug(folderPath) || (!String(folderPath).startsWith(`${manifest.integration_id}`) && !String(folderPath).startsWith(`${manifest.storyblok_prefix}`))) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_asset_folder',
+        resource: folderPath || 'asset_folder',
+        reason: 'Storyblok asset folder paths must be safe and namespaced by integration ID or Storyblok prefix.'
+      });
+    }
+  }
+  for (const folderPath of findDuplicates(assetFolderPaths)) {
+    violations.push({
+      operation: 'create',
+      resource_type: 'storyblok_asset_folder',
+      resource: folderPath,
+      reason: 'Duplicate Storyblok asset folder path in manifest.'
     });
   }
 

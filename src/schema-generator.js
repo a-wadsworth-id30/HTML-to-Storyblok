@@ -58,6 +58,7 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
     }),
     mapping,
     repository_assets: buildRepositoryAssetPlan({ inventory, templatePath, repositoryNamespace }),
+    asset_folders: buildAssetFolderPlan({ inventory, integrationId }),
     storyblok_assets: buildStoryblokAssetPlan({ inventory, templatePath, integrationId })
   };
 }
@@ -263,11 +264,24 @@ function buildStoryblokAssetPlan({ inventory, templatePath, integrationId }) {
     return {
       local_path: absolute,
       filename: `${integrationId}/${path.basename(clean || 'asset')}`,
+      asset_folder_path: integrationId,
       alt: image.alt || '',
       source_ref: image.src,
       status: 'planned'
     };
   });
+}
+
+function buildAssetFolderPlan({ inventory, integrationId }) {
+  const hasStoryblokAssets = (inventory.page_inventory || []).some((page) => (page.images || []).length > 0);
+  if (!hasStoryblokAssets) return [];
+  return [
+    {
+      path: integrationId,
+      name: integrationId,
+      parent_id: 0
+    }
+  ];
 }
 
 function textField(description) {

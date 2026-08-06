@@ -253,9 +253,10 @@ function sanitizeHtml(html) {
     };
   });
   const removedScripts = scripts.length;
-  const removedInlineHandlers = [...html.matchAll(/\son[a-z]+\s*=\s*(['"]).*?\1/gi)].length;
+  const inlineHandlerPattern = /\son[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi;
+  const removedInlineHandlers = [...html.matchAll(inlineHandlerPattern)].length;
   const withoutScripts = html.replace(/<script\b[\s\S]*?<\/script>/gi, '');
-  const withoutHandlers = withoutScripts.replace(/\son[a-z]+\s*=\s*(['"]).*?\1/gi, '');
+  const withoutHandlers = withoutScripts.replace(inlineHandlerPattern, '');
   const bodyMatch = withoutHandlers.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   return {
     bodyHtml: (bodyMatch ? bodyMatch[1] : withoutHandlers).trim(),
@@ -269,6 +270,12 @@ function namespaceHtml(html, integrationId) {
   const prefix = `hts-${integrationId}`;
   let output = html
     .replace(/\bid=(['"])([^'"]+)\1/gi, (_match, quote, value) => `id=${quote}${prefix}-${value}${quote}`)
+    .replace(/\b(for|list|form|aria-labelledby|aria-describedby|aria-controls|aria-owns|aria-flowto)=(['"])([^'"]+)\2/gi, (_match, name, quote, value) => (
+      `${name}=${quote}${namespaceIdReferenceList(value, prefix)}${quote}`
+    ))
+    .replace(/\b(href|xlink:href)=(['"])#([^'"]+)\2/gi, (_match, name, quote, value) => (
+      `${name}=${quote}#${namespaceIdReference(value, prefix)}${quote}`
+    ))
     .replace(/\bclass=(['"])([^'"]+)\1/gi, (_match, quote, value) => {
       const classes = value.split(/\s+/).filter(Boolean).map((className) => (
         className.startsWith(`${prefix}-`) ? className : `${prefix}-${className}`
@@ -311,13 +318,161 @@ function markFirst(value, pattern, replacement) {
 
 function toJsx(html) {
   return html
-    .replace(/\bclass=/g, 'className=')
-    .replace(/\bfor=/g, 'htmlFor=')
     .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<img([^>]*?)(?<!\/)>/gi, '<img$1 />')
-    .replace(/<input([^>]*?)(?<!\/)>/gi, '<input$1 />')
-    .replace(/<br([^>]*?)(?<!\/)>/gi, '<br$1 />')
-    .replace(/<hr([^>]*?)(?<!\/)>/gi, '<hr$1 />');
+    .replace(/<([a-zA-Z][\w:-]*)([^<>]*?)(\/?)>/g, (match, tagName, rawAttributes = '', selfClosing = '') => {
+      if (match.startsWith('</')) return match;
+      const tag = tagName.toLowerCase();
+      const attrs = attributesToJsx(rawAttributes, tag);
+      const close = selfClosing || JSX_VOID_TAGS.has(tag) ? ' />' : '>';
+      return `<${tagName}${attrs}${close}`;
+    });
+}
+
+const JSX_VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
+
+const JSX_BOOLEAN_ATTRIBUTES = new Set([
+  'allowFullScreen',
+  'async',
+  'autoFocus',
+  'autoPlay',
+  'checked',
+  'controls',
+  'default',
+  'defer',
+  'disabled',
+  'formNoValidate',
+  'hidden',
+  'loop',
+  'multiple',
+  'muted',
+  'noModule',
+  'noValidate',
+  'open',
+  'playsInline',
+  'readOnly',
+  'required',
+  'reversed',
+  'selected'
+]);
+
+const JSX_ATTRIBUTE_MAP = new Map(Object.entries({
+  acceptcharset: 'acceptCharset',
+  accesskey: 'accessKey',
+  allowfullscreen: 'allowFullScreen',
+  autocomplete: 'autoComplete',
+  autofocus: 'autoFocus',
+  autoplay: 'autoPlay',
+  cellpadding: 'cellPadding',
+  cellspacing: 'cellSpacing',
+  charset: 'charSet',
+  class: 'className',
+  colspan: 'colSpan',
+  contenteditable: 'contentEditable',
+  crossorigin: 'crossOrigin',
+  datetime: 'dateTime',
+  enctype: 'encType',
+  for: 'htmlFor',
+  formaction: 'formAction',
+  formenctype: 'formEncType',
+  formmethod: 'formMethod',
+  formnovalidate: 'formNoValidate',
+  formtarget: 'formTarget',
+  frameborder: 'frameBorder',
+  inputmode: 'inputMode',
+  maxlength: 'maxLength',
+  minlength: 'minLength',
+  nomodule: 'noModule',
+  novalidate: 'noValidate',
+  playsinline: 'playsInline',
+  readonly: 'readOnly',
+  referrerpolicy: 'referrerPolicy',
+  rowspan: 'rowSpan',
+  spellcheck: 'spellCheck',
+  srcdoc: 'srcDoc',
+  srcset: 'srcSet',
+  tabindex: 'tabIndex',
+  usemap: 'useMap',
+  xlinkhref: 'xlinkHref',
+  xmlnsxlink: 'xmlnsXlink'
+}));
+
+function attributesToJsx(rawAttributes, tagName) {
+  const attributes = tokenizeAttributes(rawAttributes);
+  if (attributes.length === 0) return '';
+  return attributes
+    .map((attribute) => attributeToJsx(attribute, tagName))
+    .filter(Boolean)
+    .join('');
+}
+
+function attributeToJsx(attribute, tagName) {
+  if (/^on[a-z]/i.test(attribute.name)) return '';
+  const name = jsxAttributeName(attribute.name, tagName);
+  if (name === 'style' && attribute.value !== null) return ` style={${cssStyleStringToJsxObject(attribute.value)}}`;
+  if (attribute.value === null || (JSX_BOOLEAN_ATTRIBUTES.has(name) && attribute.value.toLowerCase() === attribute.name.toLowerCase())) {
+    return JSX_BOOLEAN_ATTRIBUTES.has(name) ? ` ${name}` : ` ${name}={true}`;
+  }
+  if (JSX_BOOLEAN_ATTRIBUTES.has(name) && /^(true|false)$/i.test(attribute.value)) {
+    return ` ${name}={${attribute.value.toLowerCase()}}`;
+  }
+  return ` ${name}="${escapeJsxAttribute(attribute.value)}"`;
+}
+
+function jsxAttributeName(name, tagName) {
+  const lower = name.toLowerCase();
+  if (lower.startsWith('data-') || lower.startsWith('aria-')) return lower;
+  if (tagName.includes('-') && !lower.includes(':')) {
+    if (lower === 'style') return 'style';
+    return name;
+  }
+  if (JSX_ATTRIBUTE_MAP.has(lower.replaceAll(':', ''))) return JSX_ATTRIBUTE_MAP.get(lower.replaceAll(':', ''));
+  return name.replace(/[:-]([a-z])/g, (_match, char) => char.toUpperCase());
+}
+
+function tokenizeAttributes(rawAttributes) {
+  const attributes = [];
+  const attrPattern = /([:@a-zA-Z_][:@\w.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
+  let match;
+  while ((match = attrPattern.exec(rawAttributes)) !== null) {
+    attributes.push({
+      name: match[1],
+      value: match[2] ?? match[3] ?? match[4] ?? null
+    });
+  }
+  return attributes;
+}
+
+function cssStyleStringToJsxObject(style) {
+  const declarations = String(style)
+    .split(';')
+    .map((declaration) => declaration.trim())
+    .filter(Boolean)
+    .map((declaration) => {
+      const separator = declaration.indexOf(':');
+      if (separator === -1) return null;
+      const property = declaration.slice(0, separator).trim();
+      const value = declaration.slice(separator + 1).trim();
+      if (!property || !value) return null;
+      const key = property.startsWith('--') ? JSON.stringify(property) : camelCaseCssProperty(property);
+      return `${key}: ${JSON.stringify(value)}`;
+    })
+    .filter(Boolean);
+  return `{ ${declarations.join(', ')} }`;
+}
+
+function camelCaseCssProperty(property) {
+  const vendorPrefixed = property.startsWith('-ms-')
+    ? `ms-${property.slice(4)}`
+    : property.replace(/^-/, '');
+  return vendorPrefixed.replace(/-([a-z])/g, (_match, char) => char.toUpperCase());
+}
+
+function escapeJsxAttribute(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
 }
 
 function indent(value, spaces) {
@@ -564,4 +719,16 @@ function pascalCase(value) {
 
 function escapeRegExp(value) {
   return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function namespaceIdReferenceList(value, prefix) {
+  return String(value)
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((entry) => namespaceIdReference(entry, prefix))
+    .join(' ');
+}
+
+function namespaceIdReference(value, prefix) {
+  return String(value).startsWith(`${prefix}-`) ? String(value) : `${prefix}-${value}`;
 }
