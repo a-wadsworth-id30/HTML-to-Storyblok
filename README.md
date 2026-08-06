@@ -40,7 +40,7 @@ npm test
 After `npm link`, the command is available as:
 
 ```sh
-html-to-storyblok --help
+html-to-storyblok
 ```
 
 You can also run it without linking:
@@ -48,6 +48,83 @@ You can also run it without linking:
 ```sh
 node bin/html-to-storyblok.js --help
 ```
+
+## Interactive CLI
+
+Run the command without arguments to launch the guided terminal experience:
+
+```sh
+html-to-storyblok
+```
+
+The home screen provides task-oriented actions so first-time users do not need to remember the lower-level command names:
+
+```text
+────────────────────────────────────────────
+
+HTML -> Storyblok
+Safety-first template integration
+
+Project
+✓ Repository detected
+
+What would you like to do?
+
+❯ Create New Integration
+  Continue Existing Integration
+  Validate Integration
+  Review Storyblok
+  Review Repository
+  Review Template
+  Generate Report
+  Settings
+  Exit
+```
+
+Navigation supports arrow keys, `Enter`, `Esc`, `q`, `Tab`, and `Ctrl+C`. The wizard keeps all generated resources isolated by integration ID and uses the same planner, validator, generator, Storyblok, asset, and rollback services as the scriptable commands.
+
+The create flow guides you through choosing a template from `templates/`, choosing a nearby repository, reviewing repository/Storyblok/template summaries, confirming the integration ID, previewing the derived prefix and namespace, validating the plan, running a dry run, optionally applying the real integration, and writing `.tmp/html-to-storyblok/report.md`.
+
+If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI offers to resume the previous integration or start a new one.
+
+For CI/CD or scripted usage, pass `--no-interactive` and use the command reference below. The no-command `--no-interactive` path prints help instead of launching a prompt.
+
+## Dashboard, Settings, Doctor, and Reports
+
+View a human-readable project dashboard:
+
+```sh
+html-to-storyblok dashboard
+```
+
+Configure local defaults:
+
+```sh
+html-to-storyblok settings
+html-to-storyblok settings --show
+html-to-storyblok settings --set templates_folder=templates
+html-to-storyblok settings --set default_repository=../client-site
+html-to-storyblok settings --set color_mode=never
+```
+
+Settings are stored in `~/.html-to-storyblok/config.json`. Secrets are never stored in the config file; keep API tokens in environment variables.
+
+Run environment and project readiness checks:
+
+```sh
+html-to-storyblok doctor
+```
+
+The doctor checks Node.js, npm, Git, Storyblok credentials, Netlify credentials, GitHub/GitLab credentials, required folders, and repository health, then prints actionable fixes for warnings or failures.
+
+Open the interactive report viewer:
+
+```sh
+html-to-storyblok view-report
+html-to-storyblok report --view
+```
+
+The report viewer exposes summary, validation, evidence, generated files, warnings, and failures without requiring users to inspect JSON manually.
 
 ## Where to put templates
 
@@ -104,6 +181,7 @@ This directory is ignored by Git. It is used for:
 - local validation output
 - rollback previews
 - evidence logs
+- markdown reports
 
 Do not commit `.tmp/` output.
 
@@ -341,6 +419,12 @@ html-to-storyblok report
 
 This summarizes commands run, failures, artifacts, latest validation state, latest Netlify state, and safety confirmations from the evidence log.
 
+To view the same evidence as terminal sections and write a markdown report:
+
+```sh
+html-to-storyblok report --view
+```
+
 ## Applying a manifest
 
 All mutating commands validate the manifest immediately before execution.
@@ -542,6 +626,11 @@ Rollback removes only manifest-listed local files and assets inside the integrat
 ## Command reference
 
 ```sh
+html-to-storyblok
+html-to-storyblok dashboard
+html-to-storyblok settings [--show] [--set key=value]
+html-to-storyblok doctor
+html-to-storyblok view-report
 html-to-storyblok inspect-template --template <path>
 html-to-storyblok inspect-repository --repo <path>
 html-to-storyblok inspect-storyblok
@@ -564,7 +653,7 @@ html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--dry-run
 html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--dry-run]
 html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
 html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--dry-run]
-html-to-storyblok report
+html-to-storyblok report [--view]
 ```
 
 Mutating commands support `--dry-run` and require the relevant credentials before real execution.

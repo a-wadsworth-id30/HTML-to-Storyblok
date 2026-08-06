@@ -1,0 +1,84 @@
+import { duplicateAll } from './duplicator.js';
+import { writeArtifact } from './evidence.js';
+import { generateIntegration } from './generator.js';
+import { createIntegrationPlan } from './planner.js';
+import { validatePlan } from './policy.js';
+import { createDraftStories, createStoryblokComponents, uploadStoryblokAssets } from './storyblok.js';
+import { readJson, requireOption } from './utils.js';
+import { validateIntegration } from './validator.js';
+
+export async function createPlanFromArgs(args, workDir) {
+  const manifest = await createIntegrationPlan({
+    integrationId: requireOption(args, 'integration_id'),
+    storyblokPrefix: args.storyblok_prefix ? String(args.storyblok_prefix) : undefined,
+    repositoryNamespace: args.repository_namespace ? String(args.repository_namespace) : undefined,
+    templatePath: args.template ? String(args.template) : undefined,
+    framework: args.framework ? String(args.framework) : 'static'
+  });
+  const validation = validatePlan(manifest);
+  await writeArtifact(workDir, 'plan-validation.json', validation);
+  manifest.validation = validation;
+  return manifest;
+}
+
+export async function readAndValidateManifest(args, workDir) {
+  const manifest = await readJson(requireOption(args, 'manifest'));
+  const validation = validatePlan(manifest);
+  await writeArtifact(workDir, 'plan-validation.json', validation);
+  if (!validation.valid) {
+    const reasons = validation.violations.map((violation) => `${violation.resource}: ${violation.reason}`).join('; ');
+    throw new Error(`manifest failed additive-only validation: ${reasons}`);
+  }
+  return manifest;
+}
+
+export async function applyManifest(manifest, args = {}, workDir, { onProgress = null } = {}) {
+  const dryRun = Boolean(args.dry_run);
+  const repoPath = args.repo ? String(args.repo) : process.cwd();
+  const steps = [];
+  const progress = typeof onProgress === 'function' ? onProgress : async () => {};
+
+  await progress({ label: 'Creating Frontend', current: 0, total: 6 });
+  steps.push(await duplicateAll(manifest, { repoPath, dryRun }));
+  await progress({ label: 'Creating Frontend', current: 1, total: 6 });
+  steps.push(await generateIntegration(manifest, {
+    repoPath,
+    templatePath: args.template ? String(args.template) : undefined,
+    framework: args.framework ? String(args.framework) : 'auto',
+    dryRun
+  }));
+  await progress({ label: 'Validating Local Output', current: 2, total: 6 });
+  const localValidation = dryRun
+    ? { action: 'validate_integration', status: 'skipped', reason: 'dry-run does not write generated files' }
+    : await validateIntegration(manifest, { repoPath });
+  steps.push({
+    action: 'local_validation',
+    results: localValidation
+  });
+  if (localValidation.status === 'failed') {
+    throw new Error('local validation failed after generation; refusing remote Storyblok mutations');
+  }
+  await progress({ label: 'Creating Storyblok Components', current: 3, total: 6 });
+  steps.push({
+    action: 'storyblok_components',
+    results: await createStoryblokComponents(manifest, { dryRun })
+  });
+  await progress({ label: 'Uploading Assets', current: 4, total: 6 });
+  steps.push({
+    action: 'storyblok_assets',
+    results: await uploadStoryblokAssets(manifest, { dryRun })
+  });
+  await progress({ label: 'Creating Draft Story', current: 5, total: 6 });
+  steps.push({
+    action: 'storyblok_draft_stories',
+    results: await createDraftStories(manifest, { dryRun })
+  });
+  await progress({ label: 'Done', current: 6, total: 6 });
+  const result = {
+    action: 'apply_manifest',
+    dry_run: dryRun,
+    steps
+  };
+  await writeArtifact(workDir, 'apply-result.json', result);
+  return result;
+}

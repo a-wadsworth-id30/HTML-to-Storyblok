@@ -4,7 +4,8 @@ import path from 'node:path';
 
 export function parseArgs(argv) {
   const args = { _: [] };
-  for (let index = 3; index < argv.length; index += 1) {
+  const startIndex = argv[2] && !argv[2].startsWith('--') ? 3 : 2;
+  for (let index = startIndex; index < argv.length; index += 1) {
     const token = argv[index];
     if (!token.startsWith('--')) {
       args._.push(token);
@@ -27,7 +28,9 @@ export function parseArgs(argv) {
 }
 
 export function commandName(argv) {
-  return argv[2] || 'help';
+  const token = argv[2];
+  if (!token || token.startsWith('--')) return 'interactive';
+  return token;
 }
 
 export async function pathExists(targetPath) {
