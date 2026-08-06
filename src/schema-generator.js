@@ -87,6 +87,7 @@ function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
   const classText = classNames.join(' ');
   const tagCounts = primaryPage.tag_counts || {};
   const hasHero = (primaryPage.headings || []).some((heading) => heading.level === 1) || images.length > 0;
+  const hasFieldHints = collectExplicitFieldHints(primaryPage).length > 0;
 
   if (landmarks.header) {
     add('header', 'Header', {
@@ -111,10 +112,10 @@ function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
   if (links.filter((link) => link.href && !link.href.startsWith('#')).length >= 2 && !landmarks.nav) {
     add('cta_group', 'Call-to-action group', { nested_key: 'cta_item' });
   }
-  if (textBlocks.length > 0) add('content_section', 'Content section');
+  if (textBlocks.length > 0 || hasFieldHints) add('content_section', 'Content section', { field_hints: hasFieldHints });
   if (forms.length > 0) add('form', 'Form', { nested_key: 'form_field', risk: 'External form behaviour requires endpoint review' });
   if (landmarks.footer) add('footer', 'Footer');
-  if (definitions.length === 0) add('section', 'Template section');
+  if (definitions.length === 0) add('section', 'Template section', { field_hints: hasFieldHints });
 
   const nested = [];
   for (const definition of definitions) {
@@ -370,10 +371,10 @@ function buildComponentForDefinition(definition, primaryPage, storyblokPrefix) {
       options: textareaField('One select/radio option per line')
     });
   }
-  return nestableComponent(definition, commonSectionSchema(primaryPage));
+  return nestableComponent(definition, commonSectionSchema(primaryPage, definition));
 }
 
-function commonSectionSchema(primaryPage) {
+function commonSectionSchema(primaryPage, definition = {}) {
   const schema = {
     headline: textField('Section headline'),
     body: richtextField('Section body copy')
@@ -382,6 +383,9 @@ function commonSectionSchema(primaryPage) {
   if ((primaryPage.links || []).length > 0) {
     schema.cta_label = textField('Call-to-action label');
     schema.cta_link = linkField('Call-to-action link');
+  }
+  if (definition.field_hints) {
+    Object.assign(schema, explicitFieldHintSchema(primaryPage, schema));
   }
   return schema;
 }
@@ -565,6 +569,9 @@ function draftBlock(definition, primaryPage, integrationId) {
       link: toStoryblokLink(link.href)
     }));
   }
+  if (definition.field_hints) {
+    Object.assign(block, draftExplicitFieldValues(primaryPage, block));
+  }
   return block;
 }
 
@@ -708,6 +715,93 @@ function normalizeInputType(input) {
 
 function emptyStoryblokLink() {
   return { linktype: 'url', url: '' };
+}
+
+function explicitFieldHintSchema(primaryPage, existingSchema = {}) {
+  const schema = {};
+  for (const hint of collectExplicitFieldHints(primaryPage).slice(0, 24)) {
+    const fieldName = safeFieldName(hint.field_hint);
+    if (!fieldName || existingSchema[fieldName] || schema[fieldName]) continue;
+    schema[fieldName] = fieldForHint(hint);
+  }
+  return schema;
+}
+
+function draftExplicitFieldValues(primaryPage, existingValues = {}) {
+  const values = {};
+  for (const hint of collectExplicitFieldHints(primaryPage).slice(0, 24)) {
+    const fieldName = safeFieldName(hint.field_hint);
+    if (!fieldName || Object.hasOwn(existingValues, fieldName) || Object.hasOwn(values, fieldName)) continue;
+    const field = fieldForHint(hint);
+    values[fieldName] = draftValueForHint(hint, field);
+  }
+  return values;
+}
+
+function collectExplicitFieldHints(primaryPage) {
+  const hints = [];
+  for (const heading of primaryPage.headings || []) {
+    if (heading.field_hint) hints.push({ source_type: 'text', field_hint: heading.field_hint, tag: `h${heading.level}`, text: heading.text || '' });
+  }
+  for (const block of primaryPage.text_blocks || []) {
+    if (block.field_hint) hints.push({ source_type: 'text', field_hint: block.field_hint, tag: block.tag, text: block.text || '' });
+  }
+  for (const image of primaryPage.images || []) {
+    if (image.field_hint) hints.push({ source_type: 'image', field_hint: image.field_hint, image });
+  }
+  for (const link of primaryPage.links || []) {
+    if (link.field_hint) hints.push({ source_type: 'link', field_hint: link.field_hint, link });
+  }
+  for (const form of primaryPage.forms || []) {
+    for (const input of form.inputs || []) {
+      if (input.field_hint) hints.push({ source_type: 'input', field_hint: input.field_hint, input });
+    }
+  }
+  return hints;
+}
+
+function fieldForHint(hint) {
+  const label = displayName(hint.field_hint);
+  if (hint.source_type === 'image') return assetField(`Explicit template field: ${label}`);
+  if (hint.source_type === 'link') return linkField(`Explicit template field: ${label}`);
+  if (hint.source_type === 'input') return fieldForInputHint(hint.input, label);
+  if (isLongTextHint(hint)) return richtextField(`Explicit template field: ${label}`);
+  return textField(`Explicit template field: ${label}`);
+}
+
+function fieldForInputHint(input = {}, label) {
+  const type = normalizeInputType(input);
+  const options = (input.options || []).map((option) => option.value || option.label).filter(Boolean);
+  if (type === 'checkbox') return booleanField(`Explicit template field: ${label}`);
+  if ((type === 'select' || type === 'radio') && options.length > 0) {
+    return optionField(`Explicit template field: ${label}`, options);
+  }
+  if (type === 'textarea') return textareaField(`Explicit template field: ${label}`);
+  return textField(`Explicit template field: ${label}`);
+}
+
+function draftValueForHint(hint, field) {
+  if (field.type === 'asset') return draftImage(hint.image);
+  if (field.type === 'multilink') return toStoryblokLink(hint.link?.href || '');
+  if (field.type === 'boolean') return Boolean(hint.input?.checked);
+  if (field.type === 'option') {
+    return hint.input?.value || field.options?.[0]?.value || '';
+  }
+  if (field.type === 'richtext') return richTextDocument(hint.text || '');
+  return hint.text || hint.input?.value || hint.input?.placeholder || '';
+}
+
+function isLongTextHint(hint) {
+  const name = snakeCase(hint.field_hint);
+  return hint.tag === 'p' ||
+    hint.tag === 'blockquote' ||
+    /body|bio|copy|content|description|details|intro|summary|text|rich/i.test(name);
+}
+
+function safeFieldName(value) {
+  const name = snakeCase(value);
+  if (!name) return '';
+  return /^[a-z_]/.test(name) ? name : `field_${name}`;
 }
 
 function hasStatsPattern(textBlocks, classText) {

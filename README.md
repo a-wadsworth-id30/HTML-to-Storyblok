@@ -524,6 +524,16 @@ Supported framework output modes are:
 - `nuxt`
 - `static`
 
+Schema generation also respects explicit editorial field hints in the supplied template. Add one of these attributes to text, image, link, or form-control elements when the generic inferred model needs a business-specific field:
+
+- `data-hts-field`
+- `data-storyblok-field`
+- `data-sb-field`
+- `data-field`
+- `itemprop`
+
+For example, `data-hts-field="service_intro"` creates a namespaced `service_intro` field on the integration-owned content section and seeds the draft preview from the template text. Image hints become Storyblok asset fields, link hints become multilink fields, select/radio hints become option fields, and checkbox hints become boolean fields.
+
 Duplicate approved frontend, repository asset, and Storyblok component sources:
 
 ```sh
@@ -817,7 +827,7 @@ Implemented:
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, CSS asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
-- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
 - Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
@@ -826,7 +836,7 @@ Implemented:
 ## Remaining limitations
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, local style dependencies, and resolvable local CSS assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
-- Schema generation covers common editorial patterns and several bespoke landing-page patterns, but custom business-specific editorial models may still require manual refinement through a new namespaced version.
+- Schema generation covers common editorial patterns, several bespoke landing-page patterns, and explicit template field hints, but complex business-specific relationships may still require manual refinement through a new namespaced version.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.

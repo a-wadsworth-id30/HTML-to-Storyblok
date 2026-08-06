@@ -15,7 +15,8 @@ export function analyzeHtml(content, { sourceFile = '' } = {}) {
   const headings = extractPairedTagText(content, /h[1-6]/i).map((entry) => ({
     level: Number(entry.tag.slice(1)),
     text: cleanText(entry.text),
-    attributes: entry.attributes
+    attributes: entry.attributes,
+    field_hint: extractFieldHint(entry.attributes)
   }));
   const textBlocks = extractTextBlocks(content);
   const images = tags
@@ -25,12 +26,14 @@ export function analyzeHtml(content, { sourceFile = '' } = {}) {
       alt: tag.attributes.alt ?? null,
       width: tag.attributes.width || null,
       height: tag.attributes.height || null,
-      loading: tag.attributes.loading || null
+      loading: tag.attributes.loading || null,
+      field_hint: extractFieldHint(tag.attributes)
     }));
   const links = extractPairedTagText(content, /^a$/i).map((entry) => ({
     href: entry.attributes.href || '',
     text: cleanText(entry.text),
-    target: entry.attributes.target || null
+    target: entry.attributes.target || null,
+    field_hint: extractFieldHint(entry.attributes)
   }));
   const forms = extractPairedTagText(content, /^form$/i).map((entry) => ({
     action: entry.attributes.action || '',
@@ -241,7 +244,9 @@ function extractTextBlocks(html) {
   return TEXT_TAGS.flatMap((tag) =>
     extractPairedTagText(html, new RegExp(`^${tag}$`, 'i')).map((entry) => ({
       tag,
-      text: cleanText(entry.text)
+      text: cleanText(entry.text),
+      attributes: entry.attributes,
+      field_hint: extractFieldHint(entry.attributes)
     }))
   ).filter((entry) => entry.text);
 }
@@ -279,7 +284,9 @@ function extractFormControls(html) {
       name: attributes.name || '',
       type: tag === 'input' ? attributes.type || 'text' : tag,
       required: Object.hasOwn(attributes, 'required'),
+      checked: Object.hasOwn(attributes, 'checked'),
       id: attributes.id || null,
+      field_hint: extractFieldHint(attributes),
       label: labelByFor.get(attributes.id) || attributes['aria-label'] || attributes.placeholder || attributes.name || '',
       placeholder: attributes.placeholder || null,
       value: attributes.value || null,
@@ -305,6 +312,15 @@ function extractFormControls(html) {
     push('button', entry.attributes, entry.innerHtml);
   }
   return controls;
+}
+
+function extractFieldHint(attributes) {
+  return attributes['data-hts-field'] ||
+    attributes['data-storyblok-field'] ||
+    attributes['data-sb-field'] ||
+    attributes['data-field'] ||
+    attributes.itemprop ||
+    null;
 }
 
 function inferRepeatedHtmlCandidates(tags) {

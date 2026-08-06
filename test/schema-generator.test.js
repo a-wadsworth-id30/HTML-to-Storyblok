@@ -174,3 +174,76 @@ test('buildSchemaPlan infers bespoke editorial patterns without exposing child i
   assert.equal(faq.items[0].question, 'How does billing work?');
   assert.equal(team.members[0].name, 'Ada Lovelace');
 });
+
+test('buildSchemaPlan converts explicit field hints into namespaced content fields and draft values', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'service-template-v1',
+    storyblokPrefix: 'hts_service_template_v1_',
+    repositoryNamespace: 'src/integrations/service-template-v1',
+    templatePath: 'templates/service-template',
+    inventory: {
+      page_inventory: [
+        {
+          page: 'index.html',
+          title: 'Service',
+          landmarks: {},
+          tag_counts: {},
+          classes: [],
+          headings: [
+            { level: 1, text: 'Service', field_hint: 'service_title' }
+          ],
+          text_blocks: [
+            { tag: 'h1', text: 'Service', field_hint: 'service_title' },
+            { tag: 'p', text: 'A complete managed import service.', field_hint: 'service_intro' }
+          ],
+          repeated_candidates: [],
+          images: [
+            { src: 'service.jpg', alt: 'Service', field_hint: 'service_image' }
+          ],
+          links: [
+            { href: '/book', text: 'Book now', field_hint: 'booking_link' }
+          ],
+          forms: [
+            {
+              inputs: [
+                { tag: 'input', type: 'email', name: 'email', value: 'team@example.com', field_hint: 'lead_email' },
+                { tag: 'input', type: 'checkbox', name: 'newsletter', checked: true, field_hint: 'newsletter_opt_in' },
+                {
+                  tag: 'select',
+                  type: 'select',
+                  name: 'plan',
+                  field_hint: 'preferred_plan',
+                  options: [
+                    { label: 'Starter', value: 'starter' },
+                    { label: 'Scale', value: 'scale' }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      asset_inventory: []
+    }
+  });
+
+  const section = plan.components.find((component) => component.technical_name === 'hts_service_template_v1_content_section');
+
+  assert.equal(section.schema.service_title.type, 'text');
+  assert.equal(section.schema.service_intro.type, 'richtext');
+  assert.equal(section.schema.service_image.type, 'asset');
+  assert.equal(section.schema.booking_link.type, 'multilink');
+  assert.equal(section.schema.lead_email.type, 'text');
+  assert.equal(section.schema.newsletter_opt_in.type, 'boolean');
+  assert.equal(section.schema.preferred_plan.type, 'option');
+  assert.deepEqual(section.schema.preferred_plan.options.map((option) => option.value), ['starter', 'scale']);
+
+  const draftSection = plan.draft_story.content.body.find((block) => block.component === 'hts_service_template_v1_content_section');
+  assert.equal(draftSection.service_title, 'Service');
+  assert.equal(draftSection.service_intro.content[0].content[0].text, 'A complete managed import service.');
+  assert.equal(draftSection.service_image.filename, 'service.jpg');
+  assert.equal(draftSection.booking_link.cached_url, 'book');
+  assert.equal(draftSection.lead_email, 'team@example.com');
+  assert.equal(draftSection.newsletter_opt_in, true);
+  assert.equal(draftSection.preferred_plan, 'starter');
+});
