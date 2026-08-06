@@ -230,6 +230,68 @@ test('inferDuplicationCandidates plans local static asset imports and URL rewrit
   assert.equal(copiedPoster, 'fake png');
 });
 
+test('inferDuplicationCandidates resolves safe tsconfig path aliases', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-alias-'));
+  await mkdir(path.join(repoPath, 'src/components'), { recursive: true });
+  await mkdir(path.join(repoPath, 'src/assets'), { recursive: true });
+  await writeFile(
+    path.join(repoPath, 'tsconfig.json'),
+    JSON.stringify({
+      compilerOptions: {
+        baseUrl: '.',
+        paths: {
+          '@components/*': ['src/components/*'],
+          '@assets/*': ['src/assets/*']
+        }
+      }
+    }, null, 2)
+  );
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero.jsx'),
+    [
+      "import { Icon } from '@components/Icon.jsx';",
+      "import heroUrl from '@assets/hero.svg?url';",
+      'export function Hero(){ return <section className="hero"><Icon /> <img src={heroUrl} alt="Hero" /></section>; }',
+      ''
+    ].join('\n')
+  );
+  await writeFile(
+    path.join(repoPath, 'src/components/Icon.jsx'),
+    'export function Icon(){ return <span className="icon">Icon</span>; }\n'
+  );
+  await writeFile(path.join(repoPath, 'src/assets/hero.svg'), '<svg></svg>');
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const inference = await inferDuplicationCandidates(manifest, { repoPath });
+  const entries = inference.repository.components_to_duplicate;
+  const root = entries.find((entry) => entry.source_path === 'src/components/Hero.jsx');
+  const icon = entries.find((entry) => entry.source_path === 'src/components/Icon.jsx');
+  const asset = inference.repository.assets_to_create[0];
+
+  assert.equal(inference.summary.frontend_components, 1);
+  assert.equal(inference.summary.frontend_dependency_files, 1);
+  assert.equal(inference.summary.frontend_asset_files, 1);
+  assert.equal(root.import_rewrites['@components/Icon.jsx'], './dependencies/src/components/Icon.jsx');
+  assert.equal(root.import_rewrites['@assets/hero.svg?url'], '../assets/dependencies/src/assets/hero.svg?url');
+  assert.equal(icon.dependency_of, 'src/components/Hero.jsx');
+  assert.equal(asset.source_path, 'src/assets/hero.svg');
+
+  manifest.repository.components_to_duplicate.push(...entries);
+  manifest.repository.assets_to_create.push(...inference.repository.assets_to_create);
+  await duplicateFrontendComponents(manifest, { repoPath });
+  await duplicateRepositoryAssets(manifest, { repoPath });
+  const duplicatedComponent = await readFile(path.join(repoPath, root.target_path), 'utf8');
+  const copiedAsset = await readFile(path.join(repoPath, asset.target_path), 'utf8');
+
+  assert.match(duplicatedComponent, /from '\.\/dependencies\/src\/components\/Icon\.jsx'/);
+  assert.match(duplicatedComponent, /from '\.\.\/assets\/dependencies\/src\/assets\/hero\.svg\?url'/);
+  assert.equal(copiedAsset, '<svg></svg>');
+});
+
 test('inferDuplicationCandidates includes local JSON data dependencies without corrupting JSON output', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-json-'));
   await mkdir(path.join(repoPath, 'src/components'), { recursive: true });

@@ -159,7 +159,10 @@ export async function applyInferredDuplicationCandidates(manifest, options = {})
 
 async function inferFrontendComponentCandidates(manifest, { repoPath, signals, max }) {
   const root = path.resolve(repoPath);
-  const files = await walkFiles(root);
+  const [files, importAliases] = await Promise.all([
+    walkFiles(root),
+    loadImportAliases(root)
+  ]);
   const scored = [];
   const assets = [];
   const skipped = [];
@@ -207,7 +210,7 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
       `${manifest.repository_namespace}/components/${newExportName}${path.extname(rel)}`,
       reservedTargets
     );
-    const graph = await collectLocalDependencyGraph(root, rel, fileSet);
+    const graph = await collectLocalDependencyGraph(root, rel, fileSet, importAliases);
     if (graph.blockers.length > 0) {
       skipped.push(skippedFrontendCandidate(rel, match, graph.blockers));
       continue;
@@ -225,7 +228,8 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
       existingSources,
       sourceTargetMap,
       existingAssetSources,
-      assetSourceTargetMap
+      assetSourceTargetMap,
+      importAliases
     });
     if (entries.components_to_duplicate.length === 0) continue;
     entries.components_to_duplicate.forEach((entry) => {
@@ -371,7 +375,7 @@ function inferExportName(content, rel) {
   return pascalCase(path.basename(rel, path.extname(rel)));
 }
 
-async function collectLocalDependencyGraph(root, entryRel, fileSet) {
+async function collectLocalDependencyGraph(root, entryRel, fileSet, importAliases = []) {
   const files = [];
   const visited = new Set();
   const blockers = [];
@@ -415,10 +419,10 @@ async function collectLocalDependencyGraph(root, entryRel, fileSet) {
       if (blockers.length > 0) return;
     }
 
-    for (const specifier of extractDependencySpecifiers(content, sourceRel).filter(isLocalImportSpecifier)) {
-      const resolved = resolveLocalImport(sourceRel, specifier, fileSet);
+    for (const specifier of extractDependencySpecifiers(content, sourceRel).filter((entry) => isLocalImportSpecifier(entry, importAliases))) {
+      const resolved = resolveLocalImport(sourceRel, specifier, fileSet, importAliases);
       if (!resolved && isLocalStaticAssetReference(specifier)) {
-        const asset = resolveLocalAssetReference(sourceRel, specifier, fileSet);
+        const asset = resolveLocalAssetReference(sourceRel, specifier, fileSet, importAliases);
         if (!asset) {
           blockers.push(`static asset import could not be resolved from ${sourceRel}: ${specifier}`);
           continue;
@@ -460,7 +464,8 @@ async function buildFrontendDuplicationEntries({
   existingSources,
   sourceTargetMap,
   existingAssetSources,
-  assetSourceTargetMap
+  assetSourceTargetMap,
+  importAliases = []
 }) {
   const targetBySource = new Map([[entrySource, entryTarget]]);
   for (const sourcePath of graph.files.filter((file) => file !== entrySource)) {
@@ -496,7 +501,7 @@ async function buildFrontendDuplicationEntries({
     const content = await readFile(path.join(root, sourcePath), 'utf8');
     const targetPath = targetBySource.get(sourcePath);
     const importRewrites = {
-      ...buildImportRewrites(sourcePath, content, targetBySource, graph.files),
+      ...buildImportRewrites(sourcePath, content, targetBySource, graph.files, importAliases),
       ...(importRewritesBySource.has(sourcePath) ? Object.fromEntries(importRewritesBySource.get(sourcePath)) : {})
     };
     const isEntry = sourcePath === entrySource;
@@ -589,10 +594,10 @@ async function buildStaticAssetEntries({
   };
 }
 
-function buildImportRewrites(sourcePath, content, targetBySource, graphFiles) {
+function buildImportRewrites(sourcePath, content, targetBySource, graphFiles, importAliases = []) {
   const rewrites = {};
-  for (const specifier of extractDependencySpecifiers(content, sourcePath).filter(isLocalImportSpecifier)) {
-    const resolved = graphFiles.find((file) => file === resolveLocalImport(sourcePath, specifier, new Set(graphFiles)));
+  for (const specifier of extractDependencySpecifiers(content, sourcePath).filter((entry) => isLocalImportSpecifier(entry, importAliases))) {
+    const resolved = graphFiles.find((file) => file === resolveLocalImport(sourcePath, specifier, new Set(graphFiles), importAliases));
     if (!resolved) continue;
     const sourceTarget = targetBySource.get(sourcePath);
     const dependencyTarget = targetBySource.get(resolved);
@@ -622,7 +627,7 @@ function extractImportMetaUrlSpecifiers(content) {
   return [...content.matchAll(IMPORT_META_URL_PATTERN)].map((match) => match[2]);
 }
 
-function resolveLocalImport(sourceRel, specifier, fileSet) {
+function resolveLocalImport(sourceRel, specifier, fileSet, importAliases = []) {
   const clean = stripImportQuery(specifier);
   const candidates = [];
   if (clean.startsWith('.')) {
@@ -632,7 +637,7 @@ function resolveLocalImport(sourceRel, specifier, fileSet) {
     candidates.push(path.posix.normalize(path.posix.join('src', withoutAlias)));
     candidates.push(path.posix.normalize(withoutAlias));
   } else {
-    return null;
+    candidates.push(...resolveAliasImportCandidates(clean, importAliases));
   }
 
   for (const candidate of candidates.flatMap(expandImportCandidates)) {
@@ -650,8 +655,11 @@ function expandImportCandidates(candidate) {
   ];
 }
 
-function isLocalImportSpecifier(specifier) {
-  return specifier.startsWith('.') || specifier.startsWith('@/') || specifier.startsWith('~/');
+function isLocalImportSpecifier(specifier, importAliases = []) {
+  return specifier.startsWith('.') ||
+    specifier.startsWith('@/') ||
+    specifier.startsWith('~/') ||
+    importAliases.some((alias) => matchesAliasSpecifier(stripImportQuery(specifier), alias));
 }
 
 function isSafeDependencySourcePath(sourcePath) {
@@ -691,7 +699,7 @@ function dependencyFolderForSource(sourcePath) {
   return 'components';
 }
 
-function resolveLocalAssetReference(sourceRel, ref, fileSet) {
+function resolveLocalAssetReference(sourceRel, ref, fileSet, importAliases = []) {
   const clean = stripImportQuery(ref);
   const candidates = [];
   if (clean.startsWith('/')) {
@@ -702,6 +710,8 @@ function resolveLocalAssetReference(sourceRel, ref, fileSet) {
     const withoutAlias = clean.slice(2);
     candidates.push(path.posix.normalize(path.posix.join('src', withoutAlias)));
     candidates.push(path.posix.normalize(withoutAlias));
+  } else if (importAliases.some((alias) => matchesAliasSpecifier(clean, alias))) {
+    candidates.push(...resolveAliasImportCandidates(clean, importAliases));
   } else {
     candidates.push(path.posix.normalize(path.posix.join(path.posix.dirname(sourceRel), clean)));
   }
@@ -724,6 +734,104 @@ function isSafeAssetSourcePath(sourcePath) {
   if (!sourcePath || sourcePath.startsWith('/') || sourcePath.includes('..')) return false;
   return isSafeDependencySourcePath(sourcePath) ||
     SAFE_ASSET_SOURCE_PATTERNS.some((pattern) => pattern.test(sourcePath));
+}
+
+async function loadImportAliases(root) {
+  const aliases = [];
+  for (const configName of ['tsconfig.json', 'jsconfig.json']) {
+    try {
+      const config = JSON.parse(stripJsonComments(await readFile(path.join(root, configName), 'utf8')));
+      const compilerOptions = config.compilerOptions || {};
+      const baseUrl = normalizeAliasTarget(compilerOptions.baseUrl || '.');
+      for (const [pattern, targets] of Object.entries(compilerOptions.paths || {})) {
+        const alias = buildImportAlias(pattern, targets, baseUrl);
+        if (alias) aliases.push(alias);
+      }
+    } catch (error) {
+      if (error.code !== 'ENOENT') continue;
+    }
+  }
+  return aliases;
+}
+
+function buildImportAlias(pattern, targets, baseUrl) {
+  if (!Array.isArray(targets) || targets.length === 0) return null;
+  const wildcardIndex = pattern.indexOf('*');
+  const prefix = wildcardIndex === -1 ? pattern : pattern.slice(0, wildcardIndex);
+  const suffix = wildcardIndex === -1 ? '' : pattern.slice(wildcardIndex + 1);
+  if (wildcardIndex !== -1 && !prefix) return null;
+  const targetPatterns = targets
+    .filter((target) => typeof target === 'string' && target)
+    .map((target) => normalizeAliasTarget(path.posix.join(baseUrl, target)));
+  if (targetPatterns.length === 0) return null;
+  return {
+    exact: wildcardIndex === -1,
+    prefix,
+    suffix,
+    targetPatterns
+  };
+}
+
+function matchesAliasSpecifier(specifier, alias) {
+  if (alias.exact) return specifier === alias.prefix;
+  return specifier.startsWith(alias.prefix) && (!alias.suffix || specifier.endsWith(alias.suffix));
+}
+
+function resolveAliasImportCandidates(specifier, importAliases) {
+  const candidates = [];
+  for (const alias of importAliases) {
+    if (!matchesAliasSpecifier(specifier, alias)) continue;
+    const wildcardValue = alias.exact
+      ? ''
+      : specifier.slice(alias.prefix.length, alias.suffix ? -alias.suffix.length : undefined);
+    for (const targetPattern of alias.targetPatterns) {
+      const target = alias.exact ? targetPattern : targetPattern.replace('*', wildcardValue);
+      const normalized = path.posix.normalize(target);
+      if (!normalized.startsWith('../') && !path.posix.isAbsolute(normalized)) candidates.push(normalized);
+    }
+  }
+  return candidates;
+}
+
+function normalizeAliasTarget(value) {
+  return String(value || '.').replace(/\\/g, '/').replace(/^\.\//, '');
+}
+
+function stripJsonComments(value) {
+  let output = '';
+  let quote = null;
+  for (let index = 0; index < value.length; index += 1) {
+    const char = value[index];
+    const next = value[index + 1];
+    if (quote) {
+      output += char;
+      if (char === '\\') {
+        output += next || '';
+        index += 1;
+      } else if (char === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      output += char;
+      continue;
+    }
+    if (char === '/' && next === '/') {
+      while (index < value.length && value[index] !== '\n') index += 1;
+      output += '\n';
+      continue;
+    }
+    if (char === '/' && next === '*') {
+      index += 2;
+      while (index < value.length && !(value[index] === '*' && value[index + 1] === '/')) index += 1;
+      index += 1;
+      continue;
+    }
+    output += char;
+  }
+  return output;
 }
 
 function referenceSuffix(ref) {

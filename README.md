@@ -552,7 +552,7 @@ html-to-storyblok infer-duplicates \
   --storyblok-inspection .tmp/html-to-storyblok/storyblok-access.json
 ```
 
-Add `--write-manifest` to persist the inferred entries back into the manifest after reviewing the output. Frontend inference walks a bounded local import graph, duplicates safe local source dependencies (`.astro`, `.vue`, `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts`, `.cts`) into `components/dependencies/`, duplicates safe local style dependencies into `styles/dependencies/`, duplicates local JSON data dependencies into `data/dependencies/`, copies resolvable local static assets into `assets/dependencies/`, rewrites import, `new URL(..., import.meta.url)`, and CSS `url(...)` specifiers between copied files, and namespaces duplicated CSS with the integration root. Skipped candidates are reported with blockers such as unresolved imports, unsupported files, unsafe paths, oversized graphs, or unresolved asset references.
+Add `--write-manifest` to persist the inferred entries back into the manifest after reviewing the output. Frontend inference walks a bounded local import graph, resolves safe relative imports plus `tsconfig.json`/`jsconfig.json` path aliases, duplicates safe local source dependencies (`.astro`, `.vue`, `.js`, `.jsx`, `.ts`, `.tsx`, `.mjs`, `.cjs`, `.mts`, `.cts`) into `components/dependencies/`, duplicates safe local style dependencies into `styles/dependencies/`, duplicates local JSON data dependencies into `data/dependencies/`, copies resolvable local static assets into `assets/dependencies/`, rewrites import, `new URL(..., import.meta.url)`, and CSS `url(...)` specifiers between copied files, and namespaces duplicated CSS with the integration root. Skipped candidates are reported with blockers such as unresolved imports, unsupported files, unsafe paths, oversized graphs, or unresolved asset references.
 
 Manual example:
 
@@ -835,7 +835,7 @@ Implemented:
 
 ## Remaining limitations
 
-- Duplication inference is conservative and opt-in. It now handles local code dependencies, local style dependencies, local JSON data dependencies, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
+- Duplication inference is conservative and opt-in. It now handles local code dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, and explicit template field hints, but complex business-specific relationships may still require manual refinement through a new namespaced version.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
