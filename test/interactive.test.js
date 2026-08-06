@@ -8,6 +8,7 @@ import { main } from '../src/cli.js';
 import { loadConfig, parseSettingAssignment, saveConfig, updateConfigValue } from '../src/config.js';
 import { discoverRepositories, discoverTemplates } from '../src/discovery.js';
 import { createDashboardModel, runInteractiveApp, runSettings } from '../src/interactive.js';
+import { createDefaultManifest } from '../src/policy.js';
 import { pathExists } from '../src/utils.js';
 
 test('configuration is persisted without secret-like keys', async () => {
@@ -231,6 +232,53 @@ test('interactive app returns to the home screen after a completed action', asyn
   assert.equal(headers.length >= 2, true);
   assert.match(output.text(), /\$\$\$\$\$\$\$\$\$\$\$/);
   assert.match(output.text(), /Next/);
+});
+
+test('interactive completed Storyblok apply can validate and return to the home screen', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  await mkdir(workDir, { recursive: true });
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-storyblok-v1',
+    storyblokPrefix: 'hts_acme_homepage_storyblok_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-storyblok-v1'
+  });
+  await writeFile(path.join(workDir, 'integration-manifest.json'), JSON.stringify(manifest, null, 2));
+
+  const output = new CaptureOutput({ isTTY: true });
+  const input = new TestInput();
+  const result = await runInteractiveApp({
+    args: {
+      config: path.join(root, 'config.json'),
+      work_dir: workDir
+    },
+    input,
+    output,
+    cwd: root,
+    answers: [
+      'resume',
+      'storyblok-apply',
+      'management-token',
+      '12345',
+      'eu',
+      '',
+      'validate',
+      'home',
+      'exit'
+    ]
+  });
+
+  const text = output.text();
+  const headers = text.match(/HTML -> Storyblok/g) || [];
+  assert.equal(result.action, 'exit');
+  assert.equal(input.paused, true);
+  assert.equal(headers.length >= 2, true);
+  assert.match(text, /Storyblok Integration Complete/);
+  assert.match(text, /Success/);
+  assert.match(text, /Plan Validation\s+Passed/);
+  assert.match(text, /Local Validation/);
+  assert.match(text, /Repository output was skipped/);
+  assert.match(text, /Next/);
 });
 
 test('storyblok-apply command runs the remote-only workflow without a repository', async () => {

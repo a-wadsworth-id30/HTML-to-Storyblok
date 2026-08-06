@@ -277,11 +277,8 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
     const result = await runHomeAction(action, { terminal, args, config, workDir, answers, cwd });
     if (!terminal.interactive || result?.action === 'exit') return result;
 
-    const next = await chooseNextAction({ terminal, result, answers });
+    const next = await handleNextAction({ terminal, args, result, answers, workDir });
     if (next === 'exit') return { ...result, next_action: 'exit' };
-    if (next === 'report') {
-      await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
-    }
   }
 }
 
@@ -301,17 +298,33 @@ async function runHomeAction(action, context) {
 
 async function continueInteractiveSession({ terminal, args, config, workDir, answers, cwd, result }) {
   if (!terminal.interactive || result?.action === 'exit') return result;
-  const next = await chooseNextAction({ terminal, result, answers });
+  const next = await handleNextAction({ terminal, args, result, answers, workDir });
   if (next === 'exit') return { ...result, next_action: 'exit' };
-  if (next === 'report') {
-    await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
-  }
   return runHomeScreen({ terminal, args, config, workDir, answers, cwd });
 }
 
+async function handleNextAction({ terminal, args, result, answers, workDir }) {
+  while (true) {
+    const next = await chooseNextAction({ terminal, result, answers });
+    if (next === 'validate') {
+      const validation = await runPostActionValidation({ terminal, result, workDir });
+      result.validation = validation.plan_validation || result.validation;
+      result.local_validation = validation.local_validation || result.local_validation;
+      continue;
+    }
+    if (next === 'report') {
+      await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
+      continue;
+    }
+    return next;
+  }
+}
+
 async function chooseNextAction({ terminal, result, answers }) {
+  renderPostActionCheckpoint(terminal, result);
   const choices = [
     { label: 'Return to Main Menu', value: 'home' },
+    ...(canRunPostActionValidation(result) ? [{ label: 'Run Validation Check', value: 'validate' }] : []),
     ...(result?.report ? [{ label: 'View Latest Report', value: 'report' }] : []),
     { label: 'Exit', value: 'exit' }
   ];
@@ -322,6 +335,64 @@ async function chooseNextAction({ terminal, result, answers }) {
     answers
   });
   return choice || 'home';
+}
+
+async function runPostActionValidation({ terminal, result, workDir }) {
+  const manifest = result?.manifest || await readOptionalJson(path.join(workDir, MANIFEST_NAME));
+  if (!manifest) {
+    terminal.status('Validation unavailable', 'warning', 'No integration manifest found.');
+    return {};
+  }
+
+  const planValidation = validatePlan(manifest);
+  await writeArtifact(workDir, VALIDATION_NAME, planValidation);
+  renderValidationSummary(terminal, planValidation);
+
+  let localValidation = null;
+  if (result?.repo_path && result?.status === 'complete') {
+    try {
+      localValidation = await terminal.task('Validate Local Output', async () => validateIntegration(manifest, {
+        repoPath: result.repo_path
+      }));
+    } catch (error) {
+      localValidation = {
+        status: 'failed',
+        failed_checks: 1,
+        error: error?.message || String(error)
+      };
+    }
+    await writeArtifact(workDir, 'validation-result.json', localValidation);
+    renderLocalValidationSummary(terminal, localValidation);
+  } else if (result?.status === 'dry_run_complete') {
+    terminal.panel('Local Validation', [
+      ['Status', 'Skipped', 'warning'],
+      ['Reason', 'Dry run did not write local output', 'warning']
+    ]);
+  } else if (result?.repository_skipped || result?.action === 'storyblok_only_integration') {
+    terminal.panel('Local Validation', [
+      ['Status', 'Skipped', 'warning'],
+      ['Reason', 'Repository output was skipped for this Storyblok-only run', 'warning']
+    ]);
+  }
+
+  return { plan_validation: planValidation, local_validation: localValidation };
+}
+
+function canRunPostActionValidation(result) {
+  return Boolean(result?.manifest || result?.validation || result?.status === 'complete' || result?.status === 'dry_run_complete');
+}
+
+function renderPostActionCheckpoint(terminal, result) {
+  if (!result || result.action === 'exit') return;
+  const validation = result.local_validation || result.validation;
+  const status = result.status || 'complete';
+  const success = ['complete', 'dry_run_complete', 'passed'].includes(status);
+  terminal.panel(success ? 'Success' : 'Checkpoint', [
+    ['Status', labelForStatus(status), success ? 'success' : status === 'blocked' || status === 'failed' ? 'error' : 'warning'],
+    ['Plan Validation', result.validation?.valid === true ? 'Passed' : result.validation?.valid === false ? 'Failed' : 'Available on request', result.validation?.valid === false ? 'error' : result.validation?.valid === true ? 'success' : 'warning'],
+    ['Local Validation', validation?.status || 'Available on request', validation?.status === 'passed' ? 'success' : validation?.status === 'failed' ? 'error' : 'warning'],
+    ...(result.report ? [['Report', result.report, 'success']] : [])
+  ]);
 }
 
 async function runCreateIntegration({ terminal, args, config, workDir, answers, cwd }) {
@@ -426,7 +497,7 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
       ['Status', 'Dry run completed. Real apply was not run.', 'warning'],
       ['Report', reportPath, 'success']
     ]);
-    return { action: 'create_integration', status: 'dry_run_complete', manifest, validation, dry_run: dryRun, report: reportPath };
+    return { action: 'create_integration', status: 'dry_run_complete', manifest, validation, repo_path: repoPath, dry_run: dryRun, report: reportPath };
   }
 
   sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: true });
@@ -439,7 +510,7 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   const report = await createReport(workDir);
   const reportPath = await writeMarkdownReport(workDir, report);
   renderCompletion(terminal, result, reportPath);
-  return { action: 'create_integration', status: 'complete', manifest, validation, result, report: reportPath };
+  return { action: 'create_integration', status: 'complete', manifest, validation, repo_path: repoPath, result, report: reportPath };
 }
 
 async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd, templatePath = null }) {
@@ -532,7 +603,7 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
       ['Repository', 'Skipped', 'warning'],
       ['Report', reportPath, 'success']
     ]);
-    return { action: 'storyblok_only_integration', status: 'dry_run_complete', manifest, validation, dry_run: dryRun, report: reportPath };
+    return { action: 'storyblok_only_integration', status: 'dry_run_complete', manifest, validation, repository_skipped: true, dry_run: dryRun, report: reportPath };
   }
 
   sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: true });
@@ -545,7 +616,7 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
   const report = await createReport(workDir);
   const reportPath = await writeMarkdownReport(workDir, report);
   renderStoryblokOnlyCompletion(terminal, result, reportPath);
-  return { action: 'storyblok_only_integration', status: 'complete', manifest, validation, result, report: reportPath };
+  return { action: 'storyblok_only_integration', status: 'complete', manifest, validation, repository_skipped: true, result, report: reportPath };
 }
 
 async function runContinueExistingIntegration({ terminal, args, config, workDir, answers, cwd }) {
@@ -592,7 +663,15 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
     const reportPath = await writeMarkdownReport(workDir, report);
     if (realStoryblokApply) renderStoryblokOnlyCompletion(terminal, result, reportPath);
     else terminal.panel('Storyblok Dry Run Complete', [['Repository', 'Skipped', 'warning'], ['Report', reportPath, 'success']]);
-    return { action: 'continue_integration', status: realStoryblokApply ? 'complete' : 'dry_run_complete', result, report: reportPath };
+    return {
+      action: 'continue_integration',
+      status: realStoryblokApply ? 'complete' : 'dry_run_complete',
+      manifest,
+      validation,
+      repository_skipped: true,
+      result,
+      report: reportPath
+    };
   }
 
   const repoPath = await chooseRepository({ terminal, config, answers, cwd });
@@ -605,7 +684,7 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
     const localValidation = await terminal.task('Validate Local Output', async () => validateIntegration(manifest, { repoPath }));
     await writeArtifact(workDir, 'validation-result.json', localValidation);
     renderLocalValidationSummary(terminal, localValidation);
-    return { action: 'continue_integration', status: localValidation.status, validation: localValidation };
+    return { action: 'continue_integration', status: localValidation.status, manifest, validation, local_validation: localValidation, repo_path: repoPath };
   }
 
   const realApply = action === 'apply';
@@ -622,7 +701,15 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   const reportPath = await writeMarkdownReport(workDir, report);
   if (realApply) renderCompletion(terminal, result, reportPath);
   else terminal.panel('Dry Run Complete', [['Report', reportPath, 'success']]);
-  return { action: 'continue_integration', status: realApply ? 'complete' : 'dry_run_complete', result, report: reportPath };
+  return {
+    action: 'continue_integration',
+    status: realApply ? 'complete' : 'dry_run_complete',
+    manifest,
+    validation,
+    repo_path: repoPath,
+    result,
+    report: reportPath
+  };
 }
 
 async function runValidateExistingPlan({ terminal, workDir }) {
@@ -1038,4 +1125,17 @@ function frameworkValue(name, fallback = 'static') {
 
 function labelForSetting(key) {
   return key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function labelForStatus(status) {
+  const labels = {
+    complete: 'Complete',
+    dry_run_complete: 'Dry Run Complete',
+    passed: 'Passed',
+    failed: 'Failed',
+    blocked: 'Blocked',
+    cancelled: 'Cancelled',
+    missing: 'Missing'
+  };
+  return labels[status] || labelForSetting(String(status || 'complete'));
 }
