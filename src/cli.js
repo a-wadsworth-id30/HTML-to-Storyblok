@@ -1,4 +1,3 @@
-import path from 'node:path';
 import { checkLiveAccess } from './access.js';
 import { duplicateAll } from './duplicator.js';
 import { ensureWorkDir, readEvidence, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from './evidence.js';
@@ -7,9 +6,9 @@ import { openDraftPullRequest } from './github.js';
 import { openDraftMergeRequest } from './gitlab.js';
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { queryNetlifyDeployPreviews } from './netlify.js';
-import { createDefaultManifest, validatePlan } from './policy.js';
+import { createIntegrationPlan } from './planner.js';
+import { validatePlan } from './policy.js';
 import { createDraftStories, createStoryblokComponents, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
-import { plannedTemplateFilePaths } from './template-converter.js';
 import { commandName, parseArgs, readJson, requireOption } from './utils.js';
 
 const MUTATING_COMMANDS = new Set([
@@ -160,47 +159,13 @@ export async function main(argv) {
 }
 
 async function createPlan(args, workDir) {
-  const integrationId = requireOption(args, 'integration_id');
-  const storyblokPrefix = requireOption(args, 'storyblok_prefix');
-  const repositoryNamespace = String(args.repository_namespace || path.posix.join('src/integrations', integrationId));
-  const manifest = createDefaultManifest({
-    integrationId,
-    storyblokPrefix,
-    repositoryNamespace
+  const manifest = await createIntegrationPlan({
+    integrationId: requireOption(args, 'integration_id'),
+    storyblokPrefix: requireOption(args, 'storyblok_prefix'),
+    repositoryNamespace: args.repository_namespace ? String(args.repository_namespace) : undefined,
+    templatePath: args.template ? String(args.template) : undefined,
+    framework: args.framework ? String(args.framework) : 'static'
   });
-
-  manifest.repository.files_to_create = [
-    `${repositoryNamespace}/integration-manifest.json`,
-    `${repositoryNamespace}/index.js`,
-    `${repositoryNamespace}/components.js`,
-    `${repositoryNamespace}/README.md`,
-    `${repositoryNamespace}/styles/${integrationId}.css`
-  ];
-  if (args.template) {
-    const plannedFramework = args.framework ? String(args.framework) : 'static';
-    manifest.repository.files_to_create.push(...plannedTemplateFilePaths(manifest, plannedFramework));
-    manifest.template = {
-      source_path: String(args.template),
-      framework: plannedFramework
-    };
-  }
-  manifest.storyblok.components_to_create = [
-    {
-      technical_name: `${storyblokPrefix}template_page`,
-      component_type: 'content_type',
-      allowed_children: [`${storyblokPrefix}section`]
-    },
-    { technical_name: `${storyblokPrefix}section`, component_type: 'nestable' }
-  ];
-  manifest.storyblok.stories_to_create = [
-    { slug: `integration-preview/${integrationId}`, component: `${storyblokPrefix}template_page`, status: 'draft' }
-  ];
-  manifest.operations = [
-    { type: 'create_new_resource', resource_type: 'repository_file', resource: `${repositoryNamespace}/integration-manifest.json` },
-    { type: 'create_new_resource', resource_type: 'storyblok_component', resource: `${storyblokPrefix}template_page` },
-    { type: 'create_new_resource', resource_type: 'storyblok_story', resource: `integration-preview/${integrationId}` }
-  ];
-
   const validation = validatePlan(manifest);
   await writeArtifact(workDir, 'plan-validation.json', validation);
   manifest.validation = validation;

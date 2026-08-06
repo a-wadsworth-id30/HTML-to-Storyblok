@@ -41,6 +41,53 @@ test('unnamespaced Storyblok technical names are rejected', () => {
   assert.equal(result.violations.at(-1).resource, 'hero');
 });
 
+test('repository file creation outside the integration namespace is rejected', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.repository.files_to_create.push('src/components/Existing.js');
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.match(result.violations.at(-1).reason, /inside the integration namespace/);
+});
+
+test('unnamespaced nested Storyblok component whitelists are rejected', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.components_to_create.push({
+    technical_name: 'hts_acme_v1_template_page',
+    schema: {
+      body: {
+        type: 'bloks',
+        component_whitelist: ['hero']
+      }
+    }
+  });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.match(result.violations.at(-1).reason, /unnamespaced/);
+});
+
+test('unsafe draft story slugs are rejected', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.stories_to_create.push({ slug: '../home', component: 'hts_acme_v1_template_page' });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.match(result.violations.at(-1).reason, /safe relative slug/);
+});
+
 test('generator produces isolated files inside repository namespace', () => {
   const manifest = createDefaultManifest({
     integrationId: 'acme-homepage-v1',

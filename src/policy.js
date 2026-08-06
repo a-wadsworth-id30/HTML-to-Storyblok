@@ -84,6 +84,16 @@ export function validatePlan(manifest) {
     });
   }
 
+  const namespace = manifest.repository_namespace;
+  if (!isSafeRelativePath(namespace || '')) {
+    violations.push({
+      operation: 'validate',
+      resource_type: 'repository_namespace',
+      resource: namespace || 'repository_namespace',
+      reason: 'Repository namespace must be a safe relative path.'
+    });
+  }
+
   for (const [section, key, reason] of REJECTED_MANIFEST_PATHS) {
     const value = manifest[section]?.[key];
     if (ensureArray(value).length > 0) {
@@ -120,6 +130,16 @@ export function validatePlan(manifest) {
   }
 
   const createdFiles = ensureArray(manifest.repository?.files_to_create);
+  for (const file of createdFiles) {
+    if (!isSafeRelativePath(file) || !isInsideNamespace(file, namespace)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'repository_file',
+        resource: file,
+        reason: 'Created repository files must be safe relative paths inside the integration namespace.'
+      });
+    }
+  }
   const duplicateFiles = findDuplicates(createdFiles);
   for (const file of duplicateFiles) {
     violations.push({
@@ -130,10 +150,50 @@ export function validatePlan(manifest) {
     });
   }
 
+  const repositoryAssetTargets = ensureArray(manifest.repository?.assets_to_create).map((asset) => asset.target_path || asset.path || asset);
+  for (const target of repositoryAssetTargets) {
+    if (!isSafeRelativePath(target) || (!isInsideNamespace(target, namespace) && !String(target).startsWith(`public/integrations/${manifest.integration_id}/`))) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'repository_asset',
+        resource: target,
+        reason: 'Repository asset targets must be safe relative paths inside the integration namespace or public integration namespace.'
+      });
+    }
+  }
+  for (const target of findDuplicates(repositoryAssetTargets)) {
+    violations.push({
+      operation: 'create',
+      resource_type: 'repository_asset',
+      resource: target,
+      reason: 'Duplicate repository asset target in manifest.'
+    });
+  }
+
+  for (const entry of ensureArray(manifest.repository?.components_to_duplicate)) {
+    const target = entry.target_path || entry.target;
+    if (!isSafeRelativePath(target || '') || !isInsideNamespace(target, namespace)) {
+      violations.push({
+        operation: 'duplicate',
+        resource_type: 'repository_component',
+        resource: target || 'target_path',
+        reason: 'Duplicated frontend component targets must be safe relative paths inside the integration namespace.'
+      });
+    }
+  }
+
   const technicalNames = [
     ...ensureArray(manifest.storyblok?.components_to_create).map((component) => component.technical_name || component),
     ...ensureArray(manifest.storyblok?.components_to_duplicate).map((component) => component.technical_name || component)
   ];
+  for (const name of findDuplicates(technicalNames)) {
+    violations.push({
+      operation: 'create',
+      resource_type: 'storyblok_component',
+      resource: name,
+      reason: 'Duplicate Storyblok technical name in manifest.'
+    });
+  }
   for (const name of technicalNames) {
     if (typeof name === 'string' && !name.startsWith(manifest.storyblok_prefix)) {
       violations.push({
@@ -143,6 +203,59 @@ export function validatePlan(manifest) {
         reason: 'Storyblok component technical name is not namespaced with the integration prefix.'
       });
     }
+  }
+
+  for (const component of ensureArray(manifest.storyblok?.components_to_create)) {
+    for (const nestedName of nestedComponentWhitelists(component.schema)) {
+      if (!String(nestedName).startsWith(manifest.storyblok_prefix)) {
+        violations.push({
+          operation: 'create',
+          resource_type: 'storyblok_component_schema',
+          resource: component.technical_name || component.name,
+          reason: `Nested component whitelist contains unnamespaced component: ${nestedName}`
+        });
+      }
+    }
+  }
+
+  const storySlugs = ensureArray(manifest.storyblok?.stories_to_create).map((story) => story.slug || story.full_slug);
+  for (const slug of storySlugs) {
+    if (!isSafeStorySlug(slug)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_story',
+        resource: slug || 'slug',
+        reason: 'Draft story slug must be a safe relative slug.'
+      });
+    }
+  }
+  for (const slug of findDuplicates(storySlugs)) {
+    violations.push({
+      operation: 'create',
+      resource_type: 'storyblok_story',
+      resource: slug,
+      reason: 'Duplicate Storyblok story slug in manifest.'
+    });
+  }
+
+  const storyblokAssetNames = ensureArray(manifest.storyblok?.assets_to_create).map((asset) => asset.filename || asset.path || asset.local_path);
+  for (const filename of storyblokAssetNames) {
+    if (filename && !String(filename).startsWith(`${manifest.integration_id}/`) && !String(filename).startsWith(`${manifest.storyblok_prefix}`)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_asset',
+        resource: filename,
+        reason: 'Storyblok asset filenames must be namespaced by integration ID or Storyblok prefix.'
+      });
+    }
+  }
+  for (const filename of findDuplicates(storyblokAssetNames)) {
+    violations.push({
+      operation: 'create',
+      resource_type: 'storyblok_asset',
+      resource: filename,
+      reason: 'Duplicate Storyblok asset filename in manifest.'
+    });
   }
 
   return {
@@ -156,10 +269,33 @@ export function validatePlan(manifest) {
 function findDuplicates(values) {
   const seen = new Set();
   const duplicates = new Set();
-  for (const value of values) {
+  for (const value of values.filter(Boolean)) {
     if (seen.has(value)) duplicates.add(value);
     seen.add(value);
   }
   return [...duplicates];
 }
 
+function isSafeRelativePath(value) {
+  if (!value || typeof value !== 'string') return false;
+  if (value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value)) return false;
+  const parts = value.split(/[\\/]+/);
+  return parts.every((part) => part && part !== '.' && part !== '..');
+}
+
+function isInsideNamespace(filePath, namespace) {
+  if (!namespace) return false;
+  return filePath === namespace || String(filePath).startsWith(`${namespace}/`);
+}
+
+function nestedComponentWhitelists(schema = {}) {
+  return Object.values(schema || {})
+    .filter((field) => field && field.type === 'bloks')
+    .flatMap((field) => ensureArray(field.component_whitelist));
+}
+
+function isSafeStorySlug(slug) {
+  if (!slug || typeof slug !== 'string') return false;
+  if (slug.startsWith('/') || slug.includes('..')) return false;
+  return /^[a-z0-9][a-z0-9/_-]*[a-z0-9]$/.test(slug);
+}
