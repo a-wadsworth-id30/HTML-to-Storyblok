@@ -3,6 +3,15 @@ import { PassThrough, Writable } from 'node:stream';
 import test from 'node:test';
 import { createTerminal, selectOption } from '../src/terminal-ui.js';
 
+test('terminal exposes the ID30 blue truecolor style', () => {
+  const output = new CaptureOutput({ isTTY: true });
+  const terminal = createTerminal({ output, colorMode: 'always' });
+
+  terminal.line(terminal.style('id30Blue', 'ID30'));
+
+  assert.match(output.text(), /\u001b\[38;2;0;122;255mID30\u001b\[0m/);
+});
+
 test('selectOption resumes interactive stdin before waiting for menu input', async () => {
   const input = new PassThrough();
   const output = new CaptureOutput({ isTTY: true });

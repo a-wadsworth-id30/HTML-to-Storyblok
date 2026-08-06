@@ -76,7 +76,7 @@ export async function runInteractiveApp({
 async function renderOpeningBanner(terminal) {
   if (!terminal.interactive) return;
   const banner = await readOpeningBanner();
-  if (banner) terminal.line(terminal.style('cyan', banner.trimEnd()));
+  if (banner) terminal.line(terminal.style('id30Blue', banner.trimEnd()));
   for (const line of CLI_BRANDING_LINES) {
     terminal.line(terminal.style('dim', line));
   }

@@ -10,6 +10,7 @@ const ANSI = {
   red: '\u001b[31m',
   blue: '\u001b[34m',
   cyan: '\u001b[36m',
+  id30Blue: '\u001b[38;2;0;122;255m',
   gray: '\u001b[90m',
   clearLine: '\u001b[2K',
   cursorStart: '\r'
