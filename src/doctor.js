@@ -1,33 +1,36 @@
 import { execFile } from 'node:child_process';
 import path from 'node:path';
-import { promisify } from 'node:util';
 import { checkLiveAccess } from './access.js';
 import { getGitStatus } from './discovery.js';
 import { pathExists } from './utils.js';
 
-const execFileAsync = promisify(execFile);
-
 export async function createDoctorReport({
   cwd = process.cwd(),
   config = {},
-  env = process.env
+  env = process.env,
+  execFileImpl = execFile
 } = {}) {
   const checks = [];
-  checks.push(await commandCheck('node', ['--version'], {
+  checks.push(await commandCheck(execFileImpl, 'node', ['--version'], {
     name: 'Node version',
     required: true,
     validate: (version) => Number(version.replace(/^v/, '').split('.')[0]) >= 20,
     fix: 'Install Node.js 20 or newer.'
   }));
-  checks.push(await commandCheck('npm', ['--version'], {
+  checks.push(await commandCheck(execFileImpl, 'npm', ['--version'], {
     name: 'npm',
     required: true,
     fix: 'Install npm with Node.js.'
   }));
-  checks.push(await commandCheck('git', ['--version'], {
+  checks.push(await commandCheck(execFileImpl, 'git', ['--version'], {
     name: 'Git',
     required: true,
     fix: 'Install Git and ensure it is available on PATH.'
+  }));
+  checks.push(await commandCheck(execFileImpl, 'netlify', ['--version'], {
+    name: 'Netlify CLI',
+    required: false,
+    fix: 'Install netlify-cli to enable --include-logs snapshots.'
   }));
 
   const access = checkLiveAccess(env);
@@ -60,14 +63,14 @@ export async function createDoctorReport({
   };
 }
 
-async function commandCheck(command, args, {
+async function commandCheck(execFileImpl, command, args, {
   name,
   required,
   validate = () => true,
   fix
 }) {
   try {
-    const { stdout } = await execFileAsync(command, args);
+    const { stdout } = await execFilePromise(execFileImpl, command, args);
     const detail = stdout.trim();
     const valid = validate(detail);
     return {
@@ -84,6 +87,20 @@ async function commandCheck(command, args, {
       fix
     };
   }
+}
+
+function execFilePromise(execFileImpl, command, args) {
+  return new Promise((resolve, reject) => {
+    execFileImpl(command, args, (error, stdout = '', stderr = '') => {
+      if (error) {
+        error.stdout = stdout;
+        error.stderr = stderr;
+        reject(error);
+        return;
+      }
+      resolve({ stdout, stderr });
+    });
+  });
 }
 
 function accessCheck(name, access, fix) {

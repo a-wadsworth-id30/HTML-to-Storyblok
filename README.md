@@ -115,7 +115,7 @@ Run environment and project readiness checks:
 html-to-storyblok doctor
 ```
 
-The doctor checks Node.js, npm, Git, Storyblok credentials, Netlify credentials, GitHub/GitLab credentials, required folders, and repository health, then prints actionable fixes for warnings or failures.
+The doctor checks Node.js, npm, Git, optional Netlify CLI availability for log snapshots, Storyblok credentials, Netlify credentials, GitHub/GitLab credentials, required folders, and repository health, then prints actionable fixes for warnings or failures.
 
 Open the interactive report viewer:
 
@@ -837,7 +837,7 @@ Implemented:
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, local style dependencies, local JSON data dependencies, and resolvable local CSS assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, and explicit template field hints, but complex business-specific relationships may still require manual refinement through a new namespaced version.
-- Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output.
+- Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.
 
