@@ -154,6 +154,81 @@ test('createDraftStories treats matching draft stories as idempotent', async () 
   restoreFetch();
 });
 
+test('createDraftStories hydrates draft asset fields from uploaded Storyblok assets', async () => {
+  mockFetch((url, options = {}) => {
+    if (url.includes('/stories?by_slugs=')) {
+      return { stories: [] };
+    }
+    if (url.endsWith('/stories') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      const image = payload.story.content.body[0].image;
+      assert.equal(image.id, 88);
+      assert.equal(image.filename, 'https://a.storyblok.com/f/123/acme-homepage-v1/hero.svg');
+      assert.equal(image.alt, 'Hero from template');
+      assert.equal(image.fieldtype, 'asset');
+      return {
+        story: {
+          id: 457,
+          slug: 'integration-preview/acme-homepage-v1',
+          full_slug: 'integration-preview/acme-homepage-v1',
+          published_at: null,
+          content: payload.story.content
+        }
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await createDraftStories({
+    storyblok: {
+      assets_to_create: [
+        {
+          source_ref: './assets/hero.svg',
+          local_path: '/tmp/hero.svg',
+          filename: 'acme-homepage-v1/hero.svg',
+          alt: 'Hero from manifest'
+        }
+      ],
+      stories_to_create: [
+        {
+          slug: 'integration-preview/acme-homepage-v1',
+          content: {
+            component: 'hts_acme_homepage_v1_template_page',
+            body: [
+              {
+                component: 'hts_acme_homepage_v1_hero',
+                image: {
+                  id: null,
+                  filename: './assets/hero.svg',
+                  alt: 'Hero from template'
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }, {
+    env: storyblokEnv(),
+    assetResults: [
+      {
+        action: 'upload_asset',
+        status: 'created',
+        filename: 'acme-homepage-v1/hero.svg',
+        id: 88,
+        verification: {
+          id: 88,
+          filename: 'https://a.storyblok.com/f/123/acme-homepage-v1/hero.svg',
+          alt: 'Hero from upload'
+        }
+      }
+    ]
+  });
+
+  assert.equal(result[0].status, 'created');
+  restoreFetch();
+});
+
 test('createStoryblokAssetFolders creates only missing namespaced folders', async () => {
   const calls = mockFetch((url, options = {}) => {
     if (url.endsWith('/asset_folders/') && (options.method || 'GET') === 'GET') {

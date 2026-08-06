@@ -514,7 +514,7 @@ html-to-storyblok apply \
 - create new Storyblok components
 - create or reuse matching integration-owned Storyblok asset folders
 - upload new Storyblok assets listed in the manifest
-- create new draft Storyblok stories
+- create new draft Storyblok stories with asset fields hydrated from the uploaded Storyblok assets
 
 It does not modify existing registries, routes, Storyblok components, Storyblok stories, assets, dependencies, or Netlify configuration.
 
@@ -672,6 +672,8 @@ html-to-storyblok upload-assets \
   --dry-run
 ```
 
+When `apply` or `storyblok-apply` runs the full workflow, uploaded asset results are fed into draft story creation. Template-local asset references such as `./assets/hero.svg` are converted into Storyblok asset fields with the uploaded asset ID, final Storyblok filename, alt text, and `fieldtype: "asset"`.
+
 Create draft stories:
 
 ```sh
@@ -680,7 +682,7 @@ html-to-storyblok create-draft-story \
   --dry-run
 ```
 
-Draft story creation uses `publish: false`. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers.
+Draft story creation uses `publish: false`. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers. If a draft story was created by an earlier version with unresolved local asset paths, rerun with a new integration ID or use confirmed remote rollback for the integration-owned draft resources before applying again.
 
 Run the complete Storyblok-only workflow without a repository:
 
@@ -894,7 +896,7 @@ Implemented:
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
-- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, draft story generation, asset folder creation, asset upload, Storyblok-only apply, and idempotent collision handling.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, draft story generation, asset folder creation, asset upload, draft story asset hydration, Storyblok-only apply, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
 - Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus apply preflight checks, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.

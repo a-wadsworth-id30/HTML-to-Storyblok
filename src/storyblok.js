@@ -143,7 +143,7 @@ export async function createStoryblokComponents(manifest, { dryRun = false, env 
   return results;
 }
 
-export async function createDraftStories(manifest, { dryRun = false, env = process.env } = {}) {
+export async function createDraftStories(manifest, { dryRun = false, env = process.env, assetResults = null } = {}) {
   const config = getStoryblokConfig(env);
   const stories = ensureArray(manifest.storyblok?.stories_to_create);
   const results = [];
@@ -152,11 +152,12 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
     throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
   }
 
+  const assetMap = await createStoryAssetMap(manifest, { config, dryRun, assetResults });
   for (const story of stories) {
-    const content = story.content || {
+    const content = hydrateStoryAssets(story.content || {
       component: story.component,
       body: ensureArray(story.body)
-    };
+    }, assetMap);
     const payload = {
       story: {
         name: story.name || lastSlugSegment(story.slug),
@@ -173,6 +174,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
         dry_run: true,
         slug: story.slug,
         collision_policy: 'verify_matching_draft_or_stop',
+        asset_resolution: assetMap.size > 0 ? 'planned_storyblok_assets' : 'no_storyblok_assets',
         payload
       });
       continue;
@@ -312,6 +314,7 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
         dry_run: true,
         local_path: localPath,
         filename,
+        source_ref: asset.source_ref || null,
         asset_folder_path: assetFolderPath || null,
         bytes: fileStat.size,
         sign_payload: {
@@ -331,6 +334,7 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
         status: 'already_exists',
         local_path: localPath,
         filename,
+        source_ref: asset.source_ref || null,
         asset_folder_path: assetFolderPath || null,
         asset_folder_id: resolvedFolderId || null,
         id: existing.id || null,
@@ -354,6 +358,7 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
       status: 'created',
       local_path: localPath,
       filename,
+      source_ref: asset.source_ref || null,
       asset_folder_path: assetFolderPath || null,
       asset_folder_id: resolvedFolderId || null,
       id: finished.asset?.id || assetId || null,
@@ -579,6 +584,93 @@ async function findAssetByFilename(config, filename) {
     asset.filename?.endsWith(`/${filename}`) ||
     asset.filename?.endsWith(`/${path.basename(filename)}`)
   ) || null;
+}
+
+async function createStoryAssetMap(manifest, { config, dryRun, assetResults = null }) {
+  const map = new Map();
+  const assets = ensureArray(manifest.storyblok?.assets_to_create);
+  if (assets.length === 0) return map;
+  const resultsByFilename = new Map(ensureArray(assetResults)
+    .filter((result) => result?.filename)
+    .map((result) => [result.filename, result]));
+
+  for (const asset of assets) {
+    const filename = asset.filename || asset.path || asset.local_path;
+    let result = filename ? resultsByFilename.get(filename) : null;
+    if (!dryRun && !result && filename) {
+      const existing = await findAssetByFilename(config, filename);
+      if (existing) {
+        result = {
+          action: 'resolve_asset',
+          dry_run: false,
+          status: 'already_exists',
+          filename,
+          id: existing.id || null,
+          verification: summarizeAsset(existing)
+        };
+      }
+    }
+    if (!dryRun && !result) continue;
+    const reference = storyAssetReference(asset, result, { dryRun });
+    for (const key of storyAssetReferenceKeys(asset)) {
+      map.set(key, reference);
+    }
+  }
+  return map;
+}
+
+function hydrateStoryAssets(value, assetMap) {
+  if (!value || assetMap.size === 0) return value;
+  if (Array.isArray(value)) return value.map((entry) => hydrateStoryAssets(entry, assetMap));
+  if (typeof value !== 'object') return value;
+
+  const existingFilename = typeof value.filename === 'string' ? value.filename : null;
+  const resolved = existingFilename ? assetMap.get(normalizeStoryAssetKey(existingFilename)) : null;
+  if (resolved) {
+    return {
+      ...value,
+      ...resolved,
+      alt: value.alt || resolved.alt || '',
+      title: value.title || resolved.title || '',
+      fieldtype: 'asset'
+    };
+  }
+
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, hydrateStoryAssets(entry, assetMap)]));
+}
+
+function storyAssetReference(asset, result, { dryRun }) {
+  const verification = result?.verification || {};
+  return {
+    id: verification.id || result?.id || asset.id || null,
+    filename: verification.filename || (!dryRun ? result?.filename : null) || asset.filename || asset.path || asset.local_path || '',
+    alt: asset.alt || verification.alt || '',
+    title: verification.title || '',
+    fieldtype: 'asset'
+  };
+}
+
+function storyAssetReferenceKeys(asset) {
+  return unique([
+    asset.source_ref,
+    asset.local_path,
+    asset.filename,
+    asset.path,
+    asset.file,
+    normalizeStoryAssetKey(asset.source_ref),
+    normalizeStoryAssetKey(asset.local_path),
+    normalizeStoryAssetKey(asset.filename),
+    normalizeStoryAssetKey(asset.path),
+    normalizeStoryAssetKey(asset.file)
+  ].filter(Boolean));
+}
+
+function normalizeStoryAssetKey(value) {
+  if (!value) return '';
+  return String(value)
+    .replaceAll('\\', '/')
+    .replace(/^\.\//, '')
+    .replace(/^\/+/, '');
 }
 
 async function deleteIntegrationDraftStories(config, manifest, { dryRun }) {

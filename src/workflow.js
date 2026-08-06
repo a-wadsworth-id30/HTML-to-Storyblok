@@ -92,14 +92,15 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
   });
   await progress({ label: 'Uploading Assets', current: 5, total: 7 });
-  steps.push({
+  const storyblokAssetsStep = {
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
-  });
+  };
+  steps.push(storyblokAssetsStep);
   await progress({ label: 'Creating Draft Story', current: 6, total: 7 });
   steps.push({
     action: 'storyblok_draft_stories',
-    results: await createDraftStories(manifest, { dryRun, env })
+    results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
   });
   await progress({ label: 'Done', current: 7, total: 7 });
   const result = {
@@ -129,14 +130,15 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
   });
   await progress({ label: 'Uploading Assets', current: 2, total: 4 });
-  steps.push({
+  const storyblokAssetsStep = {
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
-  });
+  };
+  steps.push(storyblokAssetsStep);
   await progress({ label: 'Creating Draft Story', current: 3, total: 4 });
   steps.push({
     action: 'storyblok_draft_stories',
-    results: await createDraftStories(manifest, { dryRun, env })
+    results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
   });
   await progress({ label: 'Done', current: 4, total: 4 });
   const result = {
