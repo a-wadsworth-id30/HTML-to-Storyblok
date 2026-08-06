@@ -830,8 +830,9 @@ Implemented:
 - Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
-- Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
+- Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus apply preflight checks, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
 - GitHub draft pull-request and GitLab draft merge-request creation through their APIs, with optional branch preparation, scoped staging, commit, and push orchestration.
+- Automated CLI acceptance coverage for the safe local workflow from planning through dry-run apply, real local generation, validation, report generation, rollback preview, and confirmed local rollback.
 
 ## Remaining limitations
 
@@ -847,3 +848,5 @@ Implemented:
 npm run check
 npm test
 ```
+
+The test suite includes a temp-directory end-to-end CLI workflow test that exercises the production command path without requiring live Storyblok, Netlify, GitHub, or GitLab credentials.

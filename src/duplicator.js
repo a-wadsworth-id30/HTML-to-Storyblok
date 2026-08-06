@@ -68,13 +68,13 @@ export async function duplicateRepositoryAssets(manifest, { repoPath = process.c
   return results;
 }
 
-export async function duplicateAll(manifest, { repoPath = process.cwd(), dryRun = false } = {}) {
+export async function duplicateAll(manifest, { repoPath = process.cwd(), dryRun = false, env = process.env } = {}) {
   return {
     action: 'duplicate',
     dry_run: dryRun,
     frontend_components: await duplicateFrontendComponents(manifest, { repoPath, dryRun }),
     repository_assets: await duplicateRepositoryAssets(manifest, { repoPath, dryRun }),
-    storyblok_components: await duplicateStoryblokComponents(manifest, { dryRun })
+    storyblok_components: await duplicateStoryblokComponents(manifest, { dryRun, env })
   };
 }
 

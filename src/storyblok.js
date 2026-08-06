@@ -89,6 +89,7 @@ export async function createStoryblokComponents(manifest, { dryRun = false, env 
   const config = getStoryblokConfig(env);
   const components = ensureArray(manifest.storyblok?.components_to_create);
   const results = [];
+  if (components.length === 0) return results;
   if (!config.available && !dryRun) {
     throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
   }
@@ -141,6 +142,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
   const config = getStoryblokConfig(env);
   const stories = ensureArray(manifest.storyblok?.stories_to_create);
   const results = [];
+  if (stories.length === 0) return results;
   if (!config.available && !dryRun) {
     throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
   }
@@ -205,6 +207,7 @@ export async function createStoryblokAssetFolders(manifest, { dryRun = false, en
   const config = getStoryblokConfig(env);
   const folders = plannedAssetFolders(manifest);
   const results = [];
+  if (folders.length === 0) return results;
   if (!config.available && !dryRun) {
     throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
   }
@@ -274,6 +277,7 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
   const config = getStoryblokConfig(env);
   const assets = ensureArray(manifest.storyblok?.assets_to_create);
   const results = [];
+  if (assets.length === 0) return results;
   if (!config.available && !dryRun) {
     throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
   }
@@ -358,6 +362,7 @@ export async function duplicateStoryblokComponents(manifest, { dryRun = false, e
   const config = getStoryblokConfig(env);
   const entries = ensureArray(manifest.storyblok?.components_to_duplicate);
   const results = [];
+  if (entries.length === 0) return results;
   if (!config.available && !dryRun) {
     throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
   }

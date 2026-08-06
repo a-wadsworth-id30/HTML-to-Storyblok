@@ -3,8 +3,8 @@ import { writeArtifact } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { buildOperations, createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
-import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, uploadStoryblokAssets } from './storyblok.js';
-import { readJson, requireOption } from './utils.js';
+import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, getStoryblokConfig, uploadStoryblokAssets } from './storyblok.js';
+import { ensureArray, readJson, requireOption } from './utils.js';
 import { validateIntegration } from './validator.js';
 import { applyInferredDuplicationCandidates } from './duplication-inference.js';
 
@@ -53,11 +53,13 @@ export async function readAndValidateManifest(args, workDir) {
 export async function applyManifest(manifest, args = {}, workDir, { onProgress = null } = {}) {
   const dryRun = Boolean(args.dry_run);
   const repoPath = args.repo ? String(args.repo) : process.cwd();
+  const env = args.env || process.env;
   const steps = [];
   const progress = typeof onProgress === 'function' ? onProgress : async () => {};
+  assertApplyPreflight(manifest, { dryRun, env });
 
   await progress({ label: 'Creating Frontend', current: 0, total: 7 });
-  steps.push(await duplicateAll(manifest, { repoPath, dryRun }));
+  steps.push(await duplicateAll(manifest, { repoPath, dryRun, env }));
   await progress({ label: 'Creating Frontend', current: 1, total: 7 });
   steps.push(await generateIntegration(manifest, {
     repoPath,
@@ -79,22 +81,22 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   await progress({ label: 'Creating Storyblok Components', current: 3, total: 7 });
   steps.push({
     action: 'storyblok_components',
-    results: await createStoryblokComponents(manifest, { dryRun })
+    results: await createStoryblokComponents(manifest, { dryRun, env })
   });
   await progress({ label: 'Creating Storyblok Asset Folders', current: 4, total: 7 });
   steps.push({
     action: 'storyblok_asset_folders',
-    results: await createStoryblokAssetFolders(manifest, { dryRun })
+    results: await createStoryblokAssetFolders(manifest, { dryRun, env })
   });
   await progress({ label: 'Uploading Assets', current: 5, total: 7 });
   steps.push({
     action: 'storyblok_assets',
-    results: await uploadStoryblokAssets(manifest, { dryRun })
+    results: await uploadStoryblokAssets(manifest, { dryRun, env })
   });
   await progress({ label: 'Creating Draft Story', current: 6, total: 7 });
   steps.push({
     action: 'storyblok_draft_stories',
-    results: await createDraftStories(manifest, { dryRun })
+    results: await createDraftStories(manifest, { dryRun, env })
   });
   await progress({ label: 'Done', current: 7, total: 7 });
   const result = {
@@ -104,4 +106,20 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   };
   await writeArtifact(workDir, 'apply-result.json', result);
   return result;
+}
+
+function assertApplyPreflight(manifest, { dryRun, env }) {
+  if (dryRun || plannedStoryblokOperationCount(manifest) === 0) return;
+  const config = getStoryblokConfig(env);
+  if (!config.available) {
+    throw new Error('Storyblok credentials unavailable; refusing to apply before local files are written. Set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID, or rerun with --dry-run.');
+  }
+}
+
+function plannedStoryblokOperationCount(manifest) {
+  return ensureArray(manifest.storyblok?.components_to_create).length +
+    ensureArray(manifest.storyblok?.components_to_duplicate).length +
+    ensureArray(manifest.storyblok?.asset_folders_to_create).length +
+    ensureArray(manifest.storyblok?.assets_to_create).length +
+    ensureArray(manifest.storyblok?.stories_to_create).length;
 }

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { duplicateFrontendComponents } from '../src/duplicator.js';
+import { duplicateAll, duplicateFrontendComponents } from '../src/duplicator.js';
 import { createDefaultManifest } from '../src/policy.js';
 
 test('frontend duplication creates an isolated copy in namespace', async () => {
@@ -30,4 +30,19 @@ test('frontend duplication creates an isolated copy in namespace', async () => {
   assert.equal(result[0].runtime_dependency_retained, false);
   assert.match(duplicated, /HtsButton/);
   assert.match(duplicated, /hts-acme-homepage-v1-button/);
+});
+
+test('duplicateAll does not require Storyblok credentials when no Storyblok duplicates are planned', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-duplicate-all-'));
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+
+  const result = await duplicateAll(manifest, { repoPath, env: {} });
+
+  assert.deepEqual(result.frontend_components, []);
+  assert.deepEqual(result.repository_assets, []);
+  assert.deepEqual(result.storyblok_components, []);
 });
