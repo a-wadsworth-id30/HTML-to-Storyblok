@@ -1,6 +1,7 @@
 import { readdir, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { validatePlan } from './policy.js';
+import { deleteStoryblokIntegrationResources } from './storyblok.js';
 import { ensureArray, pathExists } from './utils.js';
 
 export function createRollbackPreview(manifest, { repoPath = process.cwd() } = {}) {
@@ -40,7 +41,10 @@ export function createRollbackPreview(manifest, { repoPath = process.cwd() } = {
 export async function rollbackIntegration(manifest, {
   repoPath = process.cwd(),
   dryRun = false,
-  confirmIntegrationId
+  confirmIntegrationId,
+  remote = false,
+  confirmRemoteDelete = false,
+  env = process.env
 } = {}) {
   if (confirmIntegrationId !== manifest.integration_id) {
     throw new Error('rollback requires --confirm-integration-id matching the manifest integration_id');
@@ -79,6 +83,15 @@ export async function rollbackIntegration(manifest, {
     }
   }
 
+  const remoteRollback = remote
+    ? await deleteStoryblokIntegrationResources(manifest, {
+      dryRun,
+      env,
+      confirmIntegrationId,
+      confirmRemoteDelete
+    })
+    : null;
+
   return {
     action: 'rollback',
     dry_run: dryRun,
@@ -86,11 +99,12 @@ export async function rollbackIntegration(manifest, {
     repository_files_removed: removed,
     repository_files_missing: missing,
     directories_pruned: prunedDirectories,
-    remote_resources_not_removed: {
+    remote_rollback: remoteRollback,
+    remote_resources_not_removed: remote ? null : {
       storyblok_components: preview.storyblok_components_to_remove,
       storyblok_stories: preview.storyblok_stories_to_remove,
       storyblok_assets: preview.storyblok_assets_to_remove,
-      reason: 'Remote deletion requires explicit resource ownership verification and is intentionally not part of local rollback.'
+      reason: 'Pass --remote --confirm-remote-delete to delete integration-owned Storyblok draft resources.'
     }
   };
 }

@@ -249,7 +249,9 @@ export async function main(argv) {
       result = await rollbackIntegration(manifest, {
         repoPath: args.repo ? String(args.repo) : process.cwd(),
         dryRun: Boolean(args.dry_run),
-        confirmIntegrationId: args.confirm_integration_id ? String(args.confirm_integration_id) : undefined
+        confirmIntegrationId: args.confirm_integration_id ? String(args.confirm_integration_id) : undefined,
+        remote: Boolean(args.remote),
+        confirmRemoteDelete: Boolean(args.confirm_remote_delete)
       });
       await writeArtifact(workDir, 'rollback-result.json', result);
     } else {
@@ -320,7 +322,7 @@ Usage:
   html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
   html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
   html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
-  html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--dry-run]
+  html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--dry-run]
   html-to-storyblok report [--view]
 
 Mutating commands support --dry-run and always validate the manifest immediately before execution.

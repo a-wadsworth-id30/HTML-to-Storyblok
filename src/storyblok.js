@@ -1,6 +1,6 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { envValue, ensureArray, pathExists, sha256 } from './utils.js';
+import { envValue, ensureArray, pathExists, sha256, unique } from './utils.js';
 
 const REGION_BASE_URLS = {
   eu: 'https://mapi.storyblok.com/v1',
@@ -445,6 +445,37 @@ export async function duplicateStoryblokComponents(manifest, { dryRun = false, e
   return results;
 }
 
+export async function deleteStoryblokIntegrationResources(manifest, {
+  dryRun = false,
+  env = process.env,
+  confirmIntegrationId,
+  confirmRemoteDelete = false
+} = {}) {
+  if (confirmIntegrationId !== manifest.integration_id) {
+    throw new Error('remote Storyblok rollback requires --confirm-integration-id matching the manifest integration_id');
+  }
+  if (!dryRun && !confirmRemoteDelete) {
+    throw new Error('remote Storyblok rollback requires --confirm-remote-delete for real deletion');
+  }
+  assertRemoteRollbackIsNamespaced(manifest);
+
+  const config = getStoryblokConfig(env);
+  if (!config.available && !dryRun) {
+    throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
+  }
+
+  return {
+    action: 'storyblok_remote_rollback',
+    dry_run: dryRun,
+    integration_id: manifest.integration_id,
+    policy: 'delete_only_manifest_owned_namespaced_resources',
+    stories: await deleteIntegrationDraftStories(config, manifest, { dryRun }),
+    assets: await deleteIntegrationAssets(config, manifest, { dryRun }),
+    asset_folders: await deleteIntegrationAssetFolders(config, manifest, { dryRun }),
+    components: await deleteIntegrationComponents(config, manifest, { dryRun })
+  };
+}
+
 export async function inspectStoryblokContentStory({ slug, version = 'draft', env = process.env } = {}) {
   if (!slug) throw new Error('slug is required');
   const config = getStoryblokContentConfig(env);
@@ -530,12 +561,221 @@ async function findAssetByFilename(config, filename) {
   ) || null;
 }
 
+async function deleteIntegrationDraftStories(config, manifest, { dryRun }) {
+  const stories = uniqueBy(ensureArray(manifest.storyblok?.stories_to_create), (story) => story.slug || story.full_slug);
+  const results = [];
+  for (const story of stories) {
+    const slug = story.slug || story.full_slug;
+    if (dryRun) {
+      results.push({
+        action: 'delete_draft_story',
+        dry_run: true,
+        slug,
+        collision_policy: 'delete_only_unpublished_story_with_namespaced_root_component'
+      });
+      continue;
+    }
+    const existing = await findStoryBySlug(config, slug);
+    if (!existing) {
+      results.push({ action: 'delete_draft_story', dry_run: false, status: 'missing', slug });
+      continue;
+    }
+    assertStoryOwnedForRollback(existing, manifest, slug);
+    await storyblokRequest(config, `/spaces/${config.spaceId}/stories/${existing.id}`, { method: 'DELETE' });
+    results.push({
+      action: 'delete_draft_story',
+      dry_run: false,
+      status: 'deleted',
+      slug,
+      id: existing.id
+    });
+  }
+  return results;
+}
+
+async function deleteIntegrationAssets(config, manifest, { dryRun }) {
+  const assets = uniqueBy(ensureArray(manifest.storyblok?.assets_to_create), (asset) => asset.id || asset.filename || asset.local_path);
+  const results = [];
+  for (const asset of assets) {
+    const filename = asset.filename || asset.path || asset.local_path;
+    if (dryRun) {
+      results.push({
+        action: 'delete_asset',
+        dry_run: true,
+        filename,
+        id: asset.id || null,
+        collision_policy: 'delete_only_exact_namespaced_asset_match'
+      });
+      continue;
+    }
+    const existing = await findRollbackAsset(config, manifest, asset);
+    if (!existing) {
+      results.push({
+        action: 'delete_asset',
+        dry_run: false,
+        status: 'not_found_or_unverified',
+        filename,
+        id: asset.id || null
+      });
+      continue;
+    }
+    await storyblokRequest(config, `/spaces/${config.spaceId}/assets/${existing.id}`, { method: 'DELETE' });
+    results.push({
+      action: 'delete_asset',
+      dry_run: false,
+      status: 'deleted',
+      filename,
+      id: existing.id
+    });
+  }
+  return results;
+}
+
+async function deleteIntegrationAssetFolders(config, manifest, { dryRun }) {
+  const folders = plannedAssetFolders(manifest).reverse();
+  const results = [];
+  if (dryRun) {
+    return folders.map((folder) => ({
+      action: 'delete_asset_folder',
+      dry_run: true,
+      folder_path: folder.path,
+      collision_policy: 'delete_only_matching_namespaced_folder'
+    }));
+  }
+
+  const existingFolders = await listStoryblokAssetFolders(config);
+  const resolved = resolvePlannedFolders(existingFolders, folders);
+  for (const folder of folders) {
+    const existing = resolved.get(folder.path);
+    if (!existing) {
+      results.push({ action: 'delete_asset_folder', dry_run: false, status: 'missing', folder_path: folder.path });
+      continue;
+    }
+    await storyblokRequest(config, `/spaces/${config.spaceId}/asset_folders/${existing.id}`, { method: 'DELETE' });
+    results.push({
+      action: 'delete_asset_folder',
+      dry_run: false,
+      status: 'deleted',
+      folder_path: folder.path,
+      id: existing.id
+    });
+  }
+  return results;
+}
+
+async function deleteIntegrationComponents(config, manifest, { dryRun }) {
+  const names = unique([
+    ...ensureArray(manifest.storyblok?.components_to_create).map((component) => component.technical_name || component.name || component),
+    ...ensureArray(manifest.storyblok?.components_to_duplicate).map((component) => component.technical_name || component.name || component)
+  ]);
+  const results = [];
+  if (dryRun) {
+    return names.map((name) => ({
+      action: 'delete_component',
+      dry_run: true,
+      technical_name: name,
+      collision_policy: 'delete_only_namespaced_component'
+    }));
+  }
+
+  const existingComponents = await listStoryblokComponents(config);
+  for (const name of names) {
+    const existing = existingComponents.find((component) => component.name === name);
+    if (!existing) {
+      results.push({ action: 'delete_component', dry_run: false, status: 'missing', technical_name: name });
+      continue;
+    }
+    if (!String(existing.name || '').startsWith(manifest.storyblok_prefix)) {
+      throw new Error(`remote rollback refused for unnamespaced Storyblok component: ${existing.name}`);
+    }
+    await storyblokRequest(config, `/spaces/${config.spaceId}/components/${existing.id}`, { method: 'DELETE' });
+    results.push({
+      action: 'delete_component',
+      dry_run: false,
+      status: 'deleted',
+      technical_name: name,
+      id: existing.id
+    });
+  }
+  return results;
+}
+
 function assertComponentMatches(existing, intended) {
   const existingComparable = comparableComponent(existing);
   const intendedComparable = comparableComponent(intended);
   if (sha256Json(existingComparable) !== sha256Json(intendedComparable)) {
     throw new Error(`Storyblok component drift detected for ${intended.name}; existing component does not match the manifest.`);
   }
+}
+
+function assertRemoteRollbackIsNamespaced(manifest) {
+  for (const story of ensureArray(manifest.storyblok?.stories_to_create)) {
+    const slug = story.slug || story.full_slug;
+    if (!isIntegrationOwnedStorySlug(manifest, slug)) {
+      throw new Error(`remote rollback refused for non-integration Storyblok story slug: ${slug}`);
+    }
+  }
+  for (const component of [
+    ...ensureArray(manifest.storyblok?.components_to_create),
+    ...ensureArray(manifest.storyblok?.components_to_duplicate)
+  ]) {
+    const name = component.technical_name || component.name || component;
+    if (!String(name).startsWith(manifest.storyblok_prefix)) {
+      throw new Error(`remote rollback refused for unnamespaced Storyblok component: ${name}`);
+    }
+  }
+  for (const asset of ensureArray(manifest.storyblok?.assets_to_create)) {
+    const filename = asset.filename || asset.path || asset.local_path;
+    if (filename && !String(filename).startsWith(`${manifest.integration_id}/`) && !String(filename).startsWith(`${manifest.storyblok_prefix}`)) {
+      throw new Error(`remote rollback refused for unnamespaced Storyblok asset: ${filename}`);
+    }
+  }
+  for (const folder of plannedAssetFolders(manifest)) {
+    if (!String(folder.path).startsWith(manifest.integration_id) && !String(folder.path).startsWith(manifest.storyblok_prefix)) {
+      throw new Error(`remote rollback refused for unnamespaced Storyblok asset folder: ${folder.path}`);
+    }
+  }
+}
+
+function assertStoryOwnedForRollback(existing, manifest, plannedSlug) {
+  if (existing.published_at) {
+    throw new Error(`remote rollback refused to delete published Storyblok story: ${existing.full_slug || plannedSlug}`);
+  }
+  const rootComponent = existing.content?.component;
+  if (!String(rootComponent || '').startsWith(manifest.storyblok_prefix)) {
+    throw new Error(`remote rollback refused for Storyblok story without namespaced root component: ${existing.full_slug || plannedSlug}`);
+  }
+  if (!isIntegrationOwnedStorySlug(manifest, existing.full_slug || existing.slug || plannedSlug)) {
+    throw new Error(`remote rollback refused for non-integration Storyblok story slug: ${existing.full_slug || plannedSlug}`);
+  }
+}
+
+async function findRollbackAsset(config, manifest, asset) {
+  if (asset.id) return { id: asset.id };
+  const filename = asset.filename || asset.path || asset.local_path;
+  if (!filename) return null;
+  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/assets?search=${encodeURIComponent(path.basename(filename))}&per_page=100`);
+  return ensureArray(response.assets).find((candidate) => isExactRollbackAssetMatch(candidate, filename, manifest)) || null;
+}
+
+function isExactRollbackAssetMatch(asset, plannedFilename, manifest) {
+  const values = [asset.filename, asset.short_filename, asset.name].filter(Boolean).map(String);
+  return values.some((value) =>
+    value === plannedFilename ||
+    value.endsWith(`/${plannedFilename}`) ||
+    value.includes(`/${manifest.integration_id}/`) && value.endsWith(`/${path.basename(plannedFilename)}`)
+  );
+}
+
+function resolvePlannedFolders(existingFolders, folders) {
+  const ascending = [...folders].reverse();
+  const resolved = new Map();
+  for (const folder of ascending) {
+    const parentId = folder.parent_path ? resolved.get(folder.parent_path)?.id : folder.parent_id || 0;
+    const existing = existingFolders.find((entry) => entry.name === folder.name && Number(entry.parent_id || 0) === Number(parentId || 0));
+    if (existing) resolved.set(folder.path, existing);
+  }
+  return resolved;
 }
 
 function assertStoryMatches(existing, intended) {
@@ -761,6 +1001,14 @@ function defaultAssetFolderPath(manifest) {
   return first?.path || first?.name || null;
 }
 
+function isIntegrationOwnedStorySlug(manifest, slug) {
+  const value = String(slug || '');
+  return value === manifest.integration_id ||
+    value.endsWith(`/${manifest.integration_id}`) ||
+    value.includes(`/${manifest.integration_id}/`) ||
+    value.startsWith(`${manifest.integration_id}/`);
+}
+
 function safeError(data) {
   if (typeof data === 'string') return data;
   return data.message || data.error || JSON.stringify(data);
@@ -776,4 +1024,16 @@ function stableJson(value) {
 
 function encodeStorySlug(slug) {
   return String(slug).split('/').map((part) => encodeURIComponent(part)).join('/');
+}
+
+function uniqueBy(values, keyFn) {
+  const output = [];
+  const seen = new Set();
+  for (const value of values) {
+    const key = keyFn(value);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(value);
+  }
+  return output;
 }

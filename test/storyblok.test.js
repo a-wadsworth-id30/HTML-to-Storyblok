@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, inspectStoryblokContentStory, uploadStoryblokAssets } from '../src/storyblok.js';
+import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, deleteStoryblokIntegrationResources, inspectStoryblokContentStory, uploadStoryblokAssets } from '../src/storyblok.js';
 
 test('createStoryblokComponents treats matching existing components as idempotent', async () => {
   const calls = mockFetch((url, options = {}) => {
@@ -241,6 +241,114 @@ test('inspectStoryblokContentStory summarizes draft content without exposing tok
   restoreFetch();
 });
 
+test('deleteStoryblokIntegrationResources deletes only verified namespaced draft resources', async () => {
+  const calls = mockFetch((url, options = {}) => {
+    if (url.includes('/stories?by_slugs=')) {
+      return {
+        stories: [
+          {
+            id: 11,
+            slug: 'acme-homepage-v1',
+            full_slug: 'integration-preview/acme-homepage-v1',
+            published_at: null,
+            content: {
+              component: 'hts_acme_homepage_v1_template_page'
+            }
+          }
+        ]
+      };
+    }
+    if (url.endsWith('/stories/11') && options.method === 'DELETE') return { story: { id: 11 } };
+    if (url.includes('/assets?search=')) {
+      return {
+        assets: [
+          {
+            id: 22,
+            filename: 'https://a.storyblok.com/f/123/acme-homepage-v1/hero.svg',
+            short_filename: 'hero.svg'
+          }
+        ]
+      };
+    }
+    if (url.endsWith('/assets/22') && options.method === 'DELETE') return { asset: { id: 22 } };
+    if (url.endsWith('/asset_folders/') && (options.method || 'GET') === 'GET') {
+      return {
+        asset_folders: [
+          {
+            id: 33,
+            name: 'acme-homepage-v1',
+            parent_id: 0
+          }
+        ]
+      };
+    }
+    if (url.endsWith('/asset_folders/33') && options.method === 'DELETE') return { asset_folder: { id: 33 } };
+    if (url.endsWith('/components/') && (options.method || 'GET') === 'GET') {
+      return {
+        components: [
+          {
+            id: 44,
+            name: 'hts_acme_homepage_v1_template_page',
+            is_root: true
+          },
+          {
+            id: 45,
+            name: 'hts_acme_homepage_v1_hero',
+            is_nestable: true
+          }
+        ]
+      };
+    }
+    if (url.endsWith('/components/44') && options.method === 'DELETE') return { component: { id: 44 } };
+    if (url.endsWith('/components/45') && options.method === 'DELETE') return { component: { id: 45 } };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await deleteStoryblokIntegrationResources(remoteRollbackManifest(), {
+    env: storyblokEnv(),
+    confirmIntegrationId: 'acme-homepage-v1',
+    confirmRemoteDelete: true
+  });
+
+  assert.equal(result.stories[0].status, 'deleted');
+  assert.equal(result.assets[0].status, 'deleted');
+  assert.equal(result.asset_folders[0].status, 'deleted');
+  assert.equal(result.components.length, 2);
+  assert.ok(calls.some((call) => call.url.endsWith('/components/45') && call.options.method === 'DELETE'));
+  restoreFetch();
+});
+
+test('deleteStoryblokIntegrationResources refuses published stories', async () => {
+  mockFetch((url) => {
+    if (url.includes('/stories?by_slugs=')) {
+      return {
+        stories: [
+          {
+            id: 11,
+            slug: 'acme-homepage-v1',
+            full_slug: 'integration-preview/acme-homepage-v1',
+            published_at: '2026-08-06T10:00:00.000Z',
+            content: {
+              component: 'hts_acme_homepage_v1_template_page'
+            }
+          }
+        ]
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  await assert.rejects(
+    deleteStoryblokIntegrationResources(remoteRollbackManifest(), {
+      env: storyblokEnv(),
+      confirmIntegrationId: 'acme-homepage-v1',
+      confirmRemoteDelete: true
+    }),
+    /published Storyblok story/
+  );
+  restoreFetch();
+});
+
 let originalFetch;
 
 function mockFetch(handler) {
@@ -266,5 +374,39 @@ function storyblokEnv() {
   return {
     STORYBLOK_MANAGEMENT_TOKEN: 'management-token',
     STORYBLOK_SPACE_ID: '12345'
+  };
+}
+
+function remoteRollbackManifest() {
+  return {
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      components_to_create: [
+        {
+          technical_name: 'hts_acme_homepage_v1_template_page'
+        },
+        {
+          technical_name: 'hts_acme_homepage_v1_hero'
+        }
+      ],
+      stories_to_create: [
+        {
+          slug: 'integration-preview/acme-homepage-v1'
+        }
+      ],
+      asset_folders_to_create: [
+        {
+          path: 'acme-homepage-v1',
+          name: 'acme-homepage-v1',
+          parent_id: 0
+        }
+      ],
+      assets_to_create: [
+        {
+          filename: 'acme-homepage-v1/hero.svg'
+        }
+      ]
+    }
   };
 }
