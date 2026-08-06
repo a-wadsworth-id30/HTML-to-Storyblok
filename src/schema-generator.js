@@ -247,6 +247,7 @@ function draftBlock(definition, primaryPage, integrationId) {
 function buildRepositoryAssetPlan({ inventory, templatePath, repositoryNamespace }) {
   const root = templatePath ? path.resolve(templatePath) : null;
   return (inventory.asset_inventory || []).map((asset) => ({
+    source_type: 'template',
     source_path: root ? toPosix(path.relative(process.cwd(), path.join(root, asset.file))) : asset.file,
     target_path: `${repositoryNamespace}/assets/${asset.file}`,
     bytes: asset.bytes,

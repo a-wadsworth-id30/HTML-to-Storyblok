@@ -39,7 +39,8 @@ export async function duplicateFrontendComponents(manifest, { repoPath = process
 
 export async function duplicateRepositoryAssets(manifest, { repoPath = process.cwd(), dryRun = false } = {}) {
   const root = path.resolve(repoPath);
-  const entries = ensureArray(manifest.repository?.assets_to_create).filter((entry) => entry.source_path && entry.target_path);
+  const entries = ensureArray(manifest.repository?.assets_to_create)
+    .filter((entry) => entry.source_path && entry.target_path && entry.source_type !== 'template');
   const results = [];
 
   for (const entry of entries) {
