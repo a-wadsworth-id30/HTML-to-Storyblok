@@ -13,6 +13,21 @@ const COMPONENT_PATH_PATTERNS = [
   /(^|\/)bloks?\//i
 ];
 const RUNTIME_IMPORT_PATTERN = /\b(?:import\s+(?:[^'"()]+?\s+from\s+)?|import\s*\(|require\s*\()\s*['"]([^'"]+)['"]/g;
+const SAFE_DEPENDENCY_SOURCE_PATTERNS = [
+  /^(src\/)?components?\//i,
+  /^(src\/)?blocks?\//i,
+  /^(src\/)?sections?\//i,
+  /^(src\/)?ui\//i,
+  /^(src\/)?storyblok\//i,
+  /^(src\/)?bloks?\//i,
+  /^(src\/)?lib\//i,
+  /^(src\/)?utils?\//i,
+  /^(src\/)?hooks?\//i,
+  /^(src\/)?composables?\//i
+];
+const MAX_DEPENDENCY_FILES = 16;
+const MAX_DEPENDENCY_DEPTH = 5;
+const MAX_DEPENDENCY_BYTES = 1_500_000;
 const SIGNAL_SYNONYMS = new Map([
   ['navigation', ['nav', 'navbar', 'menu']],
   ['feature_grid', ['features', 'feature-list', 'cards', 'card-grid']],
@@ -44,7 +59,8 @@ export async function inferDuplicationCandidates(manifest, {
       components_to_duplicate: storyblokComponents
     },
     summary: {
-      frontend_components: frontendComponents.length,
+      frontend_components: frontendComponents.filter((entry) => !entry.dependency_of).length,
+      frontend_dependency_files: frontendComponents.filter((entry) => entry.dependency_of).length,
       storyblok_components: storyblokComponents.length
     }
   };
@@ -75,6 +91,7 @@ export async function applyInferredDuplicationCandidates(manifest, options = {})
   manifest.duplication_inference = {
     enabled: true,
     repository_components: inference.summary.frontend_components,
+    repository_dependency_files: inference.summary.frontend_dependency_files,
     storyblok_components: inference.summary.storyblok_components,
     generated_at: new Date().toISOString()
   };
@@ -91,8 +108,14 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
     ...ensureArray(manifest.repository?.components_to_duplicate).map((entry) => entry.target_path || entry.target)
   ].filter(Boolean));
   const existingSources = new Set(ensureArray(manifest.repository?.components_to_duplicate).map((entry) => entry.source_path || entry.source));
+  const sourceTargetMap = new Map(ensureArray(manifest.repository?.components_to_duplicate)
+    .filter((entry) => entry.source_path && entry.target_path)
+    .map((entry) => [entry.source_path, entry.target_path]));
+  const fileSet = new Set(files.map((file) => relativeTo(root, file)));
+  let acceptedRoots = 0;
 
   for (const file of files) {
+    if (acceptedRoots >= max) break;
     const rel = relativeTo(root, file);
     if (rel.startsWith(`${manifest.repository_namespace}/`)) continue;
     if (existingSources.has(rel)) continue;
@@ -101,7 +124,6 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
     const fileStat = await stat(file);
     if (fileStat.size > 500_000) continue;
     const content = await readFile(file, 'utf8');
-    if (hasRuntimeImportOutsideDuplicate(content)) continue;
 
     const match = scoreAgainstSignals(rel, content, signals);
     if (match.score <= 0) continue;
@@ -111,22 +133,32 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
       `${manifest.repository_namespace}/components/${newExportName}${path.extname(rel)}`,
       reservedTargets
     );
-    reservedTargets.add(targetPath);
-    scored.push({
-      source_path: rel,
-      target_path: targetPath,
-      export_name: exportName,
-      new_export_name: path.basename(targetPath, path.extname(targetPath)),
-      confidence: confidenceForScore(match.score),
-      matched_signal: match.signal.key,
-      reason: match.reason,
-      source_hash: sha256(content)
+    const graph = await collectLocalDependencyGraph(root, rel, fileSet);
+    if (graph.blockers.length > 0) continue;
+    const entries = await buildFrontendDuplicationEntries({
+      root,
+      manifest,
+      entrySource: rel,
+      entryTarget: targetPath,
+      graph,
+      match,
+      exportName,
+      reservedTargets,
+      existingSources,
+      sourceTargetMap
     });
+    if (entries.length === 0) continue;
+    entries.forEach((entry) => {
+      reservedTargets.add(entry.target_path);
+      existingSources.add(entry.source_path);
+      sourceTargetMap.set(entry.source_path, entry.target_path);
+    });
+    acceptedRoots += 1;
+    scored.push(...entries);
   }
 
   return scored
-    .sort((left, right) => confidenceRank(right.confidence) - confidenceRank(left.confidence) || left.source_path.localeCompare(right.source_path))
-    .slice(0, max);
+    .sort((left, right) => confidenceRank(right.confidence) - confidenceRank(left.confidence) || left.source_path.localeCompare(right.source_path));
 }
 
 function inferStoryblokComponentCandidates(manifest, { storyblokInspection, signals, max }) {
@@ -235,14 +267,6 @@ function isFrontendComponentPath(rel) {
   return COMPONENT_PATH_PATTERNS.some((pattern) => pattern.test(rel));
 }
 
-function hasRuntimeImportOutsideDuplicate(content) {
-  for (const match of content.matchAll(RUNTIME_IMPORT_PATTERN)) {
-    const specifier = match[1];
-    if (specifier.startsWith('.') || specifier.startsWith('@/') || specifier.startsWith('~/')) return true;
-  }
-  return false;
-}
-
 function inferExportName(content, rel) {
   const functionMatch = content.match(/\bexport\s+(?:default\s+)?function\s+([A-Z][A-Za-z0-9_]*)\b/);
   if (functionMatch) return functionMatch[1];
@@ -251,6 +275,168 @@ function inferExportName(content, rel) {
   const constMatch = content.match(/\bexport\s+const\s+([A-Z][A-Za-z0-9_]*)\b/);
   if (constMatch) return constMatch[1];
   return pascalCase(path.basename(rel, path.extname(rel)));
+}
+
+async function collectLocalDependencyGraph(root, entryRel, fileSet) {
+  const files = [];
+  const visited = new Set();
+  const blockers = [];
+  let totalBytes = 0;
+
+  async function visit(sourceRel, depth) {
+    if (visited.has(sourceRel)) return;
+    if (depth > MAX_DEPENDENCY_DEPTH) {
+      blockers.push(`dependency graph exceeded depth ${MAX_DEPENDENCY_DEPTH} at ${sourceRel}`);
+      return;
+    }
+    if (!isSafeDependencySourcePath(sourceRel)) {
+      blockers.push(`dependency path is outside safe source directories: ${sourceRel}`);
+      return;
+    }
+    visited.add(sourceRel);
+    files.push(sourceRel);
+    const fullPath = path.join(root, sourceRel);
+    const fileStat = await stat(fullPath);
+    totalBytes += fileStat.size;
+    if (files.length > MAX_DEPENDENCY_FILES) blockers.push(`dependency graph exceeds ${MAX_DEPENDENCY_FILES} files`);
+    if (totalBytes > MAX_DEPENDENCY_BYTES) blockers.push(`dependency graph exceeds ${MAX_DEPENDENCY_BYTES} bytes`);
+    if (blockers.length > 0) return;
+
+    const content = await readFile(fullPath, 'utf8');
+    for (const specifier of extractImportSpecifiers(content).filter(isLocalImportSpecifier)) {
+      const resolved = resolveLocalImport(sourceRel, specifier, fileSet);
+      if (!resolved) {
+        blockers.push(`local import could not be resolved from ${sourceRel}: ${specifier}`);
+        continue;
+      }
+      await visit(resolved, depth + 1);
+    }
+  }
+
+  await visit(entryRel, 0);
+  return {
+    files,
+    blockers: unique(blockers)
+  };
+}
+
+async function buildFrontendDuplicationEntries({
+  root,
+  manifest,
+  entrySource,
+  entryTarget,
+  graph,
+  match,
+  exportName,
+  reservedTargets,
+  existingSources,
+  sourceTargetMap
+}) {
+  const targetBySource = new Map([[entrySource, entryTarget]]);
+  for (const sourcePath of graph.files.filter((file) => file !== entrySource)) {
+    if (sourceTargetMap.has(sourcePath)) {
+      targetBySource.set(sourcePath, sourceTargetMap.get(sourcePath));
+      continue;
+    }
+    const targetPath = uniqueTargetPath(
+      `${manifest.repository_namespace}/components/dependencies/${sourcePath}`,
+      reservedTargets
+    );
+    targetBySource.set(sourcePath, targetPath);
+  }
+
+  const entries = [];
+  for (const sourcePath of graph.files) {
+    if (existingSources.has(sourcePath) && sourcePath !== entrySource) continue;
+    const content = await readFile(path.join(root, sourcePath), 'utf8');
+    const targetPath = targetBySource.get(sourcePath);
+    const importRewrites = buildImportRewrites(sourcePath, content, targetBySource, graph.files);
+    const isEntry = sourcePath === entrySource;
+    entries.push({
+      source_path: sourcePath,
+      target_path: targetPath,
+      ...(isEntry ? {
+        export_name: exportName,
+        new_export_name: path.basename(targetPath, path.extname(targetPath)),
+        confidence: confidenceForScore(match.score),
+        matched_signal: match.signal.key,
+        reason: graph.files.length > 1
+          ? `${match.reason} Local dependency graph will be duplicated into the integration namespace.`
+          : match.reason
+      } : {
+        dependency_of: entrySource,
+        confidence: 'dependency',
+        reason: `Local dependency of inferred component ${entrySource}.`
+      }),
+      import_rewrites: importRewrites,
+      source_hash: sha256(content)
+    });
+  }
+  return entries;
+}
+
+function buildImportRewrites(sourcePath, content, targetBySource, graphFiles) {
+  const rewrites = {};
+  for (const specifier of extractImportSpecifiers(content).filter(isLocalImportSpecifier)) {
+    const resolved = graphFiles.find((file) => file === resolveLocalImport(sourcePath, specifier, new Set(graphFiles)));
+    if (!resolved) continue;
+    const sourceTarget = targetBySource.get(sourcePath);
+    const dependencyTarget = targetBySource.get(resolved);
+    if (!sourceTarget || !dependencyTarget) continue;
+    rewrites[specifier] = relativeImportSpecifier(path.dirname(sourceTarget), dependencyTarget);
+  }
+  return rewrites;
+}
+
+function extractImportSpecifiers(content) {
+  return [...content.matchAll(RUNTIME_IMPORT_PATTERN)].map((match) => stripImportQuery(match[1]));
+}
+
+function resolveLocalImport(sourceRel, specifier, fileSet) {
+  const clean = stripImportQuery(specifier);
+  const candidates = [];
+  if (clean.startsWith('.')) {
+    candidates.push(path.posix.normalize(path.posix.join(path.posix.dirname(sourceRel), clean)));
+  } else if (clean.startsWith('@/') || clean.startsWith('~/')) {
+    const withoutAlias = clean.slice(2);
+    candidates.push(path.posix.normalize(path.posix.join('src', withoutAlias)));
+    candidates.push(path.posix.normalize(withoutAlias));
+  } else {
+    return null;
+  }
+
+  for (const candidate of candidates.flatMap(expandImportCandidates)) {
+    if (fileSet.has(candidate) && FRONTEND_COMPONENT_EXTENSIONS.has(path.extname(candidate).toLowerCase())) return candidate;
+  }
+  return null;
+}
+
+function expandImportCandidates(candidate) {
+  const ext = path.extname(candidate);
+  if (ext) return [candidate];
+  return [
+    ...[...FRONTEND_COMPONENT_EXTENSIONS].map((extension) => `${candidate}${extension}`),
+    ...[...FRONTEND_COMPONENT_EXTENSIONS].map((extension) => `${candidate}/index${extension}`)
+  ];
+}
+
+function isLocalImportSpecifier(specifier) {
+  return specifier.startsWith('.') || specifier.startsWith('@/') || specifier.startsWith('~/');
+}
+
+function isSafeDependencySourcePath(sourcePath) {
+  if (!sourcePath || sourcePath.startsWith('/') || sourcePath.includes('..')) return false;
+  return SAFE_DEPENDENCY_SOURCE_PATTERNS.some((pattern) => pattern.test(sourcePath));
+}
+
+function stripImportQuery(specifier) {
+  return String(specifier || '').split(/[?#]/)[0];
+}
+
+function relativeImportSpecifier(fromDir, toFile) {
+  let relative = path.posix.relative(fromDir, toFile);
+  if (!relative.startsWith('.')) relative = `./${relative}`;
+  return relative;
 }
 
 function uniqueTargetPath(targetPath, reservedTargets) {

@@ -89,6 +89,9 @@ function rewriteDuplicate(content, manifest, entry) {
   for (const [from, to] of Object.entries(replacements)) {
     rewritten = rewritten.split(from).join(to);
   }
+  for (const [from, to] of Object.entries(entry.import_rewrites || {})) {
+    rewritten = rewriteImportSpecifier(rewritten, from, to);
+  }
   rewritten = `/* Duplicated and isolated for ${manifest.integration_id}. Source: ${entry.source_path || entry.source}. */\n${rewritten}`;
   rewritten = rewritten.replace(/\bclass(Name)?=(['"])([^'"]+)\2/g, (_match, classNameSuffix = '', quote, classes) => {
     const scoped = classes
@@ -99,4 +102,13 @@ function rewriteDuplicate(content, manifest, entry) {
     return `class${classNameSuffix || ''}=${quote}${scoped}${quote}`;
   });
   return rewritten;
+}
+
+function rewriteImportSpecifier(content, from, to) {
+  const escaped = escapeRegExp(from);
+  return content.replace(new RegExp(`(['"])${escaped}\\1`, 'g'), (_match, quote) => `${quote}${to}${quote}`);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
