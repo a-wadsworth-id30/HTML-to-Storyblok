@@ -652,6 +652,8 @@ html-to-storyblok storyblok-components \
 
 Real Storyblok component creation is idempotent: if a namespaced component already exists and matches the manifest, the CLI reports it as `already_exists`; if it differs, the CLI stops and reports drift.
 
+Storyblok Management API requests retry `429` rate-limit responses and transient `5xx` failures with backoff. If an earlier run stopped part-way through because of rate limiting, rerun the same manifest/integration ID; matching namespaced resources are reused and remaining resources continue from the manifest.
+
 Create Storyblok asset folders listed in `storyblok.asset_folders_to_create`:
 
 ```sh

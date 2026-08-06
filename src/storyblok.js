@@ -18,6 +18,10 @@ const CONTENT_BASE_URLS = {
   cn: 'https://app.storyblokchina.cn/v2/cdn'
 };
 
+const DEFAULT_STORYBLOK_RETRY_LIMIT = 6;
+const DEFAULT_STORYBLOK_RETRY_BASE_MS = 1000;
+const DEFAULT_STORYBLOK_RETRY_MAX_MS = 8000;
+
 export function getStoryblokConfig(env = process.env) {
   const token = envValue([
     'STORYBLOK_MANAGEMENT_TOKEN',
@@ -31,6 +35,9 @@ export function getStoryblokConfig(env = process.env) {
     spaceId,
     region,
     baseUrl: REGION_BASE_URLS[region] || REGION_BASE_URLS.eu,
+    retryLimit: integerEnv(envValue(['STORYBLOK_RETRY_LIMIT'], env), DEFAULT_STORYBLOK_RETRY_LIMIT),
+    retryBaseMs: integerEnv(envValue(['STORYBLOK_RETRY_BASE_MS'], env), DEFAULT_STORYBLOK_RETRY_BASE_MS),
+    retryMaxMs: integerEnv(envValue(['STORYBLOK_RETRY_MAX_MS'], env), DEFAULT_STORYBLOK_RETRY_MAX_MS),
     available: Boolean(token && spaceId)
   };
 }
@@ -68,12 +75,10 @@ export async function inspectStoryblokSpace({ env = process.env } = {}) {
     };
   }
 
-  const [space, components, stories, assets] = await Promise.all([
-    storyblokRequest(config, `/spaces/${config.spaceId}`),
-    storyblokRequest(config, `/spaces/${config.spaceId}/components/`),
-    storyblokRequest(config, `/spaces/${config.spaceId}/stories?per_page=100`),
-    storyblokRequest(config, `/spaces/${config.spaceId}/assets?per_page=100`)
-  ]);
+  const space = await storyblokRequest(config, `/spaces/${config.spaceId}`);
+  const components = await storyblokRequest(config, `/spaces/${config.spaceId}/components/`);
+  const stories = await storyblokRequest(config, `/spaces/${config.spaceId}/stories?per_page=100`);
+  const assets = await storyblokRequest(config, `/spaces/${config.spaceId}/assets?per_page=100`);
 
   return {
     ...access,
@@ -510,20 +515,30 @@ export async function inspectStoryblokContentStory({ slug, version = 'draft', en
 }
 
 async function storyblokRequest(config, endpoint, { method = 'GET', body } = {}) {
-  const response = await fetch(`${config.baseUrl}${endpoint}`, {
-    method,
-    headers: {
-      Authorization: config.token,
-      'Content-Type': 'application/json'
-    },
-    body: body ? JSON.stringify(body) : undefined
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
-  if (!response.ok) {
+  const serializedBody = body ? JSON.stringify(body) : undefined;
+  const retryLimit = Math.max(Number(config.retryLimit) || 0, 0);
+  for (let attempt = 0; attempt <= retryLimit; attempt += 1) {
+    const response = await fetch(`${config.baseUrl}${endpoint}`, {
+      method,
+      headers: {
+        Authorization: config.token,
+        'Content-Type': 'application/json'
+      },
+      body: serializedBody
+    });
+    const text = await response.text();
+    const data = parseJsonOrText(text);
+    if (response.ok) return data;
+
+    if (attempt < retryLimit && shouldRetryStoryblokStatus(response.status)) {
+      const retryAfter = retryAfterMs(response.headers?.get?.('retry-after'));
+      const fallbackDelay = retryDelayMs(config, attempt);
+      await sleep(retryAfter ?? fallbackDelay);
+      continue;
+    }
+
     throw new Error(`Storyblok ${method} ${endpoint} failed with ${response.status}: ${safeError(data)}`);
   }
-  return data;
 }
 
 async function storyblokContentRequest(config, endpoint, params = {}) {
@@ -1017,6 +1032,46 @@ function isIntegrationOwnedStorySlug(manifest, slug) {
 function safeError(data) {
   if (typeof data === 'string') return data;
   return data.message || data.error || JSON.stringify(data);
+}
+
+function shouldRetryStoryblokStatus(status) {
+  return Number(status) === 429 || Number(status) === 500 || Number(status) === 502 || Number(status) === 503 || Number(status) === 504;
+}
+
+function retryDelayMs(config, attempt) {
+  const configuredBase = Number(config.retryBaseMs);
+  const configuredMax = Number(config.retryMaxMs);
+  const base = Number.isFinite(configuredBase) ? Math.max(configuredBase, 0) : DEFAULT_STORYBLOK_RETRY_BASE_MS;
+  const max = Number.isFinite(configuredMax) ? Math.max(configuredMax, base) : DEFAULT_STORYBLOK_RETRY_MAX_MS;
+  return Math.min(base * 2 ** attempt, max);
+}
+
+function retryAfterMs(value) {
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(seconds * 1000, 0);
+  const date = Date.parse(value);
+  if (Number.isFinite(date)) return Math.max(date - Date.now(), 0);
+  return null;
+}
+
+function parseJsonOrText(text) {
+  if (!text) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+function integerEnv(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(Number(ms) || 0, 0)));
 }
 
 function stableJson(value) {

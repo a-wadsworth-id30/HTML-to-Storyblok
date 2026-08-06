@@ -55,6 +55,68 @@ test('createStoryblokComponents treats matching existing components as idempoten
   restoreFetch();
 });
 
+test('createStoryblokComponents retries Storyblok Management API rate limits', async () => {
+  originalFetch = global.fetch;
+  const calls = [];
+  let postAttempts = 0;
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).endsWith('/components/') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ components: [] });
+    }
+    if (String(url).endsWith('/components/') && options.method === 'POST') {
+      postAttempts += 1;
+      if (postAttempts === 1) {
+        return jsonResponse({ error: 'Rate limit of 6 request per second reached. Retry later.' }, {
+          ok: false,
+          status: 429,
+          headers: { 'retry-after': '0' }
+        });
+      }
+      return jsonResponse({
+        component: {
+          id: 124,
+          name: 'hts_acme_homepage_v1_hero',
+          display_name: 'Hero',
+          is_nestable: true,
+          schema: {
+            headline: {
+              type: 'text',
+              translatable: true,
+              description: 'Section headline'
+            }
+          }
+        }
+      });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await createStoryblokComponents({
+    storyblok: {
+      components_to_create: [
+        {
+          technical_name: 'hts_acme_homepage_v1_hero',
+          display_name: 'Hero',
+          component_type: 'nestable',
+          schema: {
+            headline: {
+              type: 'text',
+              translatable: true,
+              description: 'Section headline'
+            }
+          }
+        }
+      ]
+    }
+  }, { env: { ...storyblokEnv(), STORYBLOK_RETRY_BASE_MS: '0' } });
+
+  assert.equal(result[0].status, 'created');
+  assert.equal(postAttempts, 2);
+  assert.equal(calls.length, 3);
+  restoreFetch();
+});
+
 test('createDraftStories treats matching draft stories as idempotent', async () => {
   const content = {
     component: 'hts_acme_homepage_v1_template_page',
@@ -364,6 +426,17 @@ function mockFetch(handler) {
     };
   };
   return calls;
+}
+
+function jsonResponse(body, { ok = true, status = 200, headers = {} } = {}) {
+  return {
+    ok,
+    status,
+    headers: {
+      get: (name) => headers[String(name).toLowerCase()] || null
+    },
+    text: async () => JSON.stringify(body)
+  };
 }
 
 function restoreFetch() {
