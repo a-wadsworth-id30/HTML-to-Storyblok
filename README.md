@@ -57,6 +57,8 @@ Run the command without arguments to launch the guided terminal experience:
 html-to-storyblok
 ```
 
+Interactive startup displays the ID30 ASCII banner from `ascii-art.txt`, then opens the guided menu. Non-interactive runs do not print the banner.
+
 The home screen provides task-oriented actions so first-time users do not need to remember the lower-level command names:
 
 ```text
@@ -200,6 +202,7 @@ This directory is ignored by Git. It is used for:
 - plan validation output
 - local validation output
 - rollback previews
+- per-step apply artifacts for completed local and Storyblok operations
 - evidence logs
 - markdown reports
 
@@ -456,8 +459,9 @@ Validation fails if the manifest attempts to:
 - modify existing Storyblok stories
 - modify existing Storyblok assets
 - use unsafe draft story slugs
+- create draft stories outside `integration-preview/<integration-id>`
 - use duplicate file paths, component names, story slugs, or asset names
-- allow unnamespaced nested Storyblok components
+- allow unnamespaced Storyblok content components
 - use a Storyblok prefix that is not derived from the integration ID
 - change dependencies
 - change deployment configuration
@@ -523,6 +527,8 @@ html-to-storyblok apply \
 - create new draft Storyblok stories with asset fields hydrated from the uploaded Storyblok assets
 
 It does not modify existing registries, routes, Storyblok components, Storyblok stories, assets, dependencies, or Netlify configuration.
+
+During real and dry-run apply, completed stages are written as incremental artifacts in `.tmp/html-to-storyblok/` before the final result file. If a later remote operation fails, the completed step files remain available for review, resume decisions, and rollback planning.
 
 ## Individual operation commands
 
@@ -594,6 +600,24 @@ For business-specific fields that should not be embedded in the template HTML, p
 ```
 
 Override component keys may use short generated names such as `hero` or full namespaced technical names. Nested block whitelists and seeded draft block `component` values are automatically rewritten into the integration Storyblok prefix. Draft story slug overrides are allowed only inside `integration-preview/<integration-id>`.
+
+For multi-page templates, route-specific draft story overrides can be supplied with `draft_stories`:
+
+```json
+{
+  "draft_stories": {
+    "index.html": {
+      "headline": "Home Preview"
+    },
+    "about": {
+      "name": "About Preview",
+      "headline": "About the Integration"
+    }
+  }
+}
+```
+
+Override keys may target a full draft slug, route segment, route path, source HTML filename, or source filename without extension. Unknown targets fail planning instead of being ignored.
 
 Duplicate approved frontend, repository asset, and Storyblok component sources:
 
@@ -679,6 +703,8 @@ html-to-storyblok upload-assets \
 ```
 
 When `apply` or `storyblok-apply` runs the full workflow, uploaded asset results are fed into draft story creation. Template-local asset references such as `./assets/hero.svg` are converted into Storyblok asset fields with the uploaded asset ID, final Storyblok filename, alt text, and `fieldtype: "asset"`.
+
+Existing Storyblok assets are reused only when the match is integration-owned and exact. The CLI compares the manifest filename/path and the resolved integration asset folder, so a generic existing asset with the same basename, such as `logo.svg`, is not treated as a safe match unless it belongs to the planned integration namespace.
 
 Create draft stories:
 
@@ -897,15 +923,17 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with session-only credential prompts, Storyblok-only test mode, dashboard, settings, doctor checks, report viewer with skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, Storyblok-only test mode, dashboard, settings, doctor checks, report viewer with skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
-- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, one-draft-story-per-route generation, asset folder creation, asset upload, draft story asset hydration, Storyblok-only apply, and idempotent collision handling.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, route-specific draft story overrides, one-draft-story-per-route generation, asset folder creation, asset upload, draft story asset hydration, Storyblok-only apply, and idempotent collision handling.
+- Paginated Storyblok Management API reads for components, stories, asset folders, and assets.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
-- Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus apply preflight checks, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
+- Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus apply preflight checks, incremental apply step artifacts, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
+- Strict Storyblok safety validation for draft story location, namespaced story content components, and exact integration-owned asset reuse.
 - GitHub draft pull-request and GitLab draft merge-request creation through their APIs, with optional branch preparation, scoped staging, commit, and push orchestration.
 - Automated CLI acceptance coverage for the safe local workflow from planning through dry-run apply, real local generation, validation, report generation, rollback preview, and confirmed local rollback.
 

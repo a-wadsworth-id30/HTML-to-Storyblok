@@ -76,17 +76,17 @@ export async function inspectStoryblokSpace({ env = process.env } = {}) {
   }
 
   const space = await storyblokRequest(config, `/spaces/${config.spaceId}`);
-  const components = await storyblokRequest(config, `/spaces/${config.spaceId}/components/`);
-  const stories = await storyblokRequest(config, `/spaces/${config.spaceId}/stories?per_page=100`);
-  const assets = await storyblokRequest(config, `/spaces/${config.spaceId}/assets?per_page=100`);
+  const components = await listStoryblokComponents(config);
+  const stories = await listStoryblokStories(config);
+  const assets = await listStoryblokAssets(config);
 
   return {
     ...access,
     status: 'ok',
     space: space.space ? summarizeSpace(space.space) : space,
-    components: ensureArray(components.components).map(summarizeComponent),
-    stories: ensureArray(stories.stories).map(summarizeStory),
-    assets: ensureArray(assets.assets).map(summarizeAsset)
+    components: components.map(summarizeComponent),
+    stories: stories.map(summarizeStory),
+    assets: assets.map(summarizeAsset)
   };
 }
 
@@ -322,7 +322,10 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
       continue;
     }
 
-    const existing = dryRun ? null : await findAssetByFilename(config, filename);
+    const existing = dryRun ? null : await findAssetByFilename(config, filename, {
+      assetFolderId: resolvedFolderId,
+      manifest
+    });
     if (existing) {
       assertAssetMatches(existing, { filename, bytes: fileStat.size });
       results.push({
@@ -560,13 +563,35 @@ async function storyblokContentRequest(config, endpoint, params = {}) {
 }
 
 async function listStoryblokComponents(config) {
-  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/components/`);
-  return ensureArray(response.components);
+  return listPaginated(config, `/spaces/${config.spaceId}/components/`, 'components');
 }
 
 async function listStoryblokAssetFolders(config) {
-  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/asset_folders/`);
-  return ensureArray(response.asset_folders);
+  return listPaginated(config, `/spaces/${config.spaceId}/asset_folders/`, 'asset_folders');
+}
+
+async function listStoryblokStories(config, params = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/stories`, 'stories', params);
+}
+
+async function listStoryblokAssets(config, params = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/assets`, 'assets', params);
+}
+
+async function listPaginated(config, endpoint, key, params = {}) {
+  const perPage = Number(params.per_page || 100);
+  const results = [];
+  for (let page = 1; ; page += 1) {
+    const response = await storyblokRequest(config, endpointWithQuery(endpoint, {
+      ...params,
+      per_page: perPage,
+      page
+    }));
+    const entries = ensureArray(response[key]);
+    results.push(...entries);
+    if (entries.length < perPage) break;
+  }
+  return results;
 }
 
 async function findStoryBySlug(config, slug) {
@@ -575,8 +600,8 @@ async function findStoryBySlug(config, slug) {
 }
 
 async function listStoryFolders(config) {
-  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/stories?per_page=100`);
-  return ensureArray(response.stories).filter((story) => story.is_folder);
+  const stories = await listStoryblokStories(config);
+  return stories.filter((story) => story.is_folder);
 }
 
 async function resolveStoryTarget(config, story) {
@@ -679,14 +704,9 @@ function draftStoryPayload(story, target, content) {
   };
 }
 
-async function findAssetByFilename(config, filename) {
-  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/assets?search=${encodeURIComponent(path.basename(filename))}&per_page=100`);
-  return ensureArray(response.assets).find((asset) =>
-    asset.filename === filename ||
-    asset.short_filename === filename ||
-    asset.filename?.endsWith(`/${filename}`) ||
-    asset.filename?.endsWith(`/${path.basename(filename)}`)
-  ) || null;
+async function findAssetByFilename(config, filename, { assetFolderId = null, manifest = null } = {}) {
+  const assets = await listStoryblokAssets(config, { search: path.basename(filename) });
+  return assets.find((asset) => isExactStoryblokAssetMatch(asset, filename, { assetFolderId, manifest })) || null;
 }
 
 async function createStoryAssetMap(manifest, { config, dryRun, assetResults = null }) {
@@ -701,7 +721,7 @@ async function createStoryAssetMap(manifest, { config, dryRun, assetResults = nu
     const filename = asset.filename || asset.path || asset.local_path;
     let result = filename ? resultsByFilename.get(filename) : null;
     if (!dryRun && !result && filename) {
-      const existing = await findAssetByFilename(config, filename);
+      const existing = await findAssetByFilename(config, filename, { manifest });
       if (existing) {
         result = {
           action: 'resolve_asset',
@@ -1005,17 +1025,24 @@ async function findRollbackAsset(config, manifest, asset) {
   if (asset.id) return { id: asset.id };
   const filename = asset.filename || asset.path || asset.local_path;
   if (!filename) return null;
-  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/assets?search=${encodeURIComponent(path.basename(filename))}&per_page=100`);
-  return ensureArray(response.assets).find((candidate) => isExactRollbackAssetMatch(candidate, filename, manifest)) || null;
+  return findAssetByFilename(config, filename, { manifest });
 }
 
-function isExactRollbackAssetMatch(asset, plannedFilename, manifest) {
+function isExactStoryblokAssetMatch(asset, plannedFilename, { assetFolderId = null, manifest = null } = {}) {
   const values = [asset.filename, asset.short_filename, asset.name].filter(Boolean).map(String);
-  return values.some((value) =>
-    value === plannedFilename ||
-    value.endsWith(`/${plannedFilename}`) ||
-    value.includes(`/${manifest.integration_id}/`) && value.endsWith(`/${path.basename(plannedFilename)}`)
-  );
+  const normalizedPlanned = normalizeStoryAssetKey(plannedFilename);
+  const basename = path.basename(normalizedPlanned);
+  const assetFolderMatches = assetFolderId &&
+    Number(asset.asset_folder_id || asset.folder_id || asset.asset_folder?.id || 0) === Number(assetFolderId);
+  if (assetFolderMatches && values.some((value) => path.basename(normalizeStoryAssetKey(value)) === basename)) return true;
+  return values.some((value) => {
+    const normalizedValue = normalizeStoryAssetKey(value);
+    if (normalizedValue === normalizedPlanned || normalizedValue.endsWith(`/${normalizedPlanned}`)) return true;
+    return manifest &&
+      normalizedValue.includes(`/${manifest.integration_id}/`) &&
+      normalizedPlanned.startsWith(`${manifest.integration_id}/`) &&
+      normalizedValue.endsWith(`/${normalizedPlanned}`);
+  });
 }
 
 function resolvePlannedFolders(existingFolders, folders) {
@@ -1307,6 +1334,15 @@ function integerEnv(value, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function endpointWithQuery(endpoint, params = {}) {
+  const search = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') search.set(key, String(value));
+  }
+  if (!search.toString()) return endpoint;
+  return `${endpoint}${endpoint.includes('?') ? '&' : '?'}${search.toString()}`;
 }
 
 function sleep(ms) {

@@ -104,6 +104,48 @@ test('unsafe draft story slugs are rejected', () => {
   assert.match(result.violations.at(-1).reason, /safe relative slug/);
 });
 
+test('draft story slugs must remain inside the integration preview namespace', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.stories_to_create.push({
+    slug: 'client-visible-page',
+    content: {
+      component: 'hts_acme_homepage_v1_template_page',
+      body: []
+    }
+  });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.match(result.violations.at(-1).reason, /integration-preview\/acme-homepage-v1/);
+});
+
+test('draft story content components must use the integration prefix', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.stories_to_create.push({
+    slug: 'integration-preview/acme-homepage-v1',
+    content: {
+      component: 'hts_acme_homepage_v1_template_page',
+      body: [
+        {
+          component: 'shared_hero'
+        }
+      ]
+    }
+  });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.match(result.violations.at(-1).reason, /unnamespaced component: shared_hero/);
+});
+
 test('unnamespaced Storyblok asset folder paths are rejected', () => {
   const manifest = createDefaultManifest({
     integrationId: 'acme-homepage-v1',

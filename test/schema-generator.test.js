@@ -216,6 +216,62 @@ test('buildSchemaPlan uses index.html as the primary draft page when templates c
   assert.equal(plan.components[0].source, 'index.html');
 });
 
+test('buildSchemaPlan applies route-specific draft story overrides to multi-page templates', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'multi-route-v1',
+    storyblokPrefix: 'hts_multi_route_v1_',
+    repositoryNamespace: 'src/integrations/multi-route-v1',
+    templatePath: 'templates/multi-route',
+    schemaOverrides: {
+      draft_stories: {
+        about: {
+          name: 'About Preview',
+          headline: 'About Override'
+        },
+        'index.html': {
+          headline: 'Home Override'
+        }
+      }
+    },
+    inventory: {
+      page_inventory: [
+        {
+          page: 'index.html',
+          title: 'Home',
+          landmarks: {},
+          tag_counts: {},
+          classes: [],
+          headings: [{ level: 1, text: 'Home page' }],
+          text_blocks: [],
+          repeated_candidates: [],
+          images: [],
+          links: [],
+          forms: []
+        },
+        {
+          page: 'about.html',
+          title: 'About',
+          landmarks: {},
+          tag_counts: {},
+          classes: [],
+          headings: [{ level: 1, text: 'About page' }],
+          text_blocks: [],
+          repeated_candidates: [],
+          images: [],
+          links: [],
+          forms: []
+        }
+      ],
+      asset_inventory: []
+    }
+  });
+
+  assert.equal(plan.draft_stories[0].content.headline, 'Home Override');
+  assert.equal(plan.draft_stories[1].name, 'About Preview');
+  assert.equal(plan.draft_stories[1].content.headline, 'About Override');
+  assert.equal(plan.schema_overrides.draft_stories.length, 2);
+});
+
 test('buildSchemaPlan infers bespoke editorial patterns without exposing child items at root', () => {
   const plan = buildSchemaPlan({
     integrationId: 'summit-template-v1',

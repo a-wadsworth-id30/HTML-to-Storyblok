@@ -8,7 +8,7 @@ import { createDraftStories, createStoryblokAssetFolders, createStoryblokCompone
 test('createStoryblokComponents treats matching existing components as idempotent', async () => {
   const calls = mockFetch((url, options = {}) => {
     assert.equal(options.method || 'GET', 'GET');
-    assert.match(url, /\/components\/$/);
+    assert.match(url, /\/components\/(?:\?|$)/);
     return {
       components: [
         {
@@ -61,7 +61,7 @@ test('createStoryblokComponents retries Storyblok Management API rate limits', a
   let postAttempts = 0;
   global.fetch = async (url, options = {}) => {
     calls.push({ url: String(url), options });
-    if (String(url).endsWith('/components/') && (options.method || 'GET') === 'GET') {
+    if (String(url).includes('/components/') && (options.method || 'GET') === 'GET') {
       return jsonResponse({ components: [] });
     }
     if (String(url).endsWith('/components/') && options.method === 'POST') {
@@ -117,6 +117,60 @@ test('createStoryblokComponents retries Storyblok Management API rate limits', a
   restoreFetch();
 });
 
+test('createStoryblokComponents scans paginated component lists before creating', async () => {
+  const targetComponent = {
+    id: 999,
+    name: 'hts_acme_homepage_v1_hero',
+    display_name: 'Hero',
+    is_root: false,
+    is_nestable: true,
+    preview_field: 'headline',
+    schema: {
+      headline: {
+        type: 'text',
+        translatable: true,
+        description: 'Section headline'
+      }
+    }
+  };
+  const calls = mockFetch((url, options = {}) => {
+    if (url.includes('/components/') && (options.method || 'GET') === 'GET') {
+      const page = new URL(url).searchParams.get('page');
+      if (page === '1') {
+        return {
+          components: Array.from({ length: 100 }, (_entry, index) => ({
+            id: index + 1,
+            name: `existing_component_${index}`,
+            is_nestable: true,
+            schema: {}
+          }))
+        };
+      }
+      return { components: [targetComponent] };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await createStoryblokComponents({
+    storyblok: {
+      components_to_create: [
+        {
+          technical_name: 'hts_acme_homepage_v1_hero',
+          display_name: 'Hero',
+          component_type: 'nestable',
+          preview_field: 'headline',
+          schema: targetComponent.schema
+        }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result[0].status, 'already_exists');
+  assert.equal(calls.filter((call) => call.url.includes('/components/') && (call.options.method || 'GET') === 'GET').length, 2);
+  assert.ok(!calls.some((call) => call.url.includes('/components/') && call.options.method === 'POST'));
+  restoreFetch();
+});
+
 test('createDraftStories treats matching draft stories as idempotent', async () => {
   const content = {
     component: 'hts_acme_homepage_v1_template_page',
@@ -159,7 +213,7 @@ test('createDraftStories hydrates draft asset fields from uploaded Storyblok ass
     if (url.includes('/stories?by_slugs=')) {
       return { stories: [] };
     }
-    if (url.endsWith('/stories?per_page=100')) {
+    if (url.includes('/stories?per_page=100')) {
       return { stories: [] };
     }
     if (url.endsWith('/stories') && options.method === 'POST') {
@@ -250,7 +304,7 @@ test('createDraftStories creates nested integration preview folder before draft 
     if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1')) {
       return { stories: [] };
     }
-    if (url.endsWith('/stories?per_page=100')) {
+    if (url.includes('/stories?per_page=100')) {
       return { stories: [] };
     }
     if (url.includes('/stories?by_slugs=integration-preview&per_page=1')) {
@@ -320,7 +374,7 @@ test('createDraftStories creates integration route folder for multi-page draft s
     if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1%2Fhome')) {
       return { stories: [] };
     }
-    if (url.endsWith('/stories?per_page=100')) {
+    if (url.includes('/stories?per_page=100')) {
       return { stories: [] };
     }
     if (url.includes('/stories?by_slugs=integration-preview&per_page=1')) {
@@ -397,7 +451,7 @@ test('createDraftStories creates integration route folder for multi-page draft s
 
 test('createStoryblokAssetFolders creates only missing namespaced folders', async () => {
   const calls = mockFetch((url, options = {}) => {
-    if (url.endsWith('/asset_folders/') && (options.method || 'GET') === 'GET') {
+    if (url.includes('/asset_folders/') && (options.method || 'GET') === 'GET') {
       return { asset_folders: [] };
     }
     if (url.endsWith('/asset_folders/') && options.method === 'POST') {
@@ -439,7 +493,7 @@ test('uploadStoryblokAssets resolves integration asset folders before signing up
   const assetPath = path.join(assetRoot, 'hero.svg');
   await writeFile(assetPath, '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n');
   const calls = mockFetch((url, options = {}) => {
-    if (url.endsWith('/asset_folders/') && (options.method || 'GET') === 'GET') {
+    if (url.includes('/asset_folders/') && (options.method || 'GET') === 'GET') {
       return { asset_folders: [] };
     }
     if (url.endsWith('/asset_folders/') && options.method === 'POST') {
@@ -500,6 +554,84 @@ test('uploadStoryblokAssets resolves integration asset folders before signing up
   assert.equal(result[0].status, 'created');
   assert.equal(result[0].asset_folder_id, 77);
   assert.ok(calls.some((call) => call.url === 'https://storyblok-upload.example/upload'));
+  restoreFetch();
+});
+
+test('uploadStoryblokAssets ignores basename-only asset collisions outside the integration folder', async () => {
+  const assetRoot = await mkdtemp(path.join(os.tmpdir(), 'hts-storyblok-asset-collision-'));
+  const assetPath = path.join(assetRoot, 'logo.svg');
+  await writeFile(assetPath, '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n');
+  const calls = mockFetch((url, options = {}) => {
+    if (url.includes('/asset_folders/') && (options.method || 'GET') === 'GET') {
+      return {
+        asset_folders: [
+          {
+            id: 77,
+            name: 'acme-homepage-v1',
+            parent_id: 0
+          }
+        ]
+      };
+    }
+    if (url.includes('/assets?search=')) {
+      return {
+        assets: [
+          {
+            id: 66,
+            filename: 'https://a.storyblok.com/f/space/shared-assets/logo.svg',
+            short_filename: 'logo.svg',
+            asset_folder_id: 44
+          }
+        ]
+      };
+    }
+    if (url.endsWith('/assets/') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      assert.equal(payload.asset_folder_id, 77);
+      assert.equal(payload.filename, 'acme-homepage-v1/logo.svg');
+      return {
+        id: 88,
+        post_url: 'https://storyblok-upload.example/upload',
+        fields: {
+          key: 'upload-key'
+        }
+      };
+    }
+    if (url === 'https://storyblok-upload.example/upload') {
+      return {};
+    }
+    if (url.endsWith('/assets/88/finish_upload')) {
+      return {
+        asset: {
+          id: 88,
+          filename: 'https://a.storyblok.com/f/space/acme-homepage-v1/logo.svg',
+          short_filename: 'logo.svg',
+          asset_folder_id: 77
+        }
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await uploadStoryblokAssets({
+    integration_id: 'acme-homepage-v1',
+    storyblok: {
+      asset_folders_to_create: [
+        { path: 'acme-homepage-v1', name: 'acme-homepage-v1', parent_id: 0 }
+      ],
+      assets_to_create: [
+        {
+          local_path: assetPath,
+          filename: 'acme-homepage-v1/logo.svg',
+          asset_folder_path: 'acme-homepage-v1'
+        }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result[0].status, 'created');
+  assert.ok(calls.some((call) => call.url.endsWith('/assets/') && call.options.method === 'POST'));
+  assert.ok(!calls.some((call) => call.url.endsWith('/assets/66/finish_upload')));
   restoreFetch();
 });
 
@@ -574,7 +706,7 @@ test('deleteStoryblokIntegrationResources deletes only verified namespaced draft
       };
     }
     if (url.endsWith('/assets/22') && options.method === 'DELETE') return { asset: { id: 22 } };
-    if (url.endsWith('/asset_folders/') && (options.method || 'GET') === 'GET') {
+    if (url.includes('/asset_folders/') && (options.method || 'GET') === 'GET') {
       return {
         asset_folders: [
           {
@@ -586,7 +718,7 @@ test('deleteStoryblokIntegrationResources deletes only verified namespaced draft
       };
     }
     if (url.endsWith('/asset_folders/33') && options.method === 'DELETE') return { asset_folder: { id: 33 } };
-    if (url.endsWith('/components/') && (options.method || 'GET') === 'GET') {
+    if (url.includes('/components/') && (options.method || 'GET') === 'GET') {
       return {
         components: [
           {
@@ -639,7 +771,7 @@ test('deleteStoryblokIntegrationResources deletes integration-owned story folder
       };
     }
     if (url.endsWith('/stories/11') && options.method === 'DELETE') return { story: { id: 11 } };
-    if (url.endsWith('/stories?per_page=100')) {
+    if (url.includes('/stories?per_page=100')) {
       return {
         stories: [
           {
@@ -660,7 +792,7 @@ test('deleteStoryblokIntegrationResources deletes integration-owned story folder
       };
     }
     if (url.endsWith('/stories/23') && options.method === 'DELETE') return { story: { id: 23 } };
-    if (url.endsWith('/components/') && (options.method || 'GET') === 'GET') return { components: [] };
+    if (url.includes('/components/') && (options.method || 'GET') === 'GET') return { components: [] };
     throw new Error(`unexpected request: ${url}`);
   });
 

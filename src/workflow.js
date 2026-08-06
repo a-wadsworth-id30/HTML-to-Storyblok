@@ -62,9 +62,9 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   assertApplyPreflight(manifest, { dryRun, env });
 
   await progress({ label: 'Creating Frontend', current: 0, total: 7 });
-  steps.push(await duplicateAll(manifest, { repoPath, dryRun, env }));
+  await recordApplyStep(workDir, steps, 'apply-step-01-duplicate.json', await duplicateAll(manifest, { repoPath, dryRun, env }));
   await progress({ label: 'Creating Frontend', current: 1, total: 7 });
-  steps.push(await generateIntegration(manifest, {
+  await recordApplyStep(workDir, steps, 'apply-step-02-generate.json', await generateIntegration(manifest, {
     repoPath,
     templatePath: args.template ? String(args.template) : undefined,
     framework: args.framework ? String(args.framework) : 'auto',
@@ -74,7 +74,7 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   const localValidation = dryRun
     ? { action: 'validate_integration', status: 'skipped', reason: 'dry-run does not write generated files' }
     : await validateIntegration(manifest, { repoPath });
-  steps.push({
+  await recordApplyStep(workDir, steps, 'apply-step-03-local-validation.json', {
     action: 'local_validation',
     results: localValidation
   });
@@ -82,12 +82,12 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
     throw new Error('local validation failed after generation; refusing remote Storyblok mutations');
   }
   await progress({ label: 'Creating Storyblok Components', current: 3, total: 7 });
-  steps.push({
+  await recordApplyStep(workDir, steps, 'apply-step-04-storyblok-components.json', {
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun, env })
   });
   await progress({ label: 'Creating Storyblok Asset Folders', current: 4, total: 7 });
-  steps.push({
+  await recordApplyStep(workDir, steps, 'apply-step-05-storyblok-asset-folders.json', {
     action: 'storyblok_asset_folders',
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
   });
@@ -96,9 +96,9 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
   };
-  steps.push(storyblokAssetsStep);
+  await recordApplyStep(workDir, steps, 'apply-step-06-storyblok-assets.json', storyblokAssetsStep);
   await progress({ label: 'Creating Draft Story', current: 6, total: 7 });
-  steps.push({
+  await recordApplyStep(workDir, steps, 'apply-step-07-storyblok-draft-stories.json', {
     action: 'storyblok_draft_stories',
     results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
   });
@@ -120,12 +120,12 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
   assertApplyPreflight(manifest, { dryRun, env });
 
   await progress({ label: 'Creating Storyblok Components', current: 0, total: 4 });
-  steps.push({
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-01-components.json', {
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun, env })
   });
   await progress({ label: 'Creating Storyblok Asset Folders', current: 1, total: 4 });
-  steps.push({
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-02-asset-folders.json', {
     action: 'storyblok_asset_folders',
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
   });
@@ -134,9 +134,9 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
   };
-  steps.push(storyblokAssetsStep);
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-03-assets.json', storyblokAssetsStep);
   await progress({ label: 'Creating Draft Story', current: 3, total: 4 });
-  steps.push({
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-04-draft-stories.json', {
     action: 'storyblok_draft_stories',
     results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
   });
@@ -149,6 +149,12 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
   };
   await writeArtifact(workDir, 'storyblok-apply-result.json', result);
   return result;
+}
+
+async function recordApplyStep(workDir, steps, artifactName, step) {
+  steps.push(step);
+  await writeArtifact(workDir, artifactName, step);
+  return step;
 }
 
 function assertApplyPreflight(manifest, { dryRun, env }) {

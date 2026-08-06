@@ -229,7 +229,8 @@ export function validatePlan(manifest) {
   }
 
   const storySlugs = ensureArray(manifest.storyblok?.stories_to_create).map((story) => story.slug || story.full_slug);
-  for (const slug of storySlugs) {
+  for (const story of ensureArray(manifest.storyblok?.stories_to_create)) {
+    const slug = story.slug || story.full_slug;
     if (!isSafeStorySlug(slug)) {
       violations.push({
         operation: 'create',
@@ -237,6 +238,24 @@ export function validatePlan(manifest) {
         resource: slug || 'slug',
         reason: 'Draft story slug must be a safe relative slug.'
       });
+    }
+    if (isSafeStorySlug(slug) && !isInsideIntegrationPreview(manifest, slug)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_story',
+        resource: slug,
+        reason: `Draft story slug must remain inside integration-preview/${manifest.integration_id}.`
+      });
+    }
+    for (const componentName of storyComponentNames(story)) {
+      if (!String(componentName).startsWith(manifest.storyblok_prefix)) {
+        violations.push({
+          operation: 'create',
+          resource_type: 'storyblok_story_content',
+          resource: slug || 'story_content',
+          reason: `Draft story content contains unnamespaced component: ${componentName}`
+        });
+      }
     }
   }
   for (const slug of findDuplicates(storySlugs)) {
@@ -326,6 +345,29 @@ function nestedComponentWhitelists(schema = {}) {
   return Object.values(schema || {})
     .filter((field) => field && field.type === 'bloks')
     .flatMap((field) => ensureArray(field.component_whitelist));
+}
+
+function storyComponentNames(value) {
+  const names = [];
+  collectStoryComponentNames(value, names);
+  return [...new Set(names)];
+}
+
+function collectStoryComponentNames(value, names) {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => collectStoryComponentNames(entry, names));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  if (typeof value.component === 'string') names.push(value.component);
+  Object.entries(value)
+    .filter(([key]) => key !== 'component')
+    .forEach(([, entry]) => collectStoryComponentNames(entry, names));
+}
+
+function isInsideIntegrationPreview(manifest, slug) {
+  const allowedPrefix = `integration-preview/${manifest.integration_id}`;
+  return slug === allowedPrefix || String(slug).startsWith(`${allowedPrefix}/`);
 }
 
 function isSafeStorySlug(slug) {

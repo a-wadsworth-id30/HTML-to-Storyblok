@@ -966,7 +966,8 @@ function applySchemaOverrides(plan, schemaOverrides, { integrationId, storyblokP
   if (!schemaOverrides) return plan;
   const summary = {
     components: [],
-    draft_story: false
+    draft_story: false,
+    draft_stories: []
   };
 
   for (const override of normalizeComponentOverrides(schemaOverrides.components)) {
@@ -1005,7 +1006,19 @@ function applySchemaOverrides(plan, schemaOverrides, { integrationId, storyblokP
     summary.draft_story = true;
   }
 
-  if (summary.components.length > 0 || summary.draft_story) {
+  const draftStoryOverrides = normalizeDraftStoryOverrides(schemaOverrides.draft_stories || schemaOverrides.draftStories);
+  for (const override of draftStoryOverrides) {
+    const draftStory = resolveDraftStoryOverrideTarget(plan, override);
+    if (!draftStory) throw new Error(`draft story override references unknown route or source page: ${override.selector}`);
+    applyDraftStoryOverride(draftStory, override, { integrationId, storyblokPrefix });
+    summary.draft_stories.push({
+      selector: override.selector,
+      slug: draftStory.slug,
+      source_page: draftStory.source_page || null
+    });
+  }
+
+  if (summary.components.length > 0 || summary.draft_story || summary.draft_stories.length > 0) {
     plan.schema_overrides = summary;
   }
   return plan;
@@ -1029,6 +1042,41 @@ function normalizeFieldOverrides(fields = {}) {
     return fields.map((field) => [field.name || field.field || field.key, field]);
   }
   return Object.entries(fields || {});
+}
+
+function normalizeDraftStoryOverrides(overrides = null) {
+  if (!overrides) return [];
+  if (Array.isArray(overrides)) {
+    return overrides.map((entry) => ({
+      ...(entry || {}),
+      selector: entry.slug || entry.route || entry.source_page || entry.source || entry.page
+    }));
+  }
+  return Object.entries(overrides || {}).map(([selector, entry]) => ({
+    ...(entry || {}),
+    selector
+  }));
+}
+
+function resolveDraftStoryOverrideTarget(plan, override) {
+  const selector = String(override.selector || '').trim();
+  if (!selector) throw new Error('draft story overrides require a route, slug, source_page, or object key selector');
+  return ensureArray(plan.draft_stories || plan.draft_story).find((story) => draftStoryMatchesSelector(story, selector)) || null;
+}
+
+function draftStoryMatchesSelector(story, selector) {
+  const sourcePage = String(story.source_page || '').replaceAll('\\', '/');
+  const sourceWithoutExt = sourcePage.replace(/\.[^.]+$/, '');
+  const route = String(story.route || '').replace(/^\/+|\/+$/g, '') || 'home';
+  const slug = String(story.slug || '').replace(/^\/+|\/+$/g, '');
+  const lastSlugSegment = slug.split('/').filter(Boolean).at(-1) || '';
+  const normalizedSelector = selector === '/' ? 'home' : selector.replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
+  return normalizedSelector === slug ||
+    normalizedSelector === lastSlugSegment ||
+    normalizedSelector === route ||
+    normalizedSelector === sourcePage ||
+    normalizedSelector === sourceWithoutExt ||
+    (normalizedSelector === 'home' && /(^|\/)index\.html$/i.test(sourcePage));
 }
 
 function resolveComponentOverrideName(selector, storyblokPrefix) {

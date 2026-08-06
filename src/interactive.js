@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { checkLiveAccess } from './access.js';
 import { DEFAULT_CONFIG, loadConfig, parseSettingAssignment, saveConfig, updateConfigValue } from './config.js';
@@ -18,6 +19,7 @@ import { applyManifest, applyStoryblokOnly } from './workflow.js';
 const MANIFEST_NAME = 'integration-manifest.json';
 const VALIDATION_NAME = 'plan-validation.json';
 const STORYBLOK_ONLY_REPOSITORY = '__storyblok_only__';
+const ASCII_ART_PATH = new URL('../ascii-art.txt', import.meta.url);
 
 export async function runInteractiveApp({
   args = {},
@@ -38,6 +40,7 @@ export async function runInteractiveApp({
   await ensureWorkDir(workDir);
 
   try {
+    await renderOpeningBanner(terminal);
     const manifestPath = path.join(workDir, MANIFEST_NAME);
     if (await pathExists(manifestPath)) {
       terminal.header('HTML -> Storyblok', 'Safety-first template integration');
@@ -69,6 +72,22 @@ export async function runInteractiveApp({
   }
 }
 
+async function renderOpeningBanner(terminal) {
+  if (!terminal.interactive) return;
+  const banner = await readOpeningBanner();
+  if (!banner) return;
+  terminal.line(terminal.style('cyan', banner.trimEnd()));
+  terminal.line('');
+}
+
+async function readOpeningBanner() {
+  try {
+    return await readFile(ASCII_ART_PATH, 'utf8');
+  } catch {
+    return '';
+  }
+}
+
 export async function runDashboard({
   args = {},
   input,
@@ -96,7 +115,8 @@ export async function runSettings({
   args = {},
   input,
   output,
-  answers = null
+  answers = null,
+  closeTerminal = true
 } = {}) {
   const answerQueue = Array.isArray(answers) ? [...answers] : null;
   let config = await loadConfig({ configPath: args.config ? String(args.config) : undefined });
@@ -107,38 +127,42 @@ export async function runSettings({
     interactive: args.no_interactive ? false : undefined
   });
 
-  if (args.set) {
-    const { key, value } = parseSettingAssignment(String(args.set));
-    config = updateConfigValue(config, key, value);
-    config = await saveConfig(config, { configPath: args.config ? String(args.config) : undefined });
-    renderSettings(terminal, config);
-    return config;
-  }
+  try {
+    if (args.set) {
+      const { key, value } = parseSettingAssignment(String(args.set));
+      config = updateConfigValue(config, key, value);
+      config = await saveConfig(config, { configPath: args.config ? String(args.config) : undefined });
+      renderSettings(terminal, config);
+      return config;
+    }
 
-  if (args.show || !terminal.interactive) {
-    renderSettings(terminal, config);
-    return config;
-  }
+    if (args.show || !terminal.interactive) {
+      renderSettings(terminal, config);
+      return config;
+    }
 
-  terminal.header('HTML -> Storyblok Settings', 'Local defaults only. Secrets are never stored.');
-  while (true) {
-    renderSettings(terminal, config);
-    const choice = await selectOption(terminal, {
-      message: 'Choose a setting to edit',
-      choices: [
-        ...Object.keys(DEFAULT_CONFIG).map((key) => ({ label: labelForSetting(key), value: key })),
-        { label: 'Exit', value: 'exit' }
-      ],
-      answers: answerQueue
-    });
-    if (!choice || choice === 'exit') return config;
-    const value = await promptInput(terminal, {
-      message: labelForSetting(choice),
-      defaultValue: String(config[choice] ?? ''),
-      answers: answerQueue
-    });
-    config = updateConfigValue(config, choice, value);
-    config = await saveConfig(config, { configPath: args.config ? String(args.config) : undefined });
+    terminal.header('HTML -> Storyblok Settings', 'Local defaults only. Secrets are never stored.');
+    while (true) {
+      renderSettings(terminal, config);
+      const choice = await selectOption(terminal, {
+        message: 'Choose a setting to edit',
+        choices: [
+          ...Object.keys(DEFAULT_CONFIG).map((key) => ({ label: labelForSetting(key), value: key })),
+          { label: 'Exit', value: 'exit' }
+        ],
+        answers: answerQueue
+      });
+      if (!choice || choice === 'exit') return config;
+      const value = await promptInput(terminal, {
+        message: labelForSetting(choice),
+        defaultValue: String(config[choice] ?? ''),
+        answers: answerQueue
+      });
+      config = updateConfigValue(config, choice, value);
+      config = await saveConfig(config, { configPath: args.config ? String(args.config) : undefined });
+    }
+  } finally {
+    if (closeTerminal) terminal.close();
   }
 }
 
@@ -166,7 +190,8 @@ export async function runReportViewer({
   args = {},
   input,
   output,
-  answers = null
+  answers = null,
+  closeTerminal = true
 } = {}) {
   const answerQueue = Array.isArray(answers) ? [...answers] : null;
   const config = await loadConfig({ configPath: args.config ? String(args.config) : undefined });
@@ -177,10 +202,14 @@ export async function runReportViewer({
     interactive: args.no_interactive ? false : undefined
   });
   const workDir = String(args.work_dir || config.default_output_folder || DEFAULT_WORK_DIR);
-  const report = await createReport(workDir);
-  const reportPath = await writeMarkdownReport(workDir, report);
-  await renderReportViewer(terminal, report, reportPath, answerQueue);
-  return { ...report, markdown_report: reportPath };
+  try {
+    const report = await createReport(workDir);
+    const reportPath = await writeMarkdownReport(workDir, report);
+    await renderReportViewer(terminal, report, reportPath, answerQueue);
+    return { ...report, markdown_report: reportPath };
+  } finally {
+    if (closeTerminal) terminal.close();
+  }
 }
 
 export async function createDashboardModel({
@@ -251,7 +280,7 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
     const next = await chooseNextAction({ terminal, result, answers });
     if (next === 'exit') return { ...result, next_action: 'exit' };
     if (next === 'report') {
-      await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
+      await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
     }
   }
 }
@@ -265,8 +294,8 @@ async function runHomeAction(action, context) {
   if (action === 'storyblok') return runReviewStoryblok({ terminal, args, config, workDir, answers, cwd });
   if (action === 'repository') return runReviewRepository({ terminal, config, workDir, answers, cwd });
   if (action === 'template') return runReviewTemplate({ terminal, config, workDir, answers, cwd });
-  if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
-  if (action === 'settings') return runSettings({ args, input: terminal.input, output: terminal.output, answers });
+  if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
+  if (action === 'settings') return runSettings({ args, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
   return { action: 'unknown', status: 'ignored' };
 }
 
@@ -275,7 +304,7 @@ async function continueInteractiveSession({ terminal, args, config, workDir, ans
   const next = await chooseNextAction({ terminal, result, answers });
   if (next === 'exit') return { ...result, next_action: 'exit' };
   if (next === 'report') {
-    await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
+    await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
   }
   return runHomeScreen({ terminal, args, config, workDir, answers, cwd });
 }
@@ -545,7 +574,7 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
     answers
   });
   if (!action || action === 'back') return { action: 'continue_integration', status: 'cancelled' };
-  if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
+  if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
 
   if (action === 'storyblok-dry-run' || action === 'storyblok-apply') {
     const realStoryblokApply = action === 'storyblok-apply';
