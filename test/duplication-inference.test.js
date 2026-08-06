@@ -377,6 +377,42 @@ test('inferDuplicationCandidates includes CommonJS sidecar code dependencies', a
   assert.match(duplicatedHelper, /module\.exports/);
 });
 
+test('inferDuplicationCandidates follows component barrel re-exports', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-barrel-'));
+  await mkdir(path.join(repoPath, 'src/components/Hero'), { recursive: true });
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero/index.js'),
+    "export { Hero } from './Hero.jsx';\n"
+  );
+  await writeFile(
+    path.join(repoPath, 'src/components/Hero/Hero.jsx'),
+    'export function Hero(){ return <section className="hero">Hero</section>; }\n'
+  );
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const inference = await inferDuplicationCandidates(manifest, { repoPath });
+  const entries = inference.repository.components_to_duplicate;
+  const barrel = entries.find((entry) => entry.source_path === 'src/components/Hero/index.js');
+  const implementation = entries.find((entry) => entry.source_path === 'src/components/Hero/Hero.jsx');
+
+  assert.equal(inference.summary.frontend_components, 1);
+  assert.equal(inference.summary.frontend_dependency_files, 1);
+  assert.equal(barrel.export_name, 'Hero');
+  assert.equal(barrel.target_path, 'src/integrations/acme-homepage-v1/components/HtsAcmeHomepageV1Hero.js');
+  assert.equal(barrel.import_rewrites['./Hero.jsx'], './dependencies/src/components/Hero/Hero.jsx');
+  assert.equal(implementation.dependency_of, 'src/components/Hero/index.js');
+
+  manifest.repository.components_to_duplicate.push(...entries);
+  await duplicateFrontendComponents(manifest, { repoPath });
+  const duplicatedBarrel = await readFile(path.join(repoPath, barrel.target_path), 'utf8');
+
+  assert.match(duplicatedBarrel, /from '\.\/dependencies\/src\/components\/Hero\/Hero\.jsx'/);
+});
+
 test('inferDuplicationCandidates reports skipped frontend candidates with blockers', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-infer-skip-'));
   await mkdir(path.join(repoPath, 'src/components'), { recursive: true });

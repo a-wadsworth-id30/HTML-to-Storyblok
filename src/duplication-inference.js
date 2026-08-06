@@ -47,6 +47,7 @@ const COMPONENT_PATH_PATTERNS = [
   /(^|\/)bloks?\//i
 ];
 const RUNTIME_IMPORT_PATTERN = /\b(?:import\s+(?:[^'"()]+?\s+from\s+)?|import\s*\(|require\s*\()\s*['"]([^'"]+)['"]/g;
+const EXPORT_FROM_PATTERN = /\bexport\s+(?:\*|\{[^}]*\})\s+from\s*['"]([^'"]+)['"]/g;
 const SAFE_DEPENDENCY_SOURCE_PATTERNS = [
   /^(src\/)?components?\//i,
   /^(src\/)?blocks?\//i,
@@ -183,9 +184,12 @@ async function inferFrontendComponentCandidates(manifest, { repoPath, signals, m
     .filter((entry) => entry.source_path && entry.target_path)
     .map((entry) => [entry.source_path, entry.target_path]));
   const fileSet = new Set(files.map((file) => relativeTo(root, file)));
+  const inferenceFiles = [...files].sort((left, right) =>
+    componentCandidateSort(relativeTo(root, left), relativeTo(root, right))
+  );
   let acceptedRoots = 0;
 
-  for (const file of files) {
+  for (const file of inferenceFiles) {
     if (acceptedRoots >= max) break;
     const rel = relativeTo(root, file);
     if (rel.startsWith(`${manifest.repository_namespace}/`)) continue;
@@ -365,6 +369,15 @@ function isFrontendComponentPath(rel) {
   return COMPONENT_PATH_PATTERNS.some((pattern) => pattern.test(rel));
 }
 
+function componentCandidateSort(left, right) {
+  return componentEntryPointRank(left) - componentEntryPointRank(right) ||
+    left.localeCompare(right);
+}
+
+function componentEntryPointRank(rel) {
+  return path.basename(rel, path.extname(rel)).toLowerCase() === 'index' ? 0 : 1;
+}
+
 function inferExportName(content, rel) {
   const functionMatch = content.match(/\bexport\s+(?:default\s+)?function\s+([A-Z][A-Za-z0-9_]*)\b/);
   if (functionMatch) return functionMatch[1];
@@ -372,6 +385,8 @@ function inferExportName(content, rel) {
   if (classMatch) return classMatch[1];
   const constMatch = content.match(/\bexport\s+const\s+([A-Z][A-Za-z0-9_]*)\b/);
   if (constMatch) return constMatch[1];
+  const namedReExportMatch = content.match(/\bexport\s+\{\s*(?:default\s+as\s+)?([A-Z][A-Za-z0-9_]*)\b[^}]*\}\s+from\s*['"]/);
+  if (namedReExportMatch) return namedReExportMatch[1];
   return pascalCase(path.basename(rel, path.extname(rel)));
 }
 
@@ -616,7 +631,10 @@ function extractDependencySpecifiers(content, sourcePath) {
 }
 
 function extractImportSpecifiers(content) {
-  return [...content.matchAll(RUNTIME_IMPORT_PATTERN)].map((match) => match[1]);
+  return [
+    ...[...content.matchAll(RUNTIME_IMPORT_PATTERN)].map((match) => match[1]),
+    ...[...content.matchAll(EXPORT_FROM_PATTERN)].map((match) => match[1])
+  ];
 }
 
 function extractCssImportSpecifiers(content) {

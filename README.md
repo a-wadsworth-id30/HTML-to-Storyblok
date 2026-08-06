@@ -875,7 +875,7 @@ Implemented:
 
 ## Remaining limitations
 
-- Duplication inference is conservative and opt-in. It now handles local code dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
+- Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
