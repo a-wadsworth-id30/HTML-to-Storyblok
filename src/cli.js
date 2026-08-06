@@ -5,7 +5,7 @@ import { generateIntegration } from './generator.js';
 import { openDraftPullRequest } from './github.js';
 import { openDraftMergeRequest } from './gitlab.js';
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
-import { queryNetlifyDeployPreviews } from './netlify.js';
+import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlify.js';
 import { createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
@@ -43,6 +43,7 @@ export async function main(argv) {
   });
 
   let result;
+  try {
   if (command === 'inspect-template') {
     result = await inspectTemplate(requireOption(args, 'template'));
     await writeArtifact(workDir, 'template-inventory.json', result);
@@ -62,12 +63,22 @@ export async function main(argv) {
     });
     await writeArtifact(workDir, 'storyblok-content-result.json', result);
   } else if (command === 'netlify-preview') {
-    result = await queryNetlifyDeployPreviews({
-      siteId: args.site_id ? String(args.site_id) : undefined,
-      branch: args.branch ? String(args.branch) : undefined,
-      deployId: args.deploy_id ? String(args.deploy_id) : undefined
-    });
+    result = args.verify
+      ? await verifyNetlifyDeployPreview({
+        siteId: args.site_id ? String(args.site_id) : undefined,
+        branch: args.branch ? String(args.branch) : undefined,
+        deployId: args.deploy_id ? String(args.deploy_id) : undefined,
+        expectedBuildCommand: args.expected_build_command ? String(args.expected_build_command) : undefined,
+        expectedPublishDirectory: args.expected_publish_directory ? String(args.expected_publish_directory) : undefined,
+        expectedContext: args.expected_context ? String(args.expected_context) : 'deploy-preview'
+      })
+      : await queryNetlifyDeployPreviews({
+        siteId: args.site_id ? String(args.site_id) : undefined,
+        branch: args.branch ? String(args.branch) : undefined,
+        deployId: args.deploy_id ? String(args.deploy_id) : undefined
+      });
     await writeArtifact(workDir, 'netlify-preview.json', result);
+    if (result.status === 'failed') process.exitCode = 2;
   } else if (command === 'check-access') {
     result = checkLiveAccess();
     await writeArtifact(workDir, 'access-readiness.json', result);
@@ -174,6 +185,15 @@ export async function main(argv) {
   } else {
     throw new Error(`unknown command: ${command}`);
   }
+  } catch (error) {
+    await recordEvidence(workDir, {
+      type: 'command_failed',
+      command,
+      exit_code: process.exitCode || 1,
+      message: redactMessage(error.message || String(error))
+    });
+    throw error;
+  }
 
   await recordEvidence(workDir, {
     type: 'command_completed',
@@ -199,16 +219,116 @@ async function createPlan(args, workDir) {
 
 async function createReport(workDir) {
   const evidence = await readEvidence(workDir);
+  const artifacts = evidence.filter((entry) => entry.type === 'artifact_written').map((entry) => entry.artifact);
+  const artifactSummaries = [];
+  for (const artifact of artifacts) {
+    artifactSummaries.push(await summarizeArtifact(artifact));
+  }
+  const completed = evidence.filter((entry) => entry.type === 'command_completed');
+  const failed = evidence.filter((entry) => entry.type === 'command_failed');
+  const latestValidation = latestSummary(artifactSummaries, ['plan_validation', 'integration_validation']);
+  const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
   return {
     work_dir: workDir,
     evidence_entries: evidence.length,
-    commands: evidence.filter((entry) => entry.type === 'command_completed').map((entry) => ({
+    commands_started: evidence.filter((entry) => entry.type === 'command_started').length,
+    commands_completed: completed.length,
+    commands_failed: failed.map((entry) => ({
+      command: entry.command,
+      exit_code: entry.exit_code,
+      message: entry.message,
+      timestamp: entry.timestamp
+    })),
+    commands: completed.map((entry) => ({
       command: entry.command,
       exit_code: entry.exit_code,
       timestamp: entry.timestamp
     })),
-    artifacts: evidence.filter((entry) => entry.type === 'artifact_written').map((entry) => entry.artifact)
+    artifacts: artifactSummaries,
+    latest_validation: latestValidation,
+    latest_netlify: latestNetlify,
+    safety_confirmation: {
+      plan_valid: latestValidation?.status === 'passed' || latestValidation?.valid === true,
+      deploy_preview_verified: latestNetlify?.status === 'passed',
+      command_argument_redaction: 'token-like argument keys are redacted in evidence',
+      unresolved_failures: failed.length
+    }
   };
+}
+
+async function summarizeArtifact(artifact) {
+  const name = artifact.split('/').at(-1);
+  try {
+    const data = await readJson(artifact);
+    if (name === 'integration-manifest.json') {
+      return {
+        type: 'integration_manifest',
+        artifact,
+        integration_id: data.integration_id,
+        repository_files: data.repository?.files_to_create?.length || 0,
+        storyblok_components: data.storyblok?.components_to_create?.length || 0,
+        storyblok_stories: data.storyblok?.stories_to_create?.length || 0,
+        storyblok_assets: data.storyblok?.assets_to_create?.length || 0
+      };
+    }
+    if (name === 'plan-validation.json') {
+      return {
+        type: 'plan_validation',
+        artifact,
+        valid: data.valid,
+        status: data.valid ? 'passed' : 'failed',
+        violations: data.violations?.length || 0
+      };
+    }
+    if (name === 'validation-result.json') {
+      return {
+        type: 'integration_validation',
+        artifact,
+        status: data.status,
+        failed_checks: data.failed_checks || 0
+      };
+    }
+    if (name === 'netlify-preview.json') {
+      return {
+        type: 'netlify_preview',
+        artifact,
+        status: data.status,
+        deploy_url: data.deploy?.deploy_url || data.deploys?.[0]?.deploy_url || null,
+        failed_checks: data.failed_checks || 0
+      };
+    }
+    if (name === 'github-pr-result.json') {
+      return {
+        type: 'github_pull_request',
+        artifact,
+        dry_run: Boolean(data.dry_run),
+        url: data.url || null,
+        number: data.number || null,
+        status: data.status || null
+      };
+    }
+    if (name === 'gitlab-mr-result.json') {
+      return {
+        type: 'gitlab_merge_request',
+        artifact,
+        dry_run: Boolean(data.dry_run),
+        url: data.url || data.web_url || null,
+        iid: data.iid || null,
+        status: data.status || null
+      };
+    }
+    return {
+      type: name.replace(/\.json$/, '').replaceAll('-', '_'),
+      artifact,
+      status: data.status || data.action || 'recorded'
+    };
+  } catch {
+    return {
+      type: 'unreadable_artifact',
+      artifact,
+      status: 'unreadable'
+    };
+  }
 }
 
 async function readAndValidateManifest(args, workDir) {
@@ -262,6 +382,17 @@ function redactArgs(args) {
   return redacted;
 }
 
+function redactMessage(message) {
+  return String(message)
+    .replace(/(token|secret|password|key)=([^&\s]+)/gi, '$1=[REDACTED]')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]')
+    .replace(/Authorization:\s*[A-Za-z0-9._-]+/gi, 'Authorization: [REDACTED]');
+}
+
+function latestSummary(summaries, types) {
+  return [...summaries].reverse().find((summary) => types.includes(summary.type)) || null;
+}
+
 function printHelp() {
   console.log(`html-to-storyblok
 
@@ -272,7 +403,7 @@ Usage:
   html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
-  html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>]
+  html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify]
   html-to-storyblok plan --integration-id <id> --storyblok-prefix <prefix_> [--repository-namespace <path>]
   html-to-storyblok validate-plan --manifest <path>
   html-to-storyblok diff --manifest <path> --repo <path>
