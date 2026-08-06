@@ -816,17 +816,17 @@ Implemented:
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
-- Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, import rewrites, and manifest validation.
-- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, CTA groups, forms, nested form fields, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
+- Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, import rewrites, manifest validation, and duplicated-output validation.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
-- Local validation, diffing, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
+- Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
 - GitHub draft pull-request and GitLab draft merge-request creation through their APIs, with optional branch preparation, scoped staging, commit, and push orchestration.
 
 ## Remaining limitations
 
 - Duplication inference is conservative and opt-in. It skips unresolved, unsupported, unsafe, or oversized local dependency graphs and still requires manifest review before apply.
-- Schema generation covers common editorial patterns, but highly bespoke editorial models may still require manual refinement through a new namespaced version.
+- Schema generation covers common editorial patterns and several bespoke landing-page patterns, but custom business-specific editorial models may still require manual refinement through a new namespaced version.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.
