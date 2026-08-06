@@ -1,5 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import test from 'node:test';
+import { main } from '../src/cli.js';
 import { createIntegrationPlan } from '../src/planner.js';
 
 test('createIntegrationPlan derives schemas, draft content, assets, and mapping from a template', async () => {
@@ -22,3 +26,58 @@ test('createIntegrationPlan derives schemas, draft content, assets, and mapping 
   assert.equal(manifest.storyblok.assets_to_create[0].asset_folder_path, 'acme-homepage-v1');
   assert.ok(manifest.mapping.every((entry) => entry.new_storyblok_component.startsWith('hts_acme_homepage_v1_')));
 });
+
+test('plan command applies schema override files into the generated manifest', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-plan-overrides-work-'));
+  const overridesPath = path.join(workDir, 'schema-overrides.json');
+  await writeFile(overridesPath, JSON.stringify({
+    components: {
+      hero: {
+        fields: {
+          campaign_code: 'text'
+        },
+        draft: {
+          campaign_code: 'spring-launch'
+        }
+      }
+    }
+  }, null, 2));
+
+  const output = await captureStdout(() => main([
+    'node',
+    'html-to-storyblok',
+    'plan',
+    '--integration-id',
+    'acme-homepage-v1',
+    '--template',
+    'test/fixtures/basic-template',
+    '--framework',
+    'static',
+    '--schema-overrides',
+    overridesPath,
+    '--work-dir',
+    workDir
+  ]));
+  const manifest = JSON.parse(output);
+  const hero = manifest.storyblok.components_to_create.find((component) => component.technical_name === 'hts_acme_homepage_v1_hero');
+  const draftHero = manifest.storyblok.stories_to_create[0].content.body.find((block) => block.component === 'hts_acme_homepage_v1_hero');
+
+  assert.equal(manifest.validation.valid, true);
+  assert.equal(manifest.schema_overrides.source_path, overridesPath);
+  assert.equal(hero.schema.campaign_code.type, 'text');
+  assert.equal(draftHero.campaign_code, 'spring-launch');
+});
+
+async function captureStdout(callback) {
+  const originalLog = console.log;
+  let output = '';
+  console.log = (value) => {
+    output += `${value}\n`;
+  };
+  try {
+    await callback();
+  } finally {
+    console.log = originalLog;
+  }
+  return output.trim();
+}

@@ -247,3 +247,150 @@ test('buildSchemaPlan converts explicit field hints into namespaced content fiel
   assert.equal(draftSection.newsletter_opt_in, true);
   assert.equal(draftSection.preferred_plan, 'starter');
 });
+
+test('buildSchemaPlan applies additive schema overrides with namespaced nested relationships', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'campaign-template-v1',
+    storyblokPrefix: 'hts_campaign_template_v1_',
+    repositoryNamespace: 'src/integrations/campaign-template-v1',
+    templatePath: 'templates/campaign-template',
+    schemaOverrides: {
+      components: {
+        hero: {
+          display_name: 'Campaign Hero',
+          preview_field: 'campaign_code',
+          fields: {
+            campaign_code: { type: 'text', description: 'CRM campaign code' },
+            related_services: {
+              type: 'options',
+              source: 'stories',
+              folder_slug: 'services/'
+            },
+            cards: {
+              type: 'bloks',
+              component_whitelist: ['feature_item'],
+              maximum: 3
+            },
+            theme: {
+              type: 'option',
+              options: ['light', 'dark']
+            }
+          },
+          draft: {
+            campaign_code: 'summer-launch',
+            cards: [
+              {
+                component: 'feature_item',
+                headline: 'Managed migration'
+              }
+            ]
+          }
+        }
+      },
+      draft_story: {
+        name: 'Campaign Import Preview',
+        headline: 'Campaign Preview'
+      }
+    },
+    inventory: {
+      page_inventory: [
+        {
+          page: 'index.html',
+          title: 'Campaign',
+          landmarks: {},
+          tag_counts: {},
+          classes: ['feature-card'],
+          headings: [{ level: 1, text: 'Campaign' }],
+          text_blocks: [
+            { tag: 'p', text: 'Launch campaign copy.' },
+            { tag: 'p', text: 'Feature one.' },
+            { tag: 'p', text: 'Feature two.' },
+            { tag: 'p', text: 'Feature three.' }
+          ],
+          repeated_candidates: [
+            { class_name: 'feature-card', count: 3 }
+          ],
+          images: [
+            { src: 'hero.jpg', alt: 'Hero' }
+          ],
+          links: [],
+          forms: []
+        }
+      ],
+      asset_inventory: []
+    }
+  });
+
+  const hero = plan.components.find((component) => component.technical_name === 'hts_campaign_template_v1_hero');
+  assert.equal(hero.display_name, 'Campaign Hero');
+  assert.equal(hero.preview_field, 'campaign_code');
+  assert.equal(hero.schema.campaign_code.type, 'text');
+  assert.equal(hero.schema.related_services.type, 'options');
+  assert.equal(hero.schema.related_services.source, 'stories');
+  assert.equal(hero.schema.cards.type, 'bloks');
+  assert.equal(hero.schema.cards.restrict_components, true);
+  assert.deepEqual(hero.schema.cards.component_whitelist, ['hts_campaign_template_v1_feature_item']);
+  assert.deepEqual(hero.schema.theme.options.map((option) => option.value), ['light', 'dark']);
+
+  const draftHero = plan.draft_story.content.body.find((block) => block.component === 'hts_campaign_template_v1_hero');
+  assert.equal(draftHero.campaign_code, 'summer-launch');
+  assert.equal(draftHero.cards[0].component, 'hts_campaign_template_v1_feature_item');
+  assert.equal(plan.draft_story.name, 'Campaign Import Preview');
+  assert.equal(plan.draft_story.content.headline, 'Campaign Preview');
+  assert.equal(plan.schema_overrides.components[0].technical_name, 'hts_campaign_template_v1_hero');
+});
+
+test('buildSchemaPlan rejects unsafe schema override targets and draft story slugs', () => {
+  const baseInput = {
+    integrationId: 'campaign-template-v1',
+    storyblokPrefix: 'hts_campaign_template_v1_',
+    repositoryNamespace: 'src/integrations/campaign-template-v1',
+    templatePath: 'templates/campaign-template',
+    inventory: {
+      page_inventory: [
+        {
+          page: 'index.html',
+          title: 'Campaign',
+          landmarks: {},
+          tag_counts: {},
+          classes: [],
+          headings: [{ level: 1, text: 'Campaign' }],
+          text_blocks: [],
+          repeated_candidates: [],
+          images: [],
+          links: [],
+          forms: []
+        }
+      ],
+      asset_inventory: []
+    }
+  };
+
+  assert.throws(
+    () => buildSchemaPlan({
+      ...baseInput,
+      schemaOverrides: {
+        components: {
+          unknown_block: {
+            fields: {
+              title: 'text'
+            }
+          }
+        }
+      }
+    }),
+    /unknown generated component/
+  );
+
+  assert.throws(
+    () => buildSchemaPlan({
+      ...baseInput,
+      schemaOverrides: {
+        draft_story: {
+          slug: 'landing-pages/campaign'
+        }
+      }
+    }),
+    /must remain inside integration-preview\/campaign-template-v1/
+  );
+});

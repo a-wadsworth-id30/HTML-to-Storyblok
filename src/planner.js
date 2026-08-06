@@ -14,7 +14,9 @@ export async function createIntegrationPlan({
   framework = 'static',
   repoPath,
   inferDuplicates = false,
-  storyblokInspection = null
+  storyblokInspection = null,
+  schemaOverrides = null,
+  schemaOverridesPath = null
 }) {
   const namespace = repositoryNamespace || path.posix.join('src/integrations', integrationId);
   const resolvedStoryblokPrefix = storyblokPrefix || storyblokPrefixForIntegrationId(integrationId);
@@ -33,7 +35,8 @@ export async function createIntegrationPlan({
       integrationId,
       storyblokPrefix: resolvedStoryblokPrefix,
       repositoryNamespace: namespace,
-      templatePath
+      templatePath,
+      schemaOverrides
     });
     manifest.template = {
       source_path: String(templatePath),
@@ -50,6 +53,12 @@ export async function createIntegrationPlan({
     manifest.storyblok.asset_folders_to_create = schemaPlan.asset_folders;
     manifest.storyblok.assets_to_create = schemaPlan.storyblok_assets;
     manifest.repository.assets_to_create = schemaPlan.repository_assets;
+    if (schemaPlan.schema_overrides) {
+      manifest.schema_overrides = {
+        source_path: schemaOverridesPath ? String(schemaOverridesPath) : null,
+        ...schemaPlan.schema_overrides
+      };
+    }
   } else {
     manifest.storyblok.components_to_create = [
       {

@@ -10,6 +10,7 @@ import { applyInferredDuplicationCandidates } from './duplication-inference.js';
 
 export async function createPlanFromArgs(args, workDir) {
   const storyblokInspection = args.storyblok_inspection ? await readJson(String(args.storyblok_inspection)) : null;
+  const schemaOverrides = args.schema_overrides ? await readJson(String(args.schema_overrides)) : null;
   const manifest = await createIntegrationPlan({
     integrationId: requireOption(args, 'integration_id'),
     storyblokPrefix: args.storyblok_prefix ? String(args.storyblok_prefix) : undefined,
@@ -18,7 +19,9 @@ export async function createPlanFromArgs(args, workDir) {
     framework: args.framework ? String(args.framework) : 'static',
     repoPath: args.repo ? String(args.repo) : undefined,
     inferDuplicates: Boolean(args.infer_duplicates),
-    storyblokInspection
+    storyblokInspection,
+    schemaOverrides,
+    schemaOverridesPath: args.schema_overrides ? String(args.schema_overrides) : null
   });
   const validation = validatePlan(manifest);
   await writeArtifact(workDir, 'plan-validation.json', validation);

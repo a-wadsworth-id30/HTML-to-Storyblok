@@ -382,6 +382,7 @@ html-to-storyblok plan \
   --integration-id acme-homepage-v1 \
   --template templates/acme-homepage \
   --repo ../client-site \
+  --schema-overrides schema-overrides.json \
   --framework astro \
   --infer-duplicates
 ```
@@ -533,6 +534,44 @@ Schema generation also respects explicit editorial field hints in the supplied t
 - `itemprop`
 
 For example, `data-hts-field="service_intro"` creates a namespaced `service_intro` field on the integration-owned content section and seeds the draft preview from the template text. Image hints become Storyblok asset fields, link hints become multilink fields, select/radio hints become option fields, and checkbox hints become boolean fields.
+
+For business-specific fields that should not be embedded in the template HTML, pass a schema override file during planning:
+
+```json
+{
+  "components": {
+    "hero": {
+      "display_name": "Campaign Hero",
+      "preview_field": "campaign_code",
+      "fields": {
+        "campaign_code": { "type": "text", "description": "CRM campaign code" },
+        "related_services": {
+          "type": "options",
+          "source": "stories",
+          "folder_slug": "services/"
+        },
+        "cards": {
+          "type": "bloks",
+          "component_whitelist": ["feature_item"],
+          "maximum": 3
+        }
+      },
+      "draft": {
+        "campaign_code": "spring-launch",
+        "cards": [
+          { "component": "feature_item", "headline": "Managed migration" }
+        ]
+      }
+    }
+  },
+  "draft_story": {
+    "name": "Campaign Import Preview",
+    "headline": "Campaign Preview"
+  }
+}
+```
+
+Override component keys may use short generated names such as `hero` or full namespaced technical names. Nested block whitelists and seeded draft block `component` values are automatically rewritten into the integration Storyblok prefix. Draft story slug overrides are allowed only inside `integration-preview/<integration-id>`.
 
 Duplicate approved frontend, repository asset, and Storyblok component sources:
 
@@ -750,7 +789,7 @@ html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|publi
 html-to-storyblok inspect-netlify --repo <path>
 html-to-storyblok check-access
 html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
-html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--repo <path> --infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
+html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--schema-overrides <json>] [--repo <path> --infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
 html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
 html-to-storyblok validate-plan --manifest <path>
 html-to-storyblok diff --manifest <path> --repo <path>
@@ -827,7 +866,7 @@ Implemented:
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
-- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
 - Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus apply preflight checks, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
@@ -837,7 +876,7 @@ Implemented:
 ## Remaining limitations
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
-- Schema generation covers common editorial patterns, several bespoke landing-page patterns, and explicit template field hints, but complex business-specific relationships may still require manual refinement through a new namespaced version.
+- Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.

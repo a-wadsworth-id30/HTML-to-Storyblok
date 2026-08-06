@@ -1,7 +1,24 @@
 import path from 'node:path';
-import { sha256 } from './utils.js';
+import { ensureArray, sha256 } from './utils.js';
 
-export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, repositoryNamespace, templatePath }) {
+const OVERRIDE_FIELD_TYPES = new Set([
+  'asset',
+  'bloks',
+  'boolean',
+  'datetime',
+  'markdown',
+  'multiasset',
+  'multilink',
+  'number',
+  'option',
+  'options',
+  'richtext',
+  'table',
+  'text',
+  'textarea'
+]);
+
+export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, repositoryNamespace, templatePath, schemaOverrides = null }) {
   const pages = inventory.page_inventory || [];
   const primaryPage = pages[0] || {};
   const components = [];
@@ -48,7 +65,7 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
     source: primaryPage.page || null
   });
 
-  return {
+  const plan = {
     root_component: rootName,
     components,
     draft_story: buildDraftStory({
@@ -62,6 +79,7 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
     asset_folders: buildAssetFolderPlan({ inventory, integrationId }),
     storyblok_assets: buildStoryblokAssetPlan({ inventory, templatePath, integrationId })
   };
+  return applySchemaOverrides(plan, schemaOverrides, { integrationId, storyblokPrefix });
 }
 
 function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
@@ -736,6 +754,177 @@ function draftExplicitFieldValues(primaryPage, existingValues = {}) {
     values[fieldName] = draftValueForHint(hint, field);
   }
   return values;
+}
+
+function applySchemaOverrides(plan, schemaOverrides, { integrationId, storyblokPrefix }) {
+  if (!schemaOverrides) return plan;
+  const summary = {
+    components: [],
+    draft_story: false
+  };
+
+  for (const override of normalizeComponentOverrides(schemaOverrides.components)) {
+    const technicalName = resolveComponentOverrideName(override.selector, storyblokPrefix);
+    const component = plan.components.find((entry) => entry.technical_name === technicalName);
+    if (!component) {
+      throw new Error(`schema override references unknown generated component: ${override.selector}`);
+    }
+
+    if (override.display_name) component.display_name = String(override.display_name);
+    if (override.preview_field) component.preview_field = safeFieldName(override.preview_field);
+    if (override.component_type) component.component_type = normalizeComponentType(override.component_type, override.selector);
+
+    const addedFields = [];
+    const fieldOverrides = normalizeFieldOverrides(override.fields || override.schema || {});
+    for (const [fieldName, fieldDefinition] of fieldOverrides) {
+      const safeName = safeFieldName(fieldName);
+      if (!safeName) throw new Error(`schema override contains an unsafe field name for ${override.selector}: ${fieldName}`);
+      component.schema[safeName] = normalizeOverrideField(fieldDefinition, { storyblokPrefix });
+      addedFields.push(safeName);
+    }
+
+    const draftValues = override.draft || override.draft_values || override.default_values || null;
+    const draftFields = draftValues ? mergeDraftValues(plan.draft_story, technicalName, draftValues, { storyblokPrefix }) : [];
+    if (addedFields.length > 0 || draftFields.length > 0 || override.display_name || override.preview_field || override.component_type) {
+      summary.components.push({
+        technical_name: technicalName,
+        fields: addedFields,
+        draft_fields: draftFields
+      });
+    }
+  }
+
+  if (schemaOverrides.draft_story || schemaOverrides.draftStory) {
+    applyDraftStoryOverride(plan.draft_story, schemaOverrides.draft_story || schemaOverrides.draftStory, { integrationId, storyblokPrefix });
+    summary.draft_story = true;
+  }
+
+  if (summary.components.length > 0 || summary.draft_story) {
+    plan.schema_overrides = summary;
+  }
+  return plan;
+}
+
+function normalizeComponentOverrides(components = {}) {
+  if (Array.isArray(components)) {
+    return components.map((entry) => ({
+      ...entry,
+      selector: entry.component || entry.technical_name || entry.name || entry.key
+    }));
+  }
+  return Object.entries(components || {}).map(([selector, entry]) => ({
+    ...(entry || {}),
+    selector
+  }));
+}
+
+function normalizeFieldOverrides(fields = {}) {
+  if (Array.isArray(fields)) {
+    return fields.map((field) => [field.name || field.field || field.key, field]);
+  }
+  return Object.entries(fields || {});
+}
+
+function resolveComponentOverrideName(selector, storyblokPrefix) {
+  const key = String(selector || '').trim();
+  if (!key) throw new Error('schema override component entries require a component selector');
+  if (key.startsWith(storyblokPrefix)) return key;
+  return `${storyblokPrefix}${snakeCase(key)}`;
+}
+
+function normalizeComponentType(value, selector) {
+  const type = String(value || '').trim();
+  if (type === 'content_type' || type === 'nestable') return type;
+  throw new Error(`schema override for ${selector} uses unsupported component_type: ${value}`);
+}
+
+function normalizeOverrideField(fieldDefinition, { storyblokPrefix }) {
+  const raw = typeof fieldDefinition === 'string'
+    ? { type: fieldDefinition }
+    : cloneJson(fieldDefinition || {});
+  const type = String(raw.type || 'text').trim();
+  if (!OVERRIDE_FIELD_TYPES.has(type)) {
+    throw new Error(`schema override field type is not supported: ${type}`);
+  }
+
+  const normalized = {
+    ...raw,
+    type
+  };
+  delete normalized.name;
+  delete normalized.field;
+  delete normalized.key;
+  delete normalized.whitelist;
+  delete normalized.components;
+
+  if (!normalized.description) normalized.description = 'Added by schema override.';
+  if (type === 'asset' && !normalized.filetypes) normalized.filetypes = ['images'];
+  if (type === 'option' || type === 'options') {
+    normalized.source ||= 'self';
+    if (Array.isArray(normalized.options)) normalized.options = normalized.options.map(normalizeOption);
+  }
+  if (type === 'bloks') {
+    const whitelist = ensureArray(raw.component_whitelist || raw.whitelist || raw.components)
+      .map((name) => resolveComponentOverrideName(name, storyblokPrefix));
+    if (whitelist.length === 0) {
+      throw new Error('schema override bloks fields require component_whitelist, whitelist, or components');
+    }
+    normalized.restrict_components = true;
+    normalized.component_whitelist = whitelist;
+  }
+  return normalized;
+}
+
+function normalizeOption(option) {
+  if (typeof option === 'string') return { value: option, name: displayName(option) };
+  return {
+    value: String(option.value || option.name || ''),
+    name: String(option.name || option.value || '')
+  };
+}
+
+function mergeDraftValues(draftStory, technicalName, draftValues, { storyblokPrefix }) {
+  const normalized = normalizeDraftValue(draftValues, { storyblokPrefix });
+  const targets = technicalName === draftStory.component
+    ? [draftStory.content]
+    : ensureArray(draftStory.content?.body).filter((block) => block.component === technicalName);
+  for (const target of targets) {
+    Object.assign(target, normalized);
+  }
+  return targets.length > 0 ? Object.keys(normalized) : [];
+}
+
+function applyDraftStoryOverride(draftStory, override, { integrationId, storyblokPrefix }) {
+  if (override.name) draftStory.name = String(override.name);
+  if (override.slug) {
+    const slug = String(override.slug);
+    const allowedPrefix = `integration-preview/${integrationId}`;
+    if (slug !== allowedPrefix && !slug.startsWith(`${allowedPrefix}/`)) {
+      throw new Error(`draft story override slug must remain inside ${allowedPrefix}`);
+    }
+    draftStory.slug = slug;
+  }
+  if (override.headline) draftStory.content.headline = String(override.headline);
+  const values = override.field_values || override.fields || null;
+  if (values) Object.assign(draftStory.content, normalizeDraftValue(values, { storyblokPrefix }));
+}
+
+function normalizeDraftValue(value, { storyblokPrefix }) {
+  if (Array.isArray(value)) return value.map((entry) => normalizeDraftValue(entry, { storyblokPrefix }));
+  if (!value || typeof value !== 'object') return value;
+  const output = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (key === 'component' && typeof entry === 'string') {
+      output.component = entry.startsWith(storyblokPrefix) ? entry : resolveComponentOverrideName(entry, storyblokPrefix);
+    } else {
+      output[key] = normalizeDraftValue(entry, { storyblokPrefix });
+    }
+  }
+  return output;
+}
+
+function cloneJson(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 function collectExplicitFieldHints(primaryPage) {

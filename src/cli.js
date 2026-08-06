@@ -310,7 +310,7 @@ Usage:
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
-  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--infer-duplicates --repo <path>]
+  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--schema-overrides <json>] [--infer-duplicates --repo <path>]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
   html-to-storyblok diff --manifest <path> --repo <path>
