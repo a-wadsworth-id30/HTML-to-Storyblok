@@ -1,8 +1,8 @@
 # HTML-to-Storyblok
 
-`html-to-storyblok` is a safety-first CLI scaffold for integrating supplied HTML templates into existing Storyblok-powered repositories.
+`html-to-storyblok` is a safety-first CLI for integrating supplied HTML templates into existing Storyblok-powered repositories.
 
-The current implementation focuses on deterministic discovery, additive-only planning, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, GitHub draft pull-request creation, GitLab draft merge-request creation, and Netlify deploy-preview lookup.
+It performs deterministic discovery, additive-only planning, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, Storyblok Content API draft checks, GitHub draft pull-request creation, GitLab draft merge-request creation, Netlify deploy-preview verification, local validation, and rollback previews.
 
 ## Requirements
 
@@ -15,7 +15,8 @@ The current implementation focuses on deterministic discovery, additive-only pla
 Optional integrations:
 
 - Storyblok Management API credentials for component, asset, and draft story creation
-- Netlify API access for deploy-preview lookup
+- Storyblok Content API credentials for draft preview verification
+- Netlify API access for deploy-preview lookup and verification
 - GitHub API credentials for draft pull-request automation
 - GitLab API credentials for draft merge-request automation
 
@@ -95,9 +96,13 @@ This directory is ignored by Git. It is used for:
 - template inventories
 - repository inspections
 - Storyblok access checks
+- Storyblok Content API checks
 - Netlify inspections
+- Netlify deploy-preview verification
 - integration manifests
 - plan validation output
+- local validation output
+- rollback previews
 - evidence logs
 
 Do not commit `.tmp/` output.
@@ -192,6 +197,22 @@ STORYBLOK_REGION
 
 Supported region values are `eu`, `us`, `ca`, `ap`, and `cn`.
 
+To verify that a draft story can be read through the Storyblok Content API:
+
+```sh
+html-to-storyblok inspect-storyblok-content \
+  --slug integration-preview/acme-homepage-v1 \
+  --version draft
+```
+
+Content API checks require one of:
+
+```text
+STORYBLOK_PREVIEW_TOKEN
+STORYBLOK_PUBLIC_TOKEN
+STORYBLOK_DELIVERY_TOKEN
+```
+
 ### 4. Inspect Netlify configuration
 
 ```sh
@@ -204,6 +225,17 @@ To query Netlify deploy previews through the API:
 
 ```sh
 html-to-storyblok netlify-preview --site-id <site-id> --branch <branch>
+```
+
+To verify the preview state and build contract:
+
+```sh
+html-to-storyblok netlify-preview \
+  --site-id <site-id> \
+  --branch <branch> \
+  --verify \
+  --expected-build-command "npm run build" \
+  --expected-publish-directory dist
 ```
 
 Netlify API lookup requires:
@@ -224,7 +256,7 @@ NETLIFY_SITE_ID
 html-to-storyblok check-access
 ```
 
-This checks whether the variable names needed for Storyblok, Netlify, GitHub, and GitLab live calls are available. It does not print secret values.
+This checks whether the variable names needed for Storyblok Management API, Storyblok Content API, Netlify, GitHub, and GitLab live calls are available. It does not print secret values.
 
 ### 6. Create an additive-only integration plan
 
@@ -274,13 +306,27 @@ html-to-storyblok validate-plan --manifest .tmp/html-to-storyblok/integration-ma
 Validation fails if the manifest attempts to:
 
 - modify existing repository files
+- create repository files outside the integration namespace
 - reuse existing frontend components at runtime
 - reuse existing Storyblok components at runtime
 - modify existing Storyblok stories
 - modify existing Storyblok assets
+- use unsafe draft story slugs
+- use duplicate file paths, component names, story slugs, or asset names
+- allow unnamespaced nested Storyblok components
 - change dependencies
 - change deployment configuration
 - use unnamespaced Storyblok technical names
+
+After generation or apply, validate the local integration output:
+
+```sh
+html-to-storyblok validate \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site
+```
+
+Local validation checks generated files, planned assets, forbidden runtime coupling, CSS scoping, and Git worktree changes outside the integration namespace.
 
 ### 8. Generate a report
 
@@ -288,7 +334,7 @@ Validation fails if the manifest attempts to:
 html-to-storyblok report
 ```
 
-This summarizes commands run and artifacts written from the evidence log.
+This summarizes commands run, failures, artifacts, latest validation state, latest Netlify state, and safety confirmations from the evidence log.
 
 ## Applying a manifest
 
@@ -319,6 +365,7 @@ html-to-storyblok apply \
 
 - duplicate approved frontend and Storyblok components into the integration namespace
 - convert supplied template HTML/CSS/assets into isolated framework files
+- validate the generated local integration before remote mutations
 - create new Storyblok components
 - upload new Storyblok assets listed in the manifest
 - create new draft Storyblok stories
@@ -398,6 +445,8 @@ html-to-storyblok storyblok-components \
   --dry-run
 ```
 
+Real Storyblok component creation is idempotent: if a namespaced component already exists and matches the manifest, the CLI reports it as `already_exists`; if it differs, the CLI stops and reports drift.
+
 Upload Storyblok assets listed in `storyblok.assets_to_create`:
 
 ```sh
@@ -413,6 +462,8 @@ html-to-storyblok create-draft-story \
   --manifest .tmp/html-to-storyblok/integration-manifest.json \
   --dry-run
 ```
+
+Draft story creation uses `publish: false`. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers.
 
 Open a GitHub draft pull request:
 
@@ -468,8 +519,20 @@ Generate a rollback preview:
 
 ```sh
 html-to-storyblok rollback-preview \
-  --manifest .tmp/html-to-storyblok/integration-manifest.json
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site
 ```
+
+Run confirmed local rollback:
+
+```sh
+html-to-storyblok rollback \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site \
+  --confirm-integration-id acme-homepage-v1
+```
+
+Rollback removes only manifest-listed local files and assets inside the integration namespace. Storyblok remote resources are listed for manual or future confirmed remote rollback and are not deleted by the local rollback command.
 
 ## Command reference
 
@@ -477,11 +540,15 @@ html-to-storyblok rollback-preview \
 html-to-storyblok inspect-template --template <path>
 html-to-storyblok inspect-repository --repo <path>
 html-to-storyblok inspect-storyblok
+html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
 html-to-storyblok inspect-netlify --repo <path>
 html-to-storyblok check-access
-html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>]
-html-to-storyblok plan --integration-id <id> --storyblok-prefix <prefix_>
+html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify]
+html-to-storyblok plan --integration-id <id> --storyblok-prefix <prefix_> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static]
 html-to-storyblok validate-plan --manifest <path>
+html-to-storyblok diff --manifest <path> --repo <path>
+html-to-storyblok validate --manifest <path> --repo <path>
+html-to-storyblok build --repo <path> [--script build] [--dry-run]
 html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
 html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
 html-to-storyblok storyblok-components --manifest <path> [--dry-run]
@@ -490,7 +557,8 @@ html-to-storyblok create-draft-story --manifest <path> [--dry-run]
 html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
 html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--dry-run]
 html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--dry-run]
-html-to-storyblok rollback-preview --manifest <path>
+html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
+html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--dry-run]
 html-to-storyblok report
 ```
 
@@ -522,7 +590,9 @@ html-to-storyblok check-access
 
 html-to-storyblok plan \
   --integration-id acme-homepage-v1 \
-  --storyblok-prefix hts_acme_v1_
+  --storyblok-prefix hts_acme_v1_ \
+  --template templates/acme-homepage \
+  --framework auto
 
 html-to-storyblok validate-plan \
   --manifest .tmp/html-to-storyblok/integration-manifest.json
@@ -534,19 +604,24 @@ html-to-storyblok apply \
   --framework auto \
   --dry-run
 
+html-to-storyblok validate \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site
+
 html-to-storyblok report
 ```
 
 ## Current limitations
 
-- Template conversion handles static HTML, CSS, and local assets. It strips script tags and inline event handlers instead of converting arbitrary JavaScript behaviours.
+- Template conversion handles static HTML, CSS, local assets, and local JavaScript isolation. Arbitrary vendor scripts and inline event handlers are removed from rendered HTML and recorded for review.
 - React/Next JSX conversion is intentionally conservative and may require manual follow-up for complex attributes, inline styles, or custom elements.
 - Existing component duplication is implemented for manifest-listed frontend files, repository assets, and Storyblok components, but it does not infer duplication candidates automatically yet.
 - Storyblok asset upload supports manifest-listed local files, but does not yet create asset folders.
-- Storyblok schema generation uses manifest schemas or safe defaults. It does not yet infer full schemas from template sections.
+- Storyblok schema generation infers a safe component family from template structure, but complex editorial models may require manual schema refinement through a new namespaced version.
 - GitHub pull-request creation uses the GitHub REST API, but branch creation, commit staging, and push orchestration remain manual.
 - GitLab merge-request creation uses the GitLab REST API, but branch creation, commit staging, and push orchestration remain manual.
-- Netlify preview lookup reads deploy records, but does not yet poll until completion or inspect build logs.
+- Netlify preview verification reads deploy records and site build settings, but does not yet poll until completion or inspect full build logs.
+- Local rollback removes integration-owned repository files only. Remote Storyblok resource deletion is intentionally not automatic.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials in the environment; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.
 

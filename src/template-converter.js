@@ -416,7 +416,7 @@ function renderBehaviourModule(integrationId, sources) {
   const rootClass = `hts-${integrationId}-root`;
   const blocks = sources.map((source, index) => {
     const isolated = isolateScriptSource(source.content, integrationId);
-    return `  runIsolatedScript(${JSON.stringify(source.source_file)}, ${index + 1}, (window, document, root) => {\n${indent(isolated, 4)}\n  });`;
+    return `  runIsolatedScript(${JSON.stringify(source.source_file)}, ${index + 1}, (window, document, root) => {\n${indent(isolated, 4)}\n  }, globalThis.window, scopedDocument, integrationRoot);`;
   }).join('\n');
 
   return `const ROOT_SELECTOR = '.${rootClass}';
@@ -462,11 +462,9 @@ function createScopedDocument(root, cleanup) {
   };
 }
 
-function runIsolatedScript(sourceFile, index, callback) {
-  const root = resolveIntegrationRoot(globalThis.document);
-  if (!root) return;
+function runIsolatedScript(sourceFile, index, callback, window, document, root) {
   try {
-    callback(globalThis.window, createScopedDocument(root, []), root);
+    callback(window, document, root);
   } catch (error) {
     console.warn(\`html-to-storyblok isolated behaviour failed in \${sourceFile} (#\${index}):\`, error);
   }
@@ -490,8 +488,7 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
 
 function isolateScriptSource(source, integrationId) {
   return String(source)
-    .replace(/\bdocument\.getElementById\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g, (_match, _quote, id) => `document.getElementById('hts-${integrationId}-${id}')`)
-    .replace(/\bwindow\.on([a-z]+)\s*=/g, 'window.addEventListener("$1",');
+    .replace(/\bdocument\.getElementById\s*\(\s*(['"`])([^'"`]+)\1\s*\)/g, (_match, _quote, id) => `document.getElementById('hts-${integrationId}-${id}')`);
 }
 
 function scopeCssRules(css, integrationId) {

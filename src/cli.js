@@ -353,6 +353,16 @@ async function applyManifest(manifest, args, workDir) {
     framework: args.framework ? String(args.framework) : 'auto',
     dryRun
   }));
+  const localValidation = dryRun
+    ? { action: 'validate_integration', status: 'skipped', reason: 'dry-run does not write generated files' }
+    : await validateIntegration(manifest, { repoPath });
+  steps.push({
+    action: 'local_validation',
+    results: localValidation
+  });
+  if (localValidation.status === 'failed') {
+    throw new Error('local validation failed after generation; refusing remote Storyblok mutations');
+  }
   steps.push({
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun })
