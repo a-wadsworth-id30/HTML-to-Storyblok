@@ -1,4 +1,8 @@
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { envValue } from './utils.js';
+
+const execFileAsync = promisify(execFile);
 
 export function getNetlifyConfig(env = process.env) {
   return {
@@ -53,6 +57,10 @@ export async function verifyNetlifyDeployPreview({
   wait = false,
   timeoutMs = 120_000,
   intervalMs = 5_000,
+  includeLogs = false,
+  logsSince = '1h',
+  logsSource = 'deploy',
+  repoPath = process.cwd(),
   env = process.env
 } = {}) {
   const config = getNetlifyConfig(env);
@@ -110,6 +118,18 @@ export async function verifyNetlifyDeployPreview({
   if (expectedPublishDirectory) {
     addCheck(checks, 'publish_directory_matches', observedPublishDirectory === expectedPublishDirectory, `Expected publish directory ${expectedPublishDirectory}.`, observedPublishDirectory);
   }
+  const cliLogs = includeLogs && deploy
+    ? await fetchNetlifyDeployLogsWithCli({
+      deployUrl: deploy.deploy_url || deploy.url || deploy.review_url,
+      source: logsSource,
+      since: logsSince,
+      repoPath,
+      env
+    })
+    : {
+      status: 'skipped',
+      reason: 'Pass --include-logs to fetch a redacted Netlify CLI log snapshot.'
+    };
   const failed = checks.filter((check) => check.status === 'failed');
   return {
     action: 'verify_netlify_deploy_preview',
@@ -117,10 +137,85 @@ export async function verifyNetlifyDeployPreview({
     site: summarizeSite(site),
     deploy,
     deploy_log: deploy ? summarizeDeployLog(site, deploy) : null,
+    cli_logs: cliLogs,
     polling: summarizePolling(polling),
     checks,
     failed_checks: failed.length
   };
+}
+
+export async function fetchNetlifyDeployLogsWithCli({
+  deployUrl,
+  source = 'deploy',
+  since = '1h',
+  repoPath = process.cwd(),
+  env = process.env,
+  execFileImpl = execFileAsync
+} = {}) {
+  const config = getNetlifyConfig(env);
+  if (!deployUrl) {
+    return {
+      action: 'fetch_netlify_deploy_logs',
+      status: 'unavailable',
+      reason: 'A deploy URL is required to fetch Netlify CLI logs.'
+    };
+  }
+  if (!config.token) {
+    return {
+      action: 'fetch_netlify_deploy_logs',
+      status: 'unavailable',
+      reason: 'Set NETLIFY_AUTH_TOKEN to fetch Netlify CLI logs.'
+    };
+  }
+
+  const sources = String(source || 'deploy').split(',').map((entry) => entry.trim()).filter(Boolean);
+  const args = [
+    'logs',
+    ...sources.flatMap((entry) => ['--source', entry]),
+    '--url',
+    deployUrl,
+    '--since',
+    since || '1h',
+    '--json'
+  ];
+  try {
+    const { stdout, stderr } = await execFileImpl('netlify', args, {
+      cwd: repoPath,
+      env: {
+        ...process.env,
+        ...env,
+        NETLIFY_AUTH_TOKEN: config.token
+      },
+      maxBuffer: 2 * 1024 * 1024,
+      timeout: 60_000
+    });
+    const lines = parseJsonLines(stdout).map(redactLogEntry);
+    return {
+      action: 'fetch_netlify_deploy_logs',
+      status: 'ok',
+      source: sources,
+      since,
+      deploy_url: deployUrl,
+      lines_returned: lines.length,
+      lines: lines.slice(0, 100),
+      truncated: lines.length > 100,
+      stderr: redactText(stderr)
+    };
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      return {
+        action: 'fetch_netlify_deploy_logs',
+        status: 'unavailable',
+        reason: 'Netlify CLI is not installed. Install netlify-cli to enable --include-logs.'
+      };
+    }
+    return {
+      action: 'fetch_netlify_deploy_logs',
+      status: 'failed',
+      reason: redactText(error.stderr || error.message || 'Netlify CLI logs command failed.'),
+      exit_code: error.code ?? 1
+    };
+  }
 }
 
 async function pollDeployPreview({
@@ -251,4 +346,34 @@ function addCheck(checks, name, passed, message, observed = null) {
     message,
     observed
   });
+}
+
+function parseJsonLines(value) {
+  return String(value || '').split('\n').map((line) => line.trim()).filter(Boolean).map((line) => {
+    try {
+      return JSON.parse(line);
+    } catch {
+      return { message: line };
+    }
+  });
+}
+
+function redactLogEntry(entry) {
+  if (Array.isArray(entry)) return entry.map(redactLogEntry);
+  if (entry && typeof entry === 'object') {
+    return Object.fromEntries(Object.entries(entry).map(([key, value]) => [
+      key,
+      /token|secret|password|authorization|auth|key/i.test(key) ? '[REDACTED]' : redactLogEntry(value)
+    ]));
+  }
+  if (typeof entry === 'string') return redactText(entry);
+  return entry;
+}
+
+function redactText(value) {
+  return String(value || '')
+    .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]')
+    .replace(/(token|secret|password|api[_-]?key)=([^&\s]+)/gi, '$1=[REDACTED]')
+    .replace(/[A-Za-z0-9._%+-]+:[A-Za-z0-9._%+-]+@/g, '[REDACTED]@')
+    .slice(0, 12_000);
 }

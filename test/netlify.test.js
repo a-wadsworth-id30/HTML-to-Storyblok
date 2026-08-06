@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { verifyNetlifyDeployPreview } from '../src/netlify.js';
+import { fetchNetlifyDeployLogsWithCli, verifyNetlifyDeployPreview } from '../src/netlify.js';
 
 test('verifyNetlifyDeployPreview validates deploy state and build settings', async () => {
   mockFetch((url) => {
@@ -136,6 +136,43 @@ test('verifyNetlifyDeployPreview can poll until the deploy preview is ready', as
   assert.equal(result.deploy.log_access_metadata_present, true);
   assert.doesNotMatch(JSON.stringify(result), /log-token|netlify-token/);
   restoreFetch();
+});
+
+test('fetchNetlifyDeployLogsWithCli reads and redacts JSONL logs', async () => {
+  const result = await fetchNetlifyDeployLogsWithCli({
+    deployUrl: 'https://deploy-preview-1.netlify.app',
+    source: 'deploy',
+    since: '1h',
+    env: {
+      NETLIFY_AUTH_TOKEN: 'netlify-token'
+    },
+    execFileImpl: async (command, args, options) => {
+      assert.equal(command, 'netlify');
+      assert.deepEqual(args, [
+        'logs',
+        '--source',
+        'deploy',
+        '--url',
+        'https://deploy-preview-1.netlify.app',
+        '--since',
+        '1h',
+        '--json'
+      ]);
+      assert.equal(options.env.NETLIFY_AUTH_TOKEN, 'netlify-token');
+      return {
+        stdout: '{"message":"Deploy failed with Bearer abc123","token":"secret"}\nplain token=abc123\n',
+        stderr: 'debug token=abc123'
+      };
+    }
+  });
+
+  assert.equal(result.status, 'ok');
+  assert.equal(result.lines_returned, 2);
+  assert.equal(result.lines[0].message, 'Deploy failed with Bearer [REDACTED]');
+  assert.equal(result.lines[0].token, '[REDACTED]');
+  assert.equal(result.lines[1].message, 'plain token=[REDACTED]');
+  assert.equal(result.stderr, 'debug token=[REDACTED]');
+  assert.doesNotMatch(JSON.stringify(result), /abc123|secret|netlify-token/);
 });
 
 let originalFetch;

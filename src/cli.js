@@ -98,7 +98,11 @@ export async function main(argv) {
           expectedContext: args.expected_context ? String(args.expected_context) : 'deploy-preview',
           wait: Boolean(args.wait),
           timeoutMs: args.timeout_ms ? Number(args.timeout_ms) : undefined,
-          intervalMs: args.interval_ms ? Number(args.interval_ms) : undefined
+          intervalMs: args.interval_ms ? Number(args.interval_ms) : undefined,
+          includeLogs: Boolean(args.include_logs),
+          logsSince: args.logs_since ? String(args.logs_since) : undefined,
+          logsSource: args.logs_source ? String(args.logs_source) : undefined,
+          repoPath: args.repo ? String(args.repo) : process.cwd()
         })
         : await queryNetlifyDeployPreviews({
           siteId: args.site_id ? String(args.site_id) : undefined,
@@ -305,7 +309,7 @@ Usage:
   html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
-  html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait]
+  html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
   html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--infer-duplicates --repo <path>]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
