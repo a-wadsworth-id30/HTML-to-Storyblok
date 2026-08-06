@@ -14,7 +14,7 @@ import { createRollbackPreview, rollbackIntegration } from './rollback.js';
 import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
 import { diffIntegration, runRepositoryScript, validateIntegration } from './validator.js';
-import { applyManifest, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
+import { applyManifest, applyStoryblokOnly, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
 
 const MUTATING_COMMANDS = new Set([
   'apply',
@@ -25,6 +25,7 @@ const MUTATING_COMMANDS = new Set([
   'open-mr',
   'open-pr',
   'rollback',
+  'storyblok-apply',
   'storyblok-asset-folders',
   'storyblok-components',
   'upload-assets'
@@ -194,6 +195,9 @@ export async function main(argv) {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await createDraftStories(manifest, { dryRun: Boolean(args.dry_run), env });
       await writeArtifact(workDir, 'storyblok-draft-stories-result.json', result);
+    } else if (command === 'storyblok-apply') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await applyStoryblokOnly(manifest, { ...args, env }, workDir);
     } else if (command === 'generate') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await generateIntegration(manifest, {
@@ -323,7 +327,7 @@ Usage:
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
-  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--schema-overrides <json>] [--infer-duplicates --repo <path>]
+  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--template <path>] [--schema-overrides <json>] [--infer-duplicates --repo <path>] [--framework auto|astro|react|next|vue|nuxt|static]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
   html-to-storyblok diff --manifest <path> --repo <path>
@@ -335,6 +339,7 @@ Usage:
   html-to-storyblok storyblok-asset-folders --manifest <path> [--dry-run]
   html-to-storyblok upload-assets --manifest <path> [--dry-run]
   html-to-storyblok create-draft-story --manifest <path> [--dry-run]
+  html-to-storyblok storyblok-apply --manifest <path> [--dry-run]
   html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
   html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
   html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]

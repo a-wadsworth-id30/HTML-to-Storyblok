@@ -10,7 +10,7 @@ It performs deterministic discovery, additive-only planning, dependency-aware du
 - npm
 - Git
 - A supplied static template made up of HTML, CSS, JavaScript, and assets
-- A target Storyblok-powered repository to inspect
+- A target Storyblok-powered repository to inspect when running the full repository integration workflow
 
 Optional integrations:
 
@@ -71,6 +71,7 @@ Project
 What would you like to do?
 
 ❯ Create New Integration
+  Test Storyblok Only
   Continue Existing Integration
   Validate Integration
   Review Storyblok
@@ -84,6 +85,8 @@ What would you like to do?
 Navigation supports arrow keys, `Enter`, `Esc`, `q`, `Tab`, and `Ctrl+C`. The wizard keeps all generated resources isolated by integration ID and uses the same planner, validator, generator, Storyblok, asset, and rollback services as the scriptable commands.
 
 The create flow guides you through choosing a template from `templates/`, choosing a nearby repository, reviewing repository/Storyblok/template summaries, confirming the integration ID, previewing the derived prefix and namespace, validating the plan, running a dry run, optionally applying the real integration, and writing `.tmp/html-to-storyblok/report.md`.
+
+When you only want to test the Storyblok side before a client repository is available, choose `Test Storyblok Only` from the home screen, or choose `Skip Repository - Storyblok only test` when the create flow asks for a repository. This path still inspects the template, derives the same namespaced component schema, validates the additive-only plan, dry-runs all Storyblok operations, and can optionally run the real Storyblok apply. It does not generate repository files, inspect a repository, change routes, or require `--repo`.
 
 If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI offers to resume the previous integration or start a new one.
 
@@ -676,6 +679,16 @@ html-to-storyblok create-draft-story \
 
 Draft story creation uses `publish: false`. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers.
 
+Run the complete Storyblok-only workflow without a repository:
+
+```sh
+html-to-storyblok storyblok-apply \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --dry-run
+```
+
+This combines component creation, asset folder creation, asset upload, and draft story creation. It is useful for validating the Storyblok side of a template before a target repository exists. For real execution, omit `--dry-run`; the command requires `STORYBLOK_MANAGEMENT_TOKEN` and `STORYBLOK_SPACE_ID`, or credentials entered in the interactive wizard.
+
 Open a GitHub draft pull request:
 
 ```sh
@@ -813,6 +826,7 @@ html-to-storyblok storyblok-components --manifest <path> [--dry-run]
 html-to-storyblok storyblok-asset-folders --manifest <path> [--dry-run]
 html-to-storyblok upload-assets --manifest <path> [--dry-run]
 html-to-storyblok create-draft-story --manifest <path> [--dry-run]
+html-to-storyblok storyblok-apply --manifest <path> [--dry-run]
 html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
 html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
 html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
@@ -872,12 +886,12 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with session-only credential prompts, dashboard, settings, doctor checks, report viewer with skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with session-only credential prompts, Storyblok-only test mode, dashboard, settings, doctor checks, report viewer with skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
-- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, draft story generation, asset folder creation, asset upload, and idempotent collision handling.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, draft story generation, asset folder creation, asset upload, Storyblok-only apply, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
 - Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus apply preflight checks, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.

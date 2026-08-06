@@ -111,6 +111,44 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   return result;
 }
 
+export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgress = null } = {}) {
+  const dryRun = Boolean(args.dry_run);
+  const env = args.env || process.env;
+  const steps = [];
+  const progress = typeof onProgress === 'function' ? onProgress : async () => {};
+  assertApplyPreflight(manifest, { dryRun, env });
+
+  await progress({ label: 'Creating Storyblok Components', current: 0, total: 4 });
+  steps.push({
+    action: 'storyblok_components',
+    results: await createStoryblokComponents(manifest, { dryRun, env })
+  });
+  await progress({ label: 'Creating Storyblok Asset Folders', current: 1, total: 4 });
+  steps.push({
+    action: 'storyblok_asset_folders',
+    results: await createStoryblokAssetFolders(manifest, { dryRun, env })
+  });
+  await progress({ label: 'Uploading Assets', current: 2, total: 4 });
+  steps.push({
+    action: 'storyblok_assets',
+    results: await uploadStoryblokAssets(manifest, { dryRun, env })
+  });
+  await progress({ label: 'Creating Draft Story', current: 3, total: 4 });
+  steps.push({
+    action: 'storyblok_draft_stories',
+    results: await createDraftStories(manifest, { dryRun, env })
+  });
+  await progress({ label: 'Done', current: 4, total: 4 });
+  const result = {
+    action: 'apply_storyblok_only',
+    dry_run: dryRun,
+    repository_skipped: true,
+    steps
+  };
+  await writeArtifact(workDir, 'storyblok-apply-result.json', result);
+  return result;
+}
+
 function assertApplyPreflight(manifest, { dryRun, env }) {
   if (dryRun || plannedStoryblokOperationCount(manifest) === 0) return;
   const config = getStoryblokConfig(env);

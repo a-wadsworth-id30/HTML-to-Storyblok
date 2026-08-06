@@ -13,10 +13,11 @@ import { inspectStoryblokSpace } from './storyblok.js';
 import { confirm, createTerminal, promptInput, promptSecret, selectOption } from './terminal-ui.js';
 import { pathExists, readJson } from './utils.js';
 import { validateIntegration } from './validator.js';
-import { applyManifest } from './workflow.js';
+import { applyManifest, applyStoryblokOnly } from './workflow.js';
 
 const MANIFEST_NAME = 'integration-manifest.json';
 const VALIDATION_NAME = 'plan-validation.json';
+const STORYBLOK_ONLY_REPOSITORY = '__storyblok_only__';
 
 export async function runInteractiveApp({
   args = {},
@@ -220,6 +221,7 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
       message: 'What would you like to do?',
       choices: [
         { label: 'Create New Integration', value: 'create' },
+        { label: 'Test Storyblok Only', value: 'storyblok-only' },
         { label: 'Continue Existing Integration', value: 'continue' },
         { label: 'Validate Integration', value: 'validate' },
         { label: 'Review Storyblok', value: 'storyblok' },
@@ -234,6 +236,7 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
 
     if (!action || action === 'exit') return { action: 'exit' };
     if (action === 'create') return runCreateIntegration({ terminal, args, config, workDir, answers, cwd });
+    if (action === 'storyblok-only') return runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd });
     if (action === 'continue') return runContinueExistingIntegration({ terminal, args, config, workDir, answers, cwd });
     if (action === 'validate') return runValidateExistingPlan({ terminal, workDir });
     if (action === 'storyblok') return runReviewStoryblok({ terminal, args, config, workDir, answers, cwd });
@@ -250,8 +253,11 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   const templatePath = await chooseTemplate({ terminal, config, answers, cwd });
   if (!templatePath) return { action: 'cancelled' };
 
-  const repoPath = await chooseRepository({ terminal, config, answers, cwd });
+  const repoPath = await chooseRepository({ terminal, config, answers, cwd, allowStoryblokOnly: true });
   if (!repoPath) return { action: 'cancelled' };
+  if (repoPath === STORYBLOK_ONLY_REPOSITORY) {
+    return runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd, templatePath });
+  }
 
   const repository = await terminal.task('Inspect Repository', async () => {
     const inspection = await inspectRepository(repoPath);
@@ -297,11 +303,14 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   ]);
 
   const manifest = await terminal.task('Create Integration Plan', async () => {
+    const schemaOverride = await readTemplateSchemaOverrides(templatePath);
     const plan = await createIntegrationPlan({
       integrationId,
       repositoryNamespace,
       templatePath,
-      framework
+      framework,
+      schemaOverrides: schemaOverride?.overrides || null,
+      schemaOverridesPath: schemaOverride?.path || null
     });
     await writeArtifact(workDir, MANIFEST_NAME, plan);
     await writeArtifact(workDir, VALIDATION_NAME, plan.validation || validatePlan(plan));
@@ -353,6 +362,109 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   return { action: 'create_integration', status: 'complete', manifest, validation, result, report: reportPath };
 }
 
+async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd, templatePath = null }) {
+  terminal.header('Test Storyblok Only', 'Create Storyblok components, assets, and a draft story without selecting a repository');
+
+  const selectedTemplatePath = templatePath || await chooseTemplate({ terminal, config, answers, cwd });
+  if (!selectedTemplatePath) return { action: 'storyblok_only_integration', status: 'cancelled' };
+
+  let sessionEnv = await createSessionEnvironment({ terminal, config, cwd });
+  sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: false });
+
+  const storyblok = await terminal.task('Inspect Storyblok', async () => {
+    const shouldInspectRemote = args.remote || (terminal.interactive && checkLiveAccess(sessionEnv).storyblok.ready);
+    const inspection = shouldInspectRemote ? await inspectStoryblokSpace({ env: sessionEnv }) : inspectStoryblokEnvironment(sessionEnv);
+    await writeArtifact(workDir, 'storyblok-access.json', inspection);
+    return inspection;
+  });
+  renderStoryblokSummary(terminal, storyblok, config, sessionEnv);
+
+  const template = await terminal.task('Inspect Template', async () => {
+    const inventory = await inspectTemplate(selectedTemplatePath);
+    await writeArtifact(workDir, 'template-inventory.json', inventory);
+    return inventory;
+  });
+  renderTemplateSummary(terminal, template);
+
+  const defaultIntegrationId = slugify(`${path.basename(selectedTemplatePath)}-storyblok-test-v1`);
+  const integrationId = await promptInput(terminal, {
+    message: 'Integration ID',
+    defaultValue: defaultIntegrationId,
+    answers
+  });
+  const storyblokPrefix = storyblokPrefixForIntegrationId(integrationId);
+  const repositoryNamespace = `src/integrations/${integrationId}`;
+  const framework = 'static';
+
+  terminal.panel('Integration Preview', [
+    ['Storyblok Prefix', storyblokPrefix, 'success'],
+    ['Repository Output', 'Skipped for this test', 'warning'],
+    ['Repository Namespace', repositoryNamespace, 'warning'],
+    ['Storyblok Components', `${storyblokPrefix}hero`, 'success'],
+    ['Draft Story', `integration-preview/${integrationId}`, 'success']
+  ]);
+
+  const manifest = await terminal.task('Create Storyblok Plan', async () => {
+    const schemaOverride = await readTemplateSchemaOverrides(selectedTemplatePath);
+    const plan = await createIntegrationPlan({
+      integrationId,
+      repositoryNamespace,
+      templatePath: selectedTemplatePath,
+      framework,
+      schemaOverrides: schemaOverride?.overrides || null,
+      schemaOverridesPath: schemaOverride?.path || null
+    });
+    await writeArtifact(workDir, MANIFEST_NAME, plan);
+    await writeArtifact(workDir, VALIDATION_NAME, plan.validation || validatePlan(plan));
+    return plan;
+  });
+  renderStoryblokOnlyPlanSummary(terminal, manifest);
+
+  const validation = validatePlan(manifest);
+  await writeArtifact(workDir, VALIDATION_NAME, validation);
+  renderValidationSummary(terminal, validation);
+  if (!validation.valid) {
+    return { action: 'storyblok_only_integration', status: 'blocked', manifest, validation };
+  }
+
+  const dryRun = await terminal.task('Dry Run Storyblok Apply', async () => applyStoryblokOnly(
+    manifest,
+    { dry_run: true, env: sessionEnv },
+    workDir,
+    { onProgress: (event) => terminal.progress(event.label, event.current, event.total) }
+  ));
+
+  terminal.status('Storyblok dry run complete', 'success');
+  const proceed = await confirm(terminal, {
+    message: 'Proceed with real Storyblok apply?',
+    defaultValue: false,
+    answers
+  });
+
+  if (!proceed) {
+    const report = await createReport(workDir);
+    const reportPath = await writeMarkdownReport(workDir, report);
+    terminal.panel('Storyblok Test Paused', [
+      ['Status', 'Dry run completed. Real Storyblok apply was not run.', 'warning'],
+      ['Repository', 'Skipped', 'warning'],
+      ['Report', reportPath, 'success']
+    ]);
+    return { action: 'storyblok_only_integration', status: 'dry_run_complete', manifest, validation, dry_run: dryRun, report: reportPath };
+  }
+
+  sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: true });
+  const result = await terminal.task('Apply Storyblok Integration', async () => applyStoryblokOnly(
+    manifest,
+    { dry_run: false, env: sessionEnv },
+    workDir,
+    { onProgress: (event) => terminal.progress(event.label, event.current, event.total) }
+  ));
+  const report = await createReport(workDir);
+  const reportPath = await writeMarkdownReport(workDir, report);
+  renderStoryblokOnlyCompletion(terminal, result, reportPath);
+  return { action: 'storyblok_only_integration', status: 'complete', manifest, validation, result, report: reportPath };
+}
+
 async function runContinueExistingIntegration({ terminal, args, config, workDir, answers, cwd }) {
   const manifestPath = path.join(workDir, MANIFEST_NAME);
   if (!(await pathExists(manifestPath))) {
@@ -368,8 +480,10 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   const action = await selectOption(terminal, {
     message: 'Choose next step',
     choices: [
-      { label: 'Run Dry Run', value: 'dry-run' },
-      { label: 'Run Real Apply', value: 'apply' },
+      { label: 'Run Storyblok Dry Run', value: 'storyblok-dry-run' },
+      { label: 'Run Real Storyblok Apply', value: 'storyblok-apply' },
+      { label: 'Run Full Dry Run', value: 'dry-run' },
+      { label: 'Run Full Real Apply', value: 'apply' },
       { label: 'Validate Local Output', value: 'validate' },
       { label: 'View Latest Report', value: 'report' },
       { label: 'Back', value: 'back' }
@@ -378,6 +492,25 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   });
   if (!action || action === 'back') return { action: 'continue_integration', status: 'cancelled' };
   if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers });
+
+  if (action === 'storyblok-dry-run' || action === 'storyblok-apply') {
+    const realStoryblokApply = action === 'storyblok-apply';
+    let sessionEnv = await createSessionEnvironment({ terminal, config, cwd });
+    if (realStoryblokApply) {
+      sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: true });
+    }
+    const result = await terminal.task(realStoryblokApply ? 'Apply Storyblok Integration' : 'Dry Run Storyblok Apply', async () => applyStoryblokOnly(
+      manifest,
+      { dry_run: !realStoryblokApply, env: sessionEnv },
+      workDir,
+      { onProgress: (event) => terminal.progress(event.label, event.current, event.total) }
+    ));
+    const report = await createReport(workDir);
+    const reportPath = await writeMarkdownReport(workDir, report);
+    if (realStoryblokApply) renderStoryblokOnlyCompletion(terminal, result, reportPath);
+    else terminal.panel('Storyblok Dry Run Complete', [['Repository', 'Skipped', 'warning'], ['Report', reportPath, 'success']]);
+    return { action: 'continue_integration', status: realStoryblokApply ? 'complete' : 'dry_run_complete', result, report: reportPath };
+  }
 
   const repoPath = await chooseRepository({ terminal, config, answers, cwd });
   if (!repoPath) return { action: 'continue_integration', status: 'cancelled' };
@@ -540,13 +673,23 @@ async function chooseTemplate({ terminal, config, answers, cwd }) {
   });
 }
 
-async function chooseRepository({ terminal, config, answers, cwd }) {
+async function readTemplateSchemaOverrides(templatePath) {
+  const overridesPath = path.join(templatePath, 'schema-overrides.json');
+  if (!(await pathExists(overridesPath))) return null;
+  return {
+    path: overridesPath,
+    overrides: await readJson(overridesPath)
+  };
+}
+
+async function chooseRepository({ terminal, config, answers, cwd, allowStoryblokOnly = false }) {
   const repositories = await discoverRepositories({ cwd });
   const configured = config.default_repository
     ? [{ label: config.default_repository, value: path.resolve(cwd, config.default_repository) }]
     : [];
   const seen = new Set(configured.map((entry) => entry.value));
   const choices = [
+    ...(allowStoryblokOnly ? [{ label: 'Skip Repository - Storyblok only test', value: STORYBLOK_ONLY_REPOSITORY }] : []),
     ...configured,
     ...repositories.filter((repo) => !seen.has(repo.path)).map((repo) => ({ label: repo.label, value: repo.path })),
     { label: 'Browse...', value: '__browse__' }
@@ -694,6 +837,18 @@ function renderPlanSummary(terminal, manifest) {
   ]);
 }
 
+function renderStoryblokOnlyPlanSummary(terminal, manifest) {
+  terminal.panel('Storyblok Plan Summary', [
+    ['Repository', 'Skipped for this test', 'warning'],
+    ['Storyblok Components', count(manifest.storyblok?.components_to_create), 'success'],
+    ['Asset Folders', count(manifest.storyblok?.asset_folders_to_create), 'success'],
+    ['Storyblok Assets', count(manifest.storyblok?.assets_to_create), 'success'],
+    ['Draft Stories', count(manifest.storyblok?.stories_to_create), 'success'],
+    ['Publish Content', manifest.authorisation?.publish_content ? 'Yes' : 'No', manifest.authorisation?.publish_content ? 'warning' : 'success'],
+    ['Safety', manifest.policy === 'additive-only-isolated' ? 'Additive Only' : manifest.policy, manifest.policy === 'additive-only-isolated' ? 'success' : 'warning']
+  ]);
+}
+
 function renderValidationSummary(terminal, validation) {
   terminal.panel('Validation', [
     ['Status', validation.valid ? 'Passed' : 'Failed', validation.valid ? 'success' : 'error'],
@@ -720,6 +875,24 @@ function renderCompletion(terminal, result, reportPath) {
     ['Components Created', 'Completed', 'success'],
     ['Assets Uploaded', 'Completed', 'success'],
     ['Draft Story Created', 'Completed', 'success']
+  ]);
+  terminal.panel('Validation', [
+    ['Passed', 'Yes', 'success']
+  ]);
+  terminal.panel('Report', [
+    ['Path', reportPath, 'success']
+  ]);
+}
+
+function renderStoryblokOnlyCompletion(terminal, result, reportPath) {
+  terminal.header('Storyblok Integration Complete', 'Repository output was skipped');
+  terminal.panel('Repository', [
+    ['Updated', 'No', 'warning']
+  ]);
+  terminal.panel('Storyblok', [
+    ['Components Created', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success'],
+    ['Assets Uploaded', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success'],
+    ['Draft Story Created', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success']
   ]);
   terminal.panel('Validation', [
     ['Passed', 'Yes', 'success']

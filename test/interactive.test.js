@@ -105,6 +105,37 @@ test('interactive create flow prompts for session-only Storyblok credentials', a
   }
 });
 
+test('interactive create flow can skip repository for a Storyblok-only test', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  const output = new CaptureOutput();
+  const result = await runInteractiveApp({
+    args: {
+      config: path.join(root, 'config.json'),
+      work_dir: workDir,
+      no_interactive: true
+    },
+    output,
+    cwd: root,
+    answers: [
+      'create',
+      path.join(root, 'templates/acme-homepage'),
+      '__storyblok_only__',
+      'acme-homepage-storyblok-v1',
+      'no'
+    ]
+  });
+
+  assert.equal(result.action, 'storyblok_only_integration');
+  assert.equal(result.status, 'dry_run_complete');
+  assert.equal(result.manifest.storyblok_prefix, 'hts_acme_homepage_storyblok_v1_');
+  assert.equal(result.validation.valid, true);
+  assert.equal(await pathExists(path.join(workDir, 'repository-inspection.json')), false);
+  assert.equal(await pathExists(path.join(workDir, 'storyblok-apply-result.json')), true);
+  assert.match(output.text(), /Storyblok Plan Summary/);
+  assert.match(output.text(), /Repository\s+Skipped for this test/);
+});
+
 test('interactive resume can open the report viewer for an existing integration', async () => {
   const root = await createFixtureWorkspace();
   const workDir = path.join(root, 'work');
@@ -132,6 +163,48 @@ test('interactive resume can open the report viewer for an existing integration'
   assert.equal(result.markdown_report, path.join(workDir, 'report.md'));
   assert.match(output.text(), /Previous integration detected/);
   assert.match(output.text(), /View Latest Report/);
+});
+
+test('storyblok-apply command runs the remote-only workflow without a repository', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+
+  await captureStdout(async () => {
+    await main([
+      'node',
+      'html-to-storyblok',
+      'plan',
+      '--integration-id',
+      'acme-homepage-storyblok-cli-v1',
+      '--template',
+      path.join(root, 'templates/acme-homepage'),
+      '--framework',
+      'static',
+      '--work-dir',
+      workDir,
+      '--no-interactive'
+    ]);
+  });
+
+  const output = await captureStdout(async () => {
+    await main([
+      'node',
+      'html-to-storyblok',
+      'storyblok-apply',
+      '--manifest',
+      path.join(workDir, 'integration-manifest.json'),
+      '--dry-run',
+      '--work-dir',
+      workDir,
+      '--no-interactive'
+    ]);
+  });
+
+  const result = JSON.parse(await readFile(path.join(workDir, 'storyblok-apply-result.json'), 'utf8'));
+  assert.equal(result.action, 'apply_storyblok_only');
+  assert.equal(result.repository_skipped, true);
+  assert.equal(result.dry_run, true);
+  assert.match(output, /apply_storyblok_only/);
 });
 
 test('dashboard model summarizes the latest integration state', async () => {
