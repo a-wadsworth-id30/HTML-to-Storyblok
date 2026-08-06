@@ -456,7 +456,7 @@ Local validation checks generated files, planned assets, forbidden runtime coupl
 html-to-storyblok report
 ```
 
-This summarizes commands run, failures, artifacts, latest validation state, latest Netlify state, and safety confirmations from the evidence log.
+This summarizes commands run, failures, artifacts, skipped duplication diagnostics, latest validation state, latest Netlify state, and safety confirmations from the evidence log.
 
 To view the same evidence as terminal sections and write a markdown report:
 
@@ -822,7 +822,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard, dashboard, settings, doctor checks, report viewer, and scriptable commands.
+- Interactive wizard, dashboard, settings, doctor checks, report viewer with skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.

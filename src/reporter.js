@@ -59,6 +59,9 @@ export function renderMarkdownReport(report) {
   const failureRows = report.commands_failed.length
     ? report.commands_failed.map((failure) => `- ${failure.command}: ${failure.message}`).join('\n')
     : '- None';
+  const skippedDuplicationRows = duplicationSkippedCandidates(report)
+    .map((candidate) => `- ${candidate.source_path}: ${candidate.blockers.join('; ')}`)
+    .join('\n') || '- None';
 
   return `# HTML-to-Storyblok Report
 
@@ -81,6 +84,10 @@ export function renderMarkdownReport(report) {
 
 ${artifactRows}
 
+## Duplication Diagnostics
+
+${skippedDuplicationRows}
+
 ## Failures
 
 ${failureRows}
@@ -92,14 +99,26 @@ async function summarizeArtifact(artifact) {
   try {
     const data = await readJson(artifact);
     if (name === 'integration-manifest.json') {
+      const skippedCandidates = normalizeSkippedCandidates(data.duplication_inference?.skipped_repository_candidates);
       return {
         type: 'integration_manifest',
         artifact,
         integration_id: data.integration_id,
         repository_files: data.repository?.files_to_create?.length || 0,
+        repository_components_to_duplicate: data.repository?.components_to_duplicate?.length || 0,
+        repository_assets_to_create: data.repository?.assets_to_create?.length || 0,
         storyblok_components: data.storyblok?.components_to_create?.length || 0,
         storyblok_stories: data.storyblok?.stories_to_create?.length || 0,
-        storyblok_assets: data.storyblok?.assets_to_create?.length || 0
+        storyblok_assets: data.storyblok?.assets_to_create?.length || 0,
+        duplication_inference: data.duplication_inference
+          ? {
+            repository_components: data.duplication_inference.repository_components || 0,
+            repository_dependency_files: data.duplication_inference.repository_dependency_files || 0,
+            repository_asset_files: data.duplication_inference.repository_asset_files || 0,
+            skipped_repository_candidates: skippedCandidates.length,
+            skipped_candidates: skippedCandidates.slice(0, 10)
+          }
+          : null
       };
     }
     if (name === 'plan-validation.json') {
@@ -164,4 +183,22 @@ async function summarizeArtifact(artifact) {
 
 function latestSummary(summaries, types) {
   return [...summaries].reverse().find((summary) => types.includes(summary.type)) || null;
+}
+
+function duplicationSkippedCandidates(report) {
+  return report.artifacts
+    .filter((artifact) => artifact.type === 'integration_manifest')
+    .flatMap((artifact) => artifact.duplication_inference?.skipped_candidates || [])
+    .slice(0, 10);
+}
+
+function normalizeSkippedCandidates(candidates) {
+  return Array.isArray(candidates)
+    ? candidates.map((candidate) => ({
+      source_path: String(candidate.source_path || 'unknown source'),
+      confidence: candidate.confidence || null,
+      matched_signal: candidate.matched_signal || null,
+      blockers: Array.isArray(candidate.blockers) ? candidate.blockers.map(String) : []
+    }))
+    : [];
 }
