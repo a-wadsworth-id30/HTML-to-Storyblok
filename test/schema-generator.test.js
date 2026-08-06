@@ -207,6 +207,12 @@ test('buildSchemaPlan uses index.html as the primary draft page when templates c
   });
 
   assert.equal(plan.draft_story.content.headline, 'Home page');
+  assert.deepEqual(plan.draft_stories.map((story) => story.slug), [
+    'integration-preview/multi-route-v1/home',
+    'integration-preview/multi-route-v1/about'
+  ]);
+  assert.equal(plan.draft_stories[0].source_page, 'index.html');
+  assert.equal(plan.draft_stories[1].content.headline, 'About page');
   assert.equal(plan.components[0].source, 'index.html');
 });
 

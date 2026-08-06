@@ -482,6 +482,7 @@ export async function deleteStoryblokIntegrationResources(manifest, {
     integration_id: manifest.integration_id,
     policy: 'delete_only_manifest_owned_namespaced_resources',
     stories: await deleteIntegrationDraftStories(config, manifest, { dryRun }),
+    story_folders: await deleteIntegrationStoryFolders(config, manifest, { dryRun }),
     assets: await deleteIntegrationAssets(config, manifest, { dryRun }),
     asset_folders: await deleteIntegrationAssetFolders(config, manifest, { dryRun }),
     components: await deleteIntegrationComponents(config, manifest, { dryRun })
@@ -651,6 +652,20 @@ function plannedStoryTarget(story) {
   };
 }
 
+function plannedStoryFolderSlugs(manifest) {
+  const folders = new Set();
+  const integrationRoot = `integration-preview/${manifest.integration_id}`;
+  for (const story of ensureArray(manifest.storyblok?.stories_to_create)) {
+    const parts = String(story.slug || story.full_slug || '').split('/').filter(Boolean);
+    for (let index = 1; index < parts.length - 1; index += 1) {
+      const folder = parts.slice(0, index + 1).join('/');
+      if (folder === 'integration-preview') continue;
+      if (folder === integrationRoot || folder.startsWith(`${integrationRoot}/`)) folders.add(folder);
+    }
+  }
+  return [...folders].sort((left, right) => right.split('/').length - left.split('/').length || right.localeCompare(left));
+}
+
 function draftStoryPayload(story, target, content) {
   return {
     story: {
@@ -793,6 +808,41 @@ async function deleteIntegrationDraftStories(config, manifest, { dryRun }) {
   return results;
 }
 
+async function deleteIntegrationStoryFolders(config, manifest, { dryRun }) {
+  const folderSlugs = plannedStoryFolderSlugs(manifest);
+  if (folderSlugs.length === 0) return [];
+  if (dryRun) {
+    return folderSlugs.map((slug) => ({
+      action: 'delete_story_folder',
+      dry_run: true,
+      slug,
+      collision_policy: 'delete_only_integration_owned_story_folder'
+    }));
+  }
+
+  const folders = await listStoryFolders(config);
+  const results = [];
+  for (const slug of folderSlugs) {
+    const existing = folders.find((folder) => folder.is_folder && (folder.full_slug === slug || folder.slug === slug));
+    if (!existing) {
+      results.push({ action: 'delete_story_folder', dry_run: false, status: 'missing', slug });
+      continue;
+    }
+    if (!isIntegrationOwnedStorySlug(manifest, existing.full_slug || existing.slug || slug)) {
+      throw new Error(`remote rollback refused for non-integration Storyblok folder slug: ${existing.full_slug || slug}`);
+    }
+    await storyblokRequest(config, `/spaces/${config.spaceId}/stories/${existing.id}`, { method: 'DELETE' });
+    results.push({
+      action: 'delete_story_folder',
+      dry_run: false,
+      status: 'deleted',
+      slug: existing.full_slug || slug,
+      id: existing.id
+    });
+  }
+  return results;
+}
+
 async function deleteIntegrationAssets(config, manifest, { dryRun }) {
   const assets = uniqueBy(ensureArray(manifest.storyblok?.assets_to_create), (asset) => asset.id || asset.filename || asset.local_path);
   const results = [];
@@ -834,6 +884,7 @@ async function deleteIntegrationAssets(config, manifest, { dryRun }) {
 async function deleteIntegrationAssetFolders(config, manifest, { dryRun }) {
   const folders = plannedAssetFolders(manifest).reverse();
   const results = [];
+  if (folders.length === 0) return results;
   if (dryRun) {
     return folders.map((folder) => ({
       action: 'delete_asset_folder',

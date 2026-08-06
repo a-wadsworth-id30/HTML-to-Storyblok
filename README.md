@@ -688,7 +688,7 @@ html-to-storyblok create-draft-story \
   --dry-run
 ```
 
-Draft story creation uses `publish: false`. Draft stories planned under `integration-preview/<integration-id>` are created inside a Storyblok `integration-preview` folder, which is created or reused additively when needed. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers. If a draft story was created by an earlier version with unresolved local asset paths or at the root instead of `integration-preview/`, rerun with a new integration ID or use confirmed remote rollback for the integration-owned draft resources before applying again.
+Draft story creation uses `publish: false`. Single-page templates create `integration-preview/<integration-id>`. Multi-page templates create one draft story per route under `integration-preview/<integration-id>/<route>`, with `index.html` mapped to `home`. The `integration-preview` parent and integration-specific route folder are created or reused additively when needed. Existing matching draft stories are treated as idempotent; published or differing stories are treated as blockers. If a draft story was created by an earlier version with unresolved local asset paths or at the root instead of `integration-preview/`, rerun with a new integration ID or use confirmed remote rollback for the integration-owned draft resources before applying again.
 
 Run the complete Storyblok-only workflow without a repository:
 
@@ -902,7 +902,7 @@ Implemented:
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
-- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, draft story generation, asset folder creation, asset upload, draft story asset hydration, Storyblok-only apply, and idempotent collision handling.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, one-draft-story-per-route generation, asset folder creation, asset upload, draft story asset hydration, Storyblok-only apply, and idempotent collision handling.
 - Storyblok Content API draft story checks without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
 - Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus apply preflight checks, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
@@ -913,7 +913,7 @@ Implemented:
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
-- Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Current Storyblok planning still creates one integration preview draft story from `index.html`; true one-story-per-route generation remains outstanding.
+- Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, but repository conversion still renders the primary `index.html` template file as the generated frontend preview entry.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials from the shell environment, `.env` / `.env.local`, or the interactive session; use `html-to-storyblok check-access` to verify readiness.
 - No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.

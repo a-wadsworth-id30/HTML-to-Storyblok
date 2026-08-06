@@ -12,6 +12,14 @@ Routes:
 
 The content uses this project as the example subject matter. It includes shared navigation, local assets, repeated cards, gallery media, pricing-style content, forms, JavaScript behaviour, external form and analytics references, and `data-hts-field` hints for schema generation.
 
+When planned with this fixture, Storyblok draft stories are generated as:
+
+- `integration-preview/<integration-id>/home`
+- `integration-preview/<integration-id>/about`
+- `integration-preview/<integration-id>/services`
+- `integration-preview/<integration-id>/gallery`
+- `integration-preview/<integration-id>/contact`
+
 Useful commands:
 
 ```sh

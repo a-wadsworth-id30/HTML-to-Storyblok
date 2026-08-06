@@ -21,30 +21,40 @@ const OVERRIDE_FIELD_TYPES = new Set([
 export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, repositoryNamespace, templatePath, schemaOverrides = null }) {
   const pages = inventory.page_inventory || [];
   const primaryPage = selectPrimaryPage(pages);
-  const components = [];
-  const blocks = [];
+  const storyPages = orderedStoryPages(pages, primaryPage);
+  const componentMap = new Map();
+  const blocks = new Set();
   const mapping = [];
 
   const rootName = `${storyblokPrefix}template_page`;
-  const blockDefinitions = inferBlockDefinitions(primaryPage, inventory, storyblokPrefix);
-  for (const definition of blockDefinitions) {
-    const component = buildComponentForDefinition(definition, primaryPage, storyblokPrefix);
-    components.push(component);
-    if (component.component_type === 'nestable' && !definition.parent) blocks.push(component.technical_name);
-    mapping.push({
-      template_section: definition.label,
-      new_framework_component: `Hts${pascalCase(integrationId)}${pascalCase(definition.key)}`,
-      new_storyblok_component: component.technical_name,
-      creation_method: 'Create from template',
-      source_reference: definition.source_reference || primaryPage.page || null,
-      style_scope: `.hts-${integrationId}-root`,
-      behaviour_module: `${repositoryNamespace}/behaviour/${integrationId}.js`,
-      assets: definition.assets || [],
-      risk: definition.risk || 'None detected'
-    });
+  const definitionsByPage = storyPages.map((page) => ({
+    page,
+    definitions: inferBlockDefinitions(page, inventory, storyblokPrefix)
+  }));
+  for (const { page, definitions } of definitionsByPage) {
+    for (const definition of definitions) {
+      const component = buildComponentForDefinition(definition, page, storyblokPrefix);
+      const existing = componentMap.get(component.technical_name);
+      if (existing) mergeComponentSchema(existing, component);
+      else componentMap.set(component.technical_name, component);
+      if (component.component_type === 'nestable' && !definition.parent) blocks.add(component.technical_name);
+      if (!mapping.some((entry) => entry.new_storyblok_component === component.technical_name)) {
+        mapping.push({
+          template_section: definition.label,
+          new_framework_component: `Hts${pascalCase(integrationId)}${pascalCase(definition.key)}`,
+          new_storyblok_component: component.technical_name,
+          creation_method: 'Create from template',
+          source_reference: definition.source_reference || page.page || null,
+          style_scope: `.hts-${integrationId}-root`,
+          behaviour_module: `${repositoryNamespace}/behaviour/${integrationId}.js`,
+          assets: definition.assets || [],
+          risk: definition.risk || 'None detected'
+        });
+      }
+    }
   }
 
-  components.unshift({
+  const components = [{
     technical_name: rootName,
     display_name: displayName(`${integrationId} template page`),
     component_type: 'content_type',
@@ -57,23 +67,25 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
       body: {
         type: 'bloks',
         restrict_components: true,
-        component_whitelist: blocks,
+        component_whitelist: [...blocks],
         description: 'Integration-owned page blocks. Only components from this import are allowed.'
       }
     },
     preview_field: 'headline',
     source: primaryPage.page || null
+  }, ...componentMap.values()];
+
+  const draftStories = buildDraftStories({
+    integrationId,
+    rootName,
+    definitionsByPage
   });
 
   const plan = {
     root_component: rootName,
     components,
-    draft_story: buildDraftStory({
-      integrationId,
-      rootName,
-      primaryPage,
-      blockDefinitions
-    }),
+    draft_story: draftStories[0],
+    draft_stories: draftStories,
     mapping,
     repository_assets: buildRepositoryAssetPlan({ inventory, templatePath, repositoryNamespace }),
     asset_folders: buildAssetFolderPlan({ inventory, integrationId }),
@@ -86,6 +98,23 @@ function selectPrimaryPage(pages = []) {
   return pages.find((page) => path.basename(page.page || '').toLowerCase() === 'index.html') ||
     pages[0] ||
     {};
+}
+
+function orderedStoryPages(pages = [], primaryPage = {}) {
+  if (pages.length === 0) return [primaryPage];
+  return [
+    primaryPage,
+    ...pages.filter((page) => page !== primaryPage)
+  ].filter((page) => page && page.page);
+}
+
+function mergeComponentSchema(target, source) {
+  target.schema = {
+    ...target.schema,
+    ...source.schema
+  };
+  if (!target.preview_field && source.preview_field) target.preview_field = source.preview_field;
+  return target;
 }
 
 function inferBlockDefinitions(primaryPage, inventory, storyblokPrefix) {
@@ -443,16 +472,30 @@ function nestableComponent(definition, schema) {
   };
 }
 
-function buildDraftStory({ integrationId, rootName, primaryPage, blockDefinitions }) {
+function buildDraftStories({ integrationId, rootName, definitionsByPage }) {
+  const multiPage = definitionsByPage.length > 1;
+  return definitionsByPage.map(({ page, definitions }) => buildDraftStory({
+    integrationId,
+    rootName,
+    page,
+    blockDefinitions: definitions,
+    multiPage
+  }));
+}
+
+function buildDraftStory({ integrationId, rootName, page, blockDefinitions, multiPage = false }) {
   const blocks = blockDefinitions
     .filter((definition) => !definition.parent)
-    .map((definition) => draftBlock(definition, primaryPage, integrationId));
-  const title = primaryPage.headings?.[0]?.text || primaryPage.title || displayName(integrationId);
+    .map((definition) => draftBlock(definition, page, integrationId));
+  const title = page.headings?.[0]?.text || page.title || displayName(integrationId);
+  const route = routeForPage(page);
   return {
-    name: `Integration Preview - ${displayName(integrationId)}`,
-    slug: `integration-preview/${integrationId}`,
+    name: multiPage ? `${displayName(route.slug)} - ${displayName(integrationId)}` : `Integration Preview - ${displayName(integrationId)}`,
+    slug: multiPage ? `integration-preview/${integrationId}/${route.slug}` : `integration-preview/${integrationId}`,
     component: rootName,
     status: 'draft',
+    source_page: page.page || null,
+    route: route.path,
     content: {
       component: rootName,
       headline: title,
@@ -816,6 +859,34 @@ function emptyStoryblokLink() {
   return { linktype: 'url', url: '' };
 }
 
+function routeForPage(page = {}) {
+  const source = String(page.page || 'index.html');
+  const parsed = path.parse(source);
+  const parts = parsed.dir
+    ? [...parsed.dir.split(/[\\/]+/).filter(Boolean), parsed.name]
+    : [parsed.name];
+  const normalized = parts
+    .filter((part) => part && part !== '.')
+    .map((part, index) => {
+      if (index === parts.length - 1 && /^index$/i.test(part)) return 'home';
+      return kebabCase(part);
+    })
+    .filter(Boolean);
+  const slug = normalized.join('/') || 'home';
+  return {
+    slug,
+    path: `/${slug === 'home' ? '' : slug}`.replace(/\/$/, '') || '/home'
+  };
+}
+
+function kebabCase(value) {
+  return String(value)
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'page';
+}
+
 function acceptsCommonImage(definition, { hasExplicitImage = false } = {}) {
   if (definition.key === 'section') return true;
   if (definition.key === 'content_section') return !hasExplicitImage;
@@ -919,7 +990,7 @@ function applySchemaOverrides(plan, schemaOverrides, { integrationId, storyblokP
     }
 
     const draftValues = override.draft || override.draft_values || override.default_values || null;
-    const draftFields = draftValues ? mergeDraftValues(plan.draft_story, technicalName, draftValues, { storyblokPrefix }) : [];
+    const draftFields = draftValues ? mergeDraftValues(plan, technicalName, draftValues, { storyblokPrefix }) : [];
     if (addedFields.length > 0 || draftFields.length > 0 || override.display_name || override.preview_field || override.component_type) {
       summary.components.push({
         technical_name: technicalName,
@@ -1018,11 +1089,12 @@ function normalizeOption(option) {
   };
 }
 
-function mergeDraftValues(draftStory, technicalName, draftValues, { storyblokPrefix }) {
+function mergeDraftValues(plan, technicalName, draftValues, { storyblokPrefix }) {
   const normalized = normalizeDraftValue(draftValues, { storyblokPrefix });
-  const targets = technicalName === draftStory.component
+  const draftStories = ensureArray(plan.draft_stories || plan.draft_story);
+  const targets = draftStories.flatMap((draftStory) => technicalName === draftStory.component
     ? [draftStory.content]
-    : ensureArray(draftStory.content?.body).filter((block) => block.component === technicalName);
+    : ensureArray(draftStory.content?.body).filter((block) => block.component === technicalName));
   for (const target of targets) {
     Object.assign(target, normalized);
   }

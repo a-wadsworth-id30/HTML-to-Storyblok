@@ -96,6 +96,11 @@ export function createTerminal({
         this.status(label, 'error', 'failed');
         throw error;
       }
+    },
+    close() {
+      if (input.setRawMode && input.isRaw) input.setRawMode(false);
+      if (input.pause) input.pause();
+      output.write('\u001b[?25h');
     }
   };
   return terminal;

@@ -208,12 +208,13 @@ test('interactive app returns to the home screen after a completed action', asyn
   const root = await createFixtureWorkspace();
   const workDir = path.join(root, 'work');
   const output = new CaptureOutput({ isTTY: true });
+  const input = new TestInput();
   const result = await runInteractiveApp({
     args: {
       config: path.join(root, 'config.json'),
       work_dir: workDir
     },
-    input: { isTTY: true },
+    input,
     output,
     cwd: root,
     answers: [
@@ -226,6 +227,7 @@ test('interactive app returns to the home screen after a completed action', asyn
 
   const headers = output.text().match(/HTML -> Storyblok/g) || [];
   assert.equal(result.action, 'exit');
+  assert.equal(input.paused, true);
   assert.equal(headers.length >= 2, true);
   assert.match(output.text(), /Next/);
 });
@@ -379,6 +381,18 @@ class CaptureOutput extends Writable {
 
   text() {
     return this.chunks.join('');
+  }
+}
+
+class TestInput {
+  constructor() {
+    this.isTTY = true;
+    this.isRaw = false;
+    this.paused = false;
+  }
+
+  pause() {
+    this.paused = true;
   }
 }
 

@@ -49,7 +49,7 @@ export async function createIntegrationPlan({
     };
     manifest.mapping = schemaPlan.mapping;
     manifest.storyblok.components_to_create = schemaPlan.components;
-    manifest.storyblok.stories_to_create = [schemaPlan.draft_story];
+    manifest.storyblok.stories_to_create = schemaPlan.draft_stories || [schemaPlan.draft_story];
     manifest.storyblok.asset_folders_to_create = schemaPlan.asset_folders;
     manifest.storyblok.assets_to_create = schemaPlan.storyblok_assets;
     manifest.repository.assets_to_create = schemaPlan.repository_assets;

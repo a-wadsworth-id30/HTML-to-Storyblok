@@ -37,32 +37,36 @@ export async function runInteractiveApp({
   const workDir = String(args.work_dir || config.default_output_folder || DEFAULT_WORK_DIR);
   await ensureWorkDir(workDir);
 
-  const manifestPath = path.join(workDir, MANIFEST_NAME);
-  if (await pathExists(manifestPath)) {
-    terminal.header('HTML -> Storyblok', 'Safety-first template integration');
-    terminal.status('Previous integration detected', 'success', manifestPath);
-    const resumeChoice = await selectOption(terminal, {
-      message: 'What would you like to do?',
-      choices: [
-        { label: 'Resume Previous Integration', value: 'resume' },
-        { label: 'Start New Integration', value: 'new' },
-        { label: 'Main Menu', value: 'home' },
-        { label: 'Exit', value: 'exit' }
-      ],
-      answers: answerQueue
-    });
-    if (resumeChoice === 'resume') {
-      const result = await runContinueExistingIntegration({ terminal, args, config, workDir, answers: answerQueue, cwd });
-      return continueInteractiveSession({ terminal, args, config, workDir, answers: answerQueue, cwd, result });
+  try {
+    const manifestPath = path.join(workDir, MANIFEST_NAME);
+    if (await pathExists(manifestPath)) {
+      terminal.header('HTML -> Storyblok', 'Safety-first template integration');
+      terminal.status('Previous integration detected', 'success', manifestPath);
+      const resumeChoice = await selectOption(terminal, {
+        message: 'What would you like to do?',
+        choices: [
+          { label: 'Resume Previous Integration', value: 'resume' },
+          { label: 'Start New Integration', value: 'new' },
+          { label: 'Main Menu', value: 'home' },
+          { label: 'Exit', value: 'exit' }
+        ],
+        answers: answerQueue
+      });
+      if (resumeChoice === 'resume') {
+        const result = await runContinueExistingIntegration({ terminal, args, config, workDir, answers: answerQueue, cwd });
+        return continueInteractiveSession({ terminal, args, config, workDir, answers: answerQueue, cwd, result });
+      }
+      if (resumeChoice === 'new') {
+        const result = await runCreateIntegration({ terminal, args, config, workDir, answers: answerQueue, cwd });
+        return continueInteractiveSession({ terminal, args, config, workDir, answers: answerQueue, cwd, result });
+      }
+      if (resumeChoice === 'exit' || resumeChoice === null) return { action: 'exit' };
     }
-    if (resumeChoice === 'new') {
-      const result = await runCreateIntegration({ terminal, args, config, workDir, answers: answerQueue, cwd });
-      return continueInteractiveSession({ terminal, args, config, workDir, answers: answerQueue, cwd, result });
-    }
-    if (resumeChoice === 'exit' || resumeChoice === null) return { action: 'exit' };
-  }
 
-  return runHomeScreen({ terminal, args, config, workDir, answers: answerQueue, cwd });
+    return await runHomeScreen({ terminal, args, config, workDir, answers: answerQueue, cwd });
+  } finally {
+    terminal.close();
+  }
 }
 
 export async function runDashboard({
@@ -339,13 +343,14 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   const storyblokPrefix = storyblokPrefixForIntegrationId(integrationId);
   const repositoryNamespace = `src/integrations/${integrationId}`;
   const framework = frameworkValue(repository.framework?.name, config.preferred_framework);
+  const draftStoryCount = count(template.pages) || 1;
 
   terminal.panel('Integration Preview', [
     ['Storyblok Prefix', storyblokPrefix, 'success'],
     ['Repository Namespace', repositoryNamespace, 'success'],
     ['CSS Root', `.hts-${integrationId}-root`, 'success'],
     ['Storyblok Components', `${storyblokPrefix}hero`, 'success'],
-    ['Draft Story', `integration-preview/${integrationId}`, 'success']
+    ['Draft Stories', draftStoryCount > 1 ? `${draftStoryCount} under integration-preview/${integrationId}` : `integration-preview/${integrationId}`, 'success']
   ]);
 
   const manifest = await terminal.task('Create Integration Plan', async () => {
@@ -443,13 +448,14 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
   const storyblokPrefix = storyblokPrefixForIntegrationId(integrationId);
   const repositoryNamespace = `src/integrations/${integrationId}`;
   const framework = 'static';
+  const draftStoryCount = count(template.pages) || 1;
 
   terminal.panel('Integration Preview', [
     ['Storyblok Prefix', storyblokPrefix, 'success'],
     ['Repository Output', 'Skipped for this test', 'warning'],
     ['Repository Namespace', repositoryNamespace, 'warning'],
     ['Storyblok Components', `${storyblokPrefix}hero`, 'success'],
-    ['Draft Story', `integration-preview/${integrationId}`, 'success']
+    ['Draft Stories', draftStoryCount > 1 ? `${draftStoryCount} under integration-preview/${integrationId}` : `integration-preview/${integrationId}`, 'success']
   ]);
 
   const manifest = await terminal.task('Create Storyblok Plan', async () => {

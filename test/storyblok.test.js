@@ -315,6 +315,86 @@ test('createDraftStories creates nested integration preview folder before draft 
   restoreFetch();
 });
 
+test('createDraftStories creates integration route folder for multi-page draft stories', async () => {
+  const calls = mockFetch((url, options = {}) => {
+    if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1%2Fhome')) {
+      return { stories: [] };
+    }
+    if (url.endsWith('/stories?per_page=100')) {
+      return { stories: [] };
+    }
+    if (url.includes('/stories?by_slugs=integration-preview&per_page=1')) {
+      return { stories: [] };
+    }
+    if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1&per_page=1')) {
+      return { stories: [] };
+    }
+    if (url.endsWith('/stories') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      if (payload.story.is_folder && payload.story.slug === 'integration-preview') {
+        return {
+          story: {
+            id: 22,
+            slug: 'integration-preview',
+            full_slug: 'integration-preview',
+            is_folder: true,
+            parent_id: 0
+          }
+        };
+      }
+      if (payload.story.is_folder && payload.story.slug === 'acme-homepage-v1') {
+        assert.equal(payload.story.parent_id, 22);
+        return {
+          story: {
+            id: 23,
+            slug: 'acme-homepage-v1',
+            full_slug: 'integration-preview/acme-homepage-v1',
+            is_folder: true,
+            parent_id: 22
+          }
+        };
+      }
+      assert.equal(payload.story.slug, 'home');
+      assert.equal(payload.story.parent_id, 23);
+      return {
+        story: {
+          id: 457,
+          slug: 'home',
+          full_slug: 'integration-preview/acme-homepage-v1/home',
+          parent_id: 23,
+          published_at: null,
+          content: payload.story.content
+        }
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await createDraftStories({
+    storyblok: {
+      stories_to_create: [
+        {
+          slug: 'integration-preview/acme-homepage-v1/home',
+          component: 'hts_acme_homepage_v1_template_page',
+          content: {
+            component: 'hts_acme_homepage_v1_template_page',
+            body: []
+          }
+        }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result[0].status, 'created');
+  assert.equal(result[0].slug, 'integration-preview/acme-homepage-v1/home');
+  assert.deepEqual(result[0].folder_results.map((entry) => entry.slug), [
+    'integration-preview',
+    'integration-preview/acme-homepage-v1'
+  ]);
+  assert.equal(calls.filter((call) => call.options.method === 'POST').length, 3);
+  restoreFetch();
+});
+
 test('createStoryblokAssetFolders creates only missing namespaced folders', async () => {
   const calls = mockFetch((url, options = {}) => {
     if (url.endsWith('/asset_folders/') && (options.method || 'GET') === 'GET') {
@@ -538,6 +618,70 @@ test('deleteStoryblokIntegrationResources deletes only verified namespaced draft
   assert.equal(result.asset_folders[0].status, 'deleted');
   assert.equal(result.components.length, 2);
   assert.ok(calls.some((call) => call.url.endsWith('/components/45') && call.options.method === 'DELETE'));
+  restoreFetch();
+});
+
+test('deleteStoryblokIntegrationResources deletes integration-owned story folders after route stories', async () => {
+  const calls = mockFetch((url, options = {}) => {
+    if (url.includes('/stories?by_slugs=integration-preview%2Facme-homepage-v1%2Fhome')) {
+      return {
+        stories: [
+          {
+            id: 11,
+            slug: 'home',
+            full_slug: 'integration-preview/acme-homepage-v1/home',
+            published_at: null,
+            content: {
+              component: 'hts_acme_homepage_v1_template_page'
+            }
+          }
+        ]
+      };
+    }
+    if (url.endsWith('/stories/11') && options.method === 'DELETE') return { story: { id: 11 } };
+    if (url.endsWith('/stories?per_page=100')) {
+      return {
+        stories: [
+          {
+            id: 22,
+            slug: 'integration-preview',
+            full_slug: 'integration-preview',
+            is_folder: true,
+            parent_id: 0
+          },
+          {
+            id: 23,
+            slug: 'acme-homepage-v1',
+            full_slug: 'integration-preview/acme-homepage-v1',
+            is_folder: true,
+            parent_id: 22
+          }
+        ]
+      };
+    }
+    if (url.endsWith('/stories/23') && options.method === 'DELETE') return { story: { id: 23 } };
+    if (url.endsWith('/components/') && (options.method || 'GET') === 'GET') return { components: [] };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await deleteStoryblokIntegrationResources({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [
+        { slug: 'integration-preview/acme-homepage-v1/home' }
+      ]
+    }
+  }, {
+    env: storyblokEnv(),
+    confirmIntegrationId: 'acme-homepage-v1',
+    confirmRemoteDelete: true
+  });
+
+  assert.equal(result.stories[0].status, 'deleted');
+  assert.equal(result.story_folders[0].status, 'deleted');
+  assert.equal(result.story_folders[0].slug, 'integration-preview/acme-homepage-v1');
+  assert.ok(!calls.some((call) => call.url.endsWith('/stories/22') && call.options.method === 'DELETE'));
   restoreFetch();
 });
 

@@ -68,6 +68,31 @@ test('plan command applies schema override files into the generated manifest', a
   assert.equal(draftHero.campaign_code, 'spring-launch');
 });
 
+test('createIntegrationPlan creates one namespaced draft story per template route', async () => {
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-campaign-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'static'
+  });
+
+  assert.equal(manifest.validation.valid, true);
+  assert.deepEqual(manifest.template.pages, [
+    'about.html',
+    'contact.html',
+    'gallery.html',
+    'index.html',
+    'services.html'
+  ]);
+  assert.deepEqual(manifest.storyblok.stories_to_create.map((story) => story.slug), [
+    'integration-preview/acme-campaign-v1/home',
+    'integration-preview/acme-campaign-v1/about',
+    'integration-preview/acme-campaign-v1/contact',
+    'integration-preview/acme-campaign-v1/gallery',
+    'integration-preview/acme-campaign-v1/services'
+  ]);
+  assert.equal(manifest.storyblok.stories_to_create[0].source_page, 'index.html');
+});
+
 async function captureStdout(callback) {
   const originalLog = console.log;
   let output = '';
