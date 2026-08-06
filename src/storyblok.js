@@ -153,12 +153,15 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
   }
 
   const assetMap = await createStoryAssetMap(manifest, { config, dryRun, assetResults });
-  for (const story of stories) {
-    const content = hydrateStoryAssets(story.content || {
+  const plannedStories = stories.map((story) => ({
+    story,
+    content: hydrateStoryAssets(story.content || {
       component: story.component,
       body: ensureArray(story.body)
-    }, assetMap);
-    if (dryRun) {
+    }, assetMap)
+  }));
+  if (dryRun) {
+    for (const { story, content } of plannedStories) {
       const target = plannedStoryTarget(story);
       const payload = draftStoryPayload(story, target, content);
       results.push({
@@ -171,19 +174,20 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
         asset_resolution: assetMap.size > 0 ? 'planned_storyblok_assets' : 'no_storyblok_assets',
         payload
       });
-      continue;
     }
+    return results;
+  }
+
+  const appliedStories = [];
+  for (const { story, content } of plannedStories) {
     const existing = await findStoryBySlug(config, story.slug);
     if (existing) {
-      assertStoryMatches(existing, { slug: story.slug, content });
-      results.push({
-        action: 'create_draft_story',
-        dry_run: false,
-        status: 'already_exists',
-        slug: existing.full_slug || story.slug,
-        id: existing.id || null,
-        published: Boolean(existing.published_at),
-        verification: summarizeStory(existing)
+      appliedStories.push({
+        story,
+        content,
+        existing,
+        remote: existing,
+        target: plannedStoryTarget(story)
       });
       continue;
     }
@@ -193,15 +197,68 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
       method: 'POST',
       body: payload
     });
+    appliedStories.push({
+      story,
+      content,
+      target,
+      created: response.story || response,
+      remote: response.story || response,
+      folder_results: target.folder_results
+    });
+  }
+
+  const storyReferences = createStoryReferenceMap(appliedStories);
+  for (const entry of appliedStories) {
+    const resolvedContent = hydrateStoryLinks(entry.content, storyReferences);
+    if (entry.existing) {
+      const match = assertStoryMatches(entry.existing, { slug: entry.story.slug, content: resolvedContent });
+      const repair = match.metadata_only_difference && canRepairDraftStoryLinkMetadata(entry.existing, manifest, entry.story.slug);
+      if (repair) {
+        const updated = await updateDraftStoryContent(config, entry.story, entry.target, resolvedContent, entry.existing);
+        results.push({
+          action: 'create_draft_story',
+          dry_run: false,
+          status: 'updated_link_metadata',
+          slug: updated.full_slug || entry.existing.full_slug || entry.story.slug,
+          id: updated.id || entry.existing.id || null,
+          uuid: updated.uuid || entry.existing.uuid || null,
+          published: Boolean(updated.published_at || entry.existing.published_at),
+          link_resolution: 'story_uuid_hydrated',
+          verification: summarizeStory(updated)
+        });
+        continue;
+      }
+      results.push({
+        action: 'create_draft_story',
+        dry_run: false,
+        status: 'already_exists',
+        slug: entry.existing.full_slug || entry.story.slug,
+        id: entry.existing.id || null,
+        uuid: entry.existing.uuid || null,
+        published: Boolean(entry.existing.published_at),
+        link_resolution: match.metadata_only_difference ? 'existing_story_left_unchanged' : 'already_hydrated',
+        verification: summarizeStory(entry.existing)
+      });
+      continue;
+    }
+
+    let remote = entry.created;
+    let linkResolution = 'not_required';
+    if (!sameJson(entry.content, resolvedContent) && entry.created?.id) {
+      remote = await updateDraftStoryContent(config, entry.story, entry.target, resolvedContent, entry.created);
+      linkResolution = 'story_uuid_hydrated';
+    }
     results.push({
       action: 'create_draft_story',
       dry_run: false,
       status: 'created',
-      slug: response.story?.full_slug || story.slug,
-      id: response.story?.id || null,
-      published: Boolean(response.story?.published_at),
-      folder_results: target.folder_results,
-      verification: response.story ? summarizeStory(response.story) : response
+      slug: remote?.full_slug || entry.created?.full_slug || entry.story.slug,
+      id: remote?.id || entry.created?.id || null,
+      uuid: remote?.uuid || entry.created?.uuid || null,
+      published: Boolean(remote?.published_at || entry.created?.published_at),
+      folder_results: entry.folder_results,
+      link_resolution: linkResolution,
+      verification: remote ? summarizeStory(remote) : entry.created
     });
   }
   return results;
@@ -703,6 +760,43 @@ function draftStoryPayload(story, target, content) {
   };
 }
 
+async function updateDraftStoryContent(config, story, target, content, existing) {
+  const id = existing?.id;
+  if (!id) throw new Error(`Storyblok draft story update requires an id: ${existing?.full_slug || story.slug}`);
+  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/stories/${id}`, {
+    method: 'PUT',
+    body: draftStoryPayload(story, {
+      ...target,
+      parent_id: existing.parent_id ?? target.parent_id,
+      slug: existing.slug || target.slug,
+      full_slug: existing.full_slug || target.full_slug
+    }, content)
+  });
+  return response.story || response;
+}
+
+function createStoryReferenceMap(entries) {
+  const references = new Map();
+  for (const entry of entries) {
+    const remote = entry.remote || entry.existing || entry.created;
+    const fullSlug = remote?.full_slug || entry.target?.full_slug || entry.story?.slug;
+    const reference = {
+      uuid: remote?.uuid || null,
+      full_slug: fullSlug,
+      numeric_id: remote?.id || null
+    };
+    for (const key of unique([
+      fullSlug,
+      entry.story?.slug,
+      remote?.full_slug,
+      remote?.default_full_slug
+    ].filter(Boolean))) {
+      references.set(normalizeStoryLinkKey(key), reference);
+    }
+  }
+  return references;
+}
+
 async function findAssetByFilename(config, filename, { assetFolderId = null, manifest = null } = {}) {
   const assets = await listStoryblokAssets(config, { search: path.basename(filename) });
   return assets.find((asset) => isExactStoryblokAssetMatch(asset, filename, { assetFolderId, manifest })) || null;
@@ -759,6 +853,40 @@ function hydrateStoryAssets(value, assetMap) {
   }
 
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, hydrateStoryAssets(entry, assetMap)]));
+}
+
+function hydrateStoryLinks(value, storyReferences) {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) return value.map((entry) => hydrateStoryLinks(entry, storyReferences));
+  if (isStoryblokLinkValue(value)) return hydrateStoryLinkValue(value, storyReferences);
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, hydrateStoryLinks(entry, storyReferences)]));
+}
+
+function hydrateStoryLinkValue(link, storyReferences) {
+  const next = {
+    ...link,
+    fieldtype: 'multilink'
+  };
+  if (next.linktype === 'story') {
+    const reference = storyReferences.get(normalizeStoryLinkKey(next.cached_url));
+    if (reference?.uuid) next.id = reference.uuid;
+    if (reference?.full_slug) next.cached_url = reference.full_slug;
+    if (!Object.hasOwn(next, 'url')) next.url = '';
+  }
+  return next;
+}
+
+function isStoryblokLinkValue(value) {
+  return value &&
+    typeof value === 'object' &&
+    typeof value.linktype === 'string' &&
+    ('url' in value || 'cached_url' in value || 'id' in value);
+}
+
+function normalizeStoryLinkKey(value) {
+  return String(value || '')
+    .replaceAll('\\', '/')
+    .replace(/^\/+|\/+$/g, '');
 }
 
 function storyAssetReference(asset, result, { dryRun }) {
@@ -1059,9 +1187,38 @@ function assertStoryMatches(existing, intended) {
   if (existing.published_at) {
     throw new Error(`Storyblok story collision is published and cannot be reused safely: ${existing.full_slug || intended.slug}`);
   }
-  if (sha256Json(existing.content || {}) !== sha256Json(intended.content || {})) {
+  const exact = sameJson(existing.content || {}, intended.content || {});
+  if (exact) return { exact: true, metadata_only_difference: false };
+  if (sha256Json(comparableStoryContent(existing.content || {})) !== sha256Json(comparableStoryContent(intended.content || {}))) {
     throw new Error(`Storyblok draft story drift detected for ${intended.slug}; existing story does not match the manifest.`);
   }
+  return { exact: false, metadata_only_difference: true };
+}
+
+function sameJson(left, right) {
+  return sha256Json(left || {}) === sha256Json(right || {});
+}
+
+function comparableStoryContent(value) {
+  if (Array.isArray(value)) return value.map(comparableStoryContent);
+  if (!value || typeof value !== 'object') return value;
+  if (isStoryblokLinkValue(value)) {
+    const comparable = { ...value };
+    delete comparable.fieldtype;
+    if (comparable.linktype === 'story') {
+      delete comparable.id;
+      delete comparable.url;
+    }
+    return comparable;
+  }
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, comparableStoryContent(entry)]));
+}
+
+function canRepairDraftStoryLinkMetadata(existing, manifest, plannedSlug) {
+  if (!manifest.integration_id || !manifest.storyblok_prefix) return false;
+  if (existing.published_at) return false;
+  if (!String(existing.content?.component || '').startsWith(manifest.storyblok_prefix)) return false;
+  return isIntegrationOwnedStorySlug(manifest, existing.full_slug || existing.slug || plannedSlug);
 }
 
 function assertAssetMatches(existing, intended) {
