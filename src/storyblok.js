@@ -2487,8 +2487,11 @@ function assertStoryMatches(existing, intended) {
   }
   const exact = sameJson(existing.content || {}, intended.content || {});
   if (exact) return { exact: true, metadata_only_difference: false };
-  if (sha256Json(comparableStoryContent(existing.content || {})) !== sha256Json(comparableStoryContent(intended.content || {}))) {
-    throw new Error(`Storyblok draft story drift detected for ${intended.slug}; existing story does not match the manifest.`);
+  const existingComparable = comparableStoryContent(existing.content || {});
+  const intendedComparable = comparableStoryContent(intended.content || {});
+  if (sha256Json(existingComparable) !== sha256Json(intendedComparable)) {
+    const mismatch = firstJsonMismatch(existingComparable, intendedComparable) || 'unknown mismatch';
+    throw new Error(`Storyblok draft story drift detected for ${intended.slug}; existing story does not match the manifest (${mismatch}).`);
   }
   return {
     exact: false,
@@ -2505,18 +2508,27 @@ function comparableStoryContent(value) {
   if (Array.isArray(value)) return value.map(comparableStoryContent);
   if (!value || typeof value !== 'object') return value;
   if (isStoryblokLinkValue(value)) {
-    const comparable = { ...value };
-    delete comparable.fieldtype;
-    if (comparable.linktype === 'story') {
-      delete comparable.id;
-      delete comparable.url;
-    }
-    return comparable;
+    return comparableStoryLink(value);
   }
   if (isStoryblokAssetValue(value)) return comparableStoryAsset(value);
-  return Object.fromEntries(Object.entries(value)
+  return pruneEmptyStoryblokDefaults(Object.fromEntries(Object.entries(value)
     .filter(([key]) => !isStoryblokContentMetadataKey(key))
-    .map(([key, entry]) => [key, comparableStoryContent(entry)]));
+    .map(([key, entry]) => [key, comparableStoryContent(entry)])));
+}
+
+function comparableStoryLink(value) {
+  const linktype = value.linktype || '';
+  const comparable = { linktype };
+  if (linktype === 'story') {
+    comparable.cached_url = normalizeStoryLinkKey(value.cached_url || value.url);
+  } else if (linktype === 'url') {
+    comparable.url = value.url || value.cached_url || '';
+  } else if (value.cached_url || value.url) {
+    comparable.cached_url = normalizeStoryLinkKey(value.cached_url || value.url);
+  }
+  if (value.anchor) comparable.anchor = value.anchor;
+  if (value.target) comparable.target = value.target;
+  return comparable;
 }
 
 function hasRepairableStoryLinkMetadataDifference(existingContent, intendedContent) {
@@ -2555,7 +2567,56 @@ function comparableStoryAsset(value) {
 }
 
 function isStoryblokContentMetadataKey(key) {
-  return key === '_editable';
+  return key === '_editable' || key === '_uid';
+}
+
+function pruneEmptyStoryblokDefaults(value) {
+  return Object.fromEntries(Object.entries(value).filter(([, entry]) => !isEmptyStoryblokDefault(entry)));
+}
+
+function isEmptyStoryblokDefault(value) {
+  if (value === null || value === undefined || value === '') return true;
+  if (Array.isArray(value)) return value.length === 0;
+  if (!value || typeof value !== 'object') return false;
+  const keys = Object.keys(value);
+  if (keys.length === 0) return true;
+  return value.type === 'doc' && Array.isArray(value.content) && value.content.length === 0 && keys.every((key) => ['type', 'content'].includes(key));
+}
+
+function firstJsonMismatch(existing, intended, pathName = 'content') {
+  if (Array.isArray(existing) || Array.isArray(intended)) {
+    if (!Array.isArray(existing) || !Array.isArray(intended)) {
+      return `${pathName}: expected ${describeValue(intended)} but found ${describeValue(existing)}`;
+    }
+    if (existing.length !== intended.length) {
+      return `${pathName}: expected ${intended.length} item(s) but found ${existing.length}`;
+    }
+    for (let index = 0; index < intended.length; index += 1) {
+      const mismatch = firstJsonMismatch(existing[index], intended[index], `${pathName}[${index}]`);
+      if (mismatch) return mismatch;
+    }
+    return null;
+  }
+  if (existing && typeof existing === 'object' || intended && typeof intended === 'object') {
+    if (!existing || typeof existing !== 'object' || !intended || typeof intended !== 'object') {
+      return `${pathName}: expected ${describeValue(intended)} but found ${describeValue(existing)}`;
+    }
+    const keys = unique([...Object.keys(existing), ...Object.keys(intended)]).sort();
+    for (const key of keys) {
+      if (!Object.hasOwn(existing, key)) return `${pathName}.${key}: missing from existing story`;
+      if (!Object.hasOwn(intended, key)) return `${pathName}.${key}: unexpected value in existing story`;
+      const mismatch = firstJsonMismatch(existing[key], intended[key], `${pathName}.${key}`);
+      if (mismatch) return mismatch;
+    }
+    return null;
+  }
+  return existing === intended ? null : `${pathName}: expected ${describeValue(intended)} but found ${describeValue(existing)}`;
+}
+
+function describeValue(value) {
+  const serialized = stableJson(value);
+  if (serialized.length <= 120) return serialized;
+  return `${serialized.slice(0, 117)}...`;
 }
 
 function canRepairDraftStoryLinkMetadata(existing, manifest, plannedSlug) {

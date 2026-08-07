@@ -314,6 +314,10 @@ test('createDraftStories treats Storyblok editor metadata as idempotent on retry
         _uid: 'hero-block',
         component: 'hts_acme_homepage_v1_hero',
         headline: 'Welcome',
+        body: {
+          type: 'doc',
+          content: []
+        },
         cta_link: {
           linktype: 'story',
           cached_url: 'acme-homepage-v1/home'
@@ -334,6 +338,7 @@ test('createDraftStories treats Storyblok editor metadata as idempotent on retry
     body: [
       {
         ...plannedContent.body[0],
+        _uid: 'storyblok-generated-hero-uid',
         _editable: '<!--#storyblok#hero-->',
         cta_link: {
           linktype: 'story',
@@ -387,6 +392,62 @@ test('createDraftStories treats Storyblok editor metadata as idempotent on retry
   assert.equal(result[0].status, 'already_exists');
   assert.equal(result[0].link_resolution, 'already_hydrated');
   assert.equal(calls.filter((call) => call.options.method === 'PUT').length, 0);
+  restoreFetch();
+});
+
+test('createDraftStories reports the first real Storyblok draft drift path', async () => {
+  const plannedContent = {
+    component: 'hts_acme_homepage_v1_template_page',
+    body: [
+      {
+        component: 'hts_acme_homepage_v1_hero',
+        headline: 'Welcome'
+      }
+    ]
+  };
+  const existingContent = {
+    component: 'hts_acme_homepage_v1_template_page',
+    body: [
+      {
+        component: 'hts_acme_homepage_v1_hero',
+        headline: 'Changed in Storyblok'
+      }
+    ]
+  };
+  mockFetch((url) => {
+    if (url.includes('/stories?by_slugs=')) {
+      return {
+        stories: [
+          {
+            id: 456,
+            uuid: 'home-story-uuid',
+            slug: 'home',
+            full_slug: 'acme-homepage-v1/home',
+            published_at: null,
+            content: existingContent
+          }
+        ]
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  await assert.rejects(
+    () => createDraftStories({
+      integration_id: 'acme-homepage-v1',
+      storyblok_prefix: 'hts_acme_homepage_v1_',
+      storyblok: {
+        stories_to_create: [
+          {
+            slug: 'acme-homepage-v1/home',
+            component: 'hts_acme_homepage_v1_template_page',
+            content: plannedContent
+          }
+        ]
+      }
+    }, { env: storyblokEnv() }),
+    /content\.body\[0\]\.headline/
+  );
   restoreFetch();
 });
 
