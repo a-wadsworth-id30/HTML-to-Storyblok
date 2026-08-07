@@ -1,0 +1,15 @@
+{
+  "name": "hts-demo-vue",
+  "private": true,
+  "type": "module",
+  "demoEntry": "src/App.vue",
+  "scripts": {
+    "build": "node ../scripts/build-check.mjs"
+  },
+  "dependencies": {
+    "@storyblok/vue": "^9.0.0",
+    "vite": "^7.0.0",
+    "vue": "^3.0.0"
+  }
+}
+

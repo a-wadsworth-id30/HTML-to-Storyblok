@@ -5,7 +5,7 @@ import { buildOperations, createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, getStoryblokConfig, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { ensureArray, readJson, requireOption } from './utils.js';
-import { validateIntegration } from './validator.js';
+import { preflightRepositoryIntegration, validateIntegration } from './validator.js';
 import { applyInferredDuplicationCandidates } from './duplication-inference.js';
 
 export async function createPlanFromArgs(args, workDir) {
@@ -63,6 +63,10 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   const storyblokDetail = storyblokProgressDetail(env);
   assertApplyPreflight(manifest, { dryRun, env });
 
+  await progress({ label: 'Checking Repository Safety', current: 0, total: 14 });
+  const repositoryPreflight = await preflightRepositoryIntegration(manifest, { repoPath });
+  await writeArtifact(workDir, 'apply-step-00-repository-preflight.json', repositoryPreflight);
+  assertRepositoryPreflightPassed(repositoryPreflight);
   await progress({ label: 'Checking Storyblok Access', current: 0, total: 14, detail: storyblokDetail });
   const storyblokPreflight = await preflightStoryblokIntegration(manifest, { dryRun, env });
   await writeArtifact(workDir, 'apply-step-00-storyblok-preflight.json', storyblokPreflight);
@@ -289,4 +293,14 @@ function plannedStoryblokOperationCount(manifest) {
     ensureArray(manifest.storyblok?.assets_to_create).length +
     ensureArray(manifest.storyblok?.presets_to_create).length +
     ensureArray(manifest.storyblok?.stories_to_create).length;
+}
+
+function assertRepositoryPreflightPassed(preflight) {
+  if (preflight.status === 'failed') {
+    const failed = ensureArray(preflight.checks)
+      .filter((check) => check.status !== 'passed')
+      .map((check) => check.name)
+      .join(', ');
+    throw new Error(`repository preflight failed${failed ? `: ${failed}` : ''}`);
+  }
 }

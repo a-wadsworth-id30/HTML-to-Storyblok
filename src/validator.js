@@ -78,6 +78,41 @@ export async function diffIntegration(manifest, { repoPath = process.cwd() } = {
   };
 }
 
+export async function preflightRepositoryIntegration(manifest, { repoPath = process.cwd() } = {}) {
+  const root = path.resolve(repoPath);
+  const checks = [];
+  const plan = validatePlan(manifest);
+  addCheck(checks, 'manifest_policy', plan.valid, plan.valid ? 'Manifest satisfies additive-only policy.' : 'Manifest failed additive-only policy.', plan.violations);
+  addCheck(checks, 'repository_exists', await pathExists(root), 'Repository path exists.');
+
+  const targets = plannedRepositoryTargets(manifest);
+  const collisions = [];
+  for (const target of targets) {
+    if (await pathExists(path.join(root, target))) collisions.push(target);
+  }
+  addCheck(
+    checks,
+    'planned_targets_available',
+    collisions.length === 0,
+    collisions.length === 0 ? 'All planned repository targets are available.' : 'Planned repository targets already exist.',
+    collisions
+  );
+
+  await checkGitStatus(manifest, root, checks);
+  const failed = checks.filter((check) => check.status === 'failed');
+  return {
+    action: 'repository_preflight',
+    status: failed.length === 0 ? 'passed' : 'failed',
+    repository_path: root,
+    integration_id: manifest.integration_id,
+    planned_targets: targets.length,
+    collisions,
+    checks,
+    failed_checks: failed.length,
+    note: 'Preflight is read-only. It refuses real apply when planned files would overwrite the existing site or unrelated worktree changes are present.'
+  };
+}
+
 export async function runRepositoryScript({ repoPath = process.cwd(), script = 'build', dryRun = false } = {}) {
   const root = path.resolve(repoPath);
   const inspection = await inspectRepository(root);
@@ -184,7 +219,7 @@ async function checkForbiddenCoupling(manifest, root, checks) {
       if (pattern.test(content)) violations.push(name);
     }
     for (const importPath of extractImports(content)) {
-      if (isForbiddenImport(importPath, namespace)) {
+      if (isForbiddenImport(importPath, namespace, file)) {
         violations.push(`runtime import outside integration namespace: ${importPath}`);
       }
     }
@@ -220,6 +255,13 @@ function plannedRepositoryTextTargets(manifest) {
   return unique([
     ...ensureArray(manifest.repository?.files_to_create),
     ...ensureArray(manifest.repository?.components_to_duplicate).map((entry) => entry.target_path || entry.target)
+  ]);
+}
+
+function plannedRepositoryTargets(manifest) {
+  return unique([
+    ...plannedRepositoryTextTargets(manifest),
+    ...ensureArray(manifest.repository?.assets_to_create).map((asset) => asset.target_path || asset.path)
   ]);
 }
 
@@ -269,16 +311,14 @@ function extractImports(content) {
   ];
 }
 
-function isForbiddenImport(importPath, namespace) {
+function isForbiddenImport(importPath, namespace, fromFile = '') {
   if (!importPath.startsWith('.') && !importPath.startsWith('@/') && !importPath.startsWith('~/')) return false;
-  if (importPath.startsWith('./')) return false;
-  if (importPath.startsWith('../')) return escapesNamespace(importPath);
+  if (importPath.startsWith('.')) {
+    const resolved = path.posix.normalize(path.posix.join(path.posix.dirname(fromFile), importPath));
+    return !resolved.startsWith(`${namespace}/`);
+  }
   if (importPath.includes('/components') || importPath.includes('/layouts') || importPath.includes('/styles')) return true;
   return !importPath.includes(namespace);
-}
-
-function escapesNamespace(importPath) {
-  return importPath.split('/').filter((part) => part === '..').length > 1;
 }
 
 function addCheck(checks, name, passed, message, details = null) {

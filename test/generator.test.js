@@ -4,6 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { generateIntegration } from '../src/generator.js';
+import { createIntegrationPlan } from '../src/planner.js';
 import { createDefaultManifest } from '../src/policy.js';
 import { plannedTemplateFilePaths } from '../src/template-converter.js';
 
@@ -103,4 +104,35 @@ test('generate converts complex HTML attributes into React-safe JSX', async () =
   assert.match(jsx, /fillRule="evenodd" strokeWidth="2"/);
   assert.match(jsx, /<my-widget class="hts-react-template-v1-widget" custom-attr="demo" data-mode="compact">/);
   assert.doesNotMatch(jsx, /onclick/);
+});
+
+test('generate writes isolated route previews for every template page without touching app routes', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-routes-repo-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-campaign-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'static'
+  });
+
+  const result = await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'templates/acme-campaign',
+    framework: 'static'
+  });
+
+  assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/manifest.json'));
+  assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/home/template.html'));
+  assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/about/template.html'));
+  assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/services/template.html'));
+  assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/gallery/template.html'));
+  assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/contact/template.html'));
+
+  const routeManifest = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/routes/manifest.json'), 'utf8'));
+  assert.deepEqual(routeManifest.routes.map((route) => route.slug), ['home', 'about', 'contact', 'gallery', 'services']);
+  assert.equal(routeManifest.note.includes('not registered with the host application router'), true);
+
+  const about = await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/routes/about/template.html'), 'utf8');
+  assert.match(about, /data-route="about"/);
+  assert.match(about, /src="\.\.\/\.\.\/assets\/assets\/hero\.svg"/);
+  assert.doesNotMatch(about, /data-hts-field="about_headline" data-hts-field="headline"/);
 });

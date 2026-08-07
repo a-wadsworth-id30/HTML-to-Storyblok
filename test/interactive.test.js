@@ -498,6 +498,7 @@ test('completion command prints shell completions', async () => {
   assert.match(output, /validate-storyblok/);
   assert.match(output, /sb-apply/);
   assert.match(output, /examples/);
+  assert.match(output, /repository-preflight/);
 });
 
 async function createFixtureWorkspace() {

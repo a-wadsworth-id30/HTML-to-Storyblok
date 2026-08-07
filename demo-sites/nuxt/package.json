@@ -1,0 +1,14 @@
+{
+  "name": "hts-demo-nuxt",
+  "private": true,
+  "type": "module",
+  "demoEntry": "pages/index.vue",
+  "scripts": {
+    "build": "node ../scripts/build-check.mjs"
+  },
+  "dependencies": {
+    "@storyblok/nuxt": "^6.0.0",
+    "nuxt": "^4.0.0"
+  }
+}
+

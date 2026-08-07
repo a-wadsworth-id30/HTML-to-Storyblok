@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -140,6 +140,42 @@ test('applyManifest writes completed step artifacts before a later remote failur
   } finally {
     global.fetch = originalFetch;
   }
+});
+
+test('applyManifest refuses repository collisions before writing generated files', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-repo-collision-'));
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-repo-collision-work-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await mkdir(path.join(repoPath, 'src/integrations/acme-homepage-v1'), { recursive: true });
+  await writeFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/template.html'), 'existing file\n');
+
+  await assert.rejects(
+    applyManifest(manifest, {
+      repo: repoPath,
+      template: 'test/fixtures/basic-template',
+      framework: 'static',
+      env: {
+        STORYBLOK_MANAGEMENT_TOKEN: 'management-token',
+        STORYBLOK_SPACE_ID: '12345'
+      }
+    }, workDir),
+    /repository preflight failed/
+  );
+
+  await assert.rejects(
+    stat(path.join(repoPath, 'src/integrations/acme-homepage-v1/components.js')),
+    /ENOENT/
+  );
+  await stat(path.join(workDir, 'apply-step-00-repository-preflight.json'));
+  await assert.rejects(
+    stat(path.join(workDir, 'apply-step-00-storyblok-preflight.json')),
+    /ENOENT/
+  );
 });
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {

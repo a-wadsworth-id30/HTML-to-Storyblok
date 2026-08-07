@@ -1,0 +1,14 @@
+{
+  "name": "hts-demo-astro",
+  "private": true,
+  "type": "module",
+  "demoEntry": "src/pages/index.astro",
+  "scripts": {
+    "build": "node ../scripts/build-check.mjs"
+  },
+  "dependencies": {
+    "@storyblok/astro": "^6.0.0",
+    "astro": "^5.0.0"
+  }
+}
+

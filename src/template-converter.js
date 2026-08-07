@@ -18,44 +18,64 @@ export async function convertTemplate({
   const detectedFramework = framework === 'auto'
     ? (await inspectRepository(repoRoot)).framework.name
     : framework;
-  const sourcePage = selectSourcePage(templateRoot, inventory.pages);
-  const sourceHtml = await readFile(sourcePage, 'utf8');
-  const sanitized = sanitizeHtml(sourceHtml);
+  const routePages = pagesForConversion(inventory, manifest);
   const cssFiles = inventory.files_inspected.filter((file) => /\.(css|scss|sass|less)$/i.test(file));
   const styleConversion = await readTemplateCss(templateRoot, cssFiles, manifest.integration_id);
-  const scriptConversion = await readTemplateScripts(templateRoot, sourcePage, sanitized.scripts, inventory.files_inspected, manifest.integration_id);
-  const assetCopies = planAssetCopies(templateRoot, manifest.repository_namespace, [
-    ...findHtmlAssetRefs(sanitized.bodyHtml).map((reference) => ({
+  const sanitizedPages = [];
+  const htmlAssetReferences = [];
+  for (const page of routePages) {
+    const sourcePage = path.join(templateRoot, pageSource(page));
+    const sourceHtml = await readFile(sourcePage, 'utf8');
+    const sanitized = sanitizeHtml(sourceHtml);
+    sanitizedPages.push({
+      page,
+      route: routeForTemplatePage(page),
+      source_page: pageSource(page),
+      source_path: sourcePage,
+      sanitized
+    });
+    htmlAssetReferences.push(...findHtmlAssetRefs(sanitized.bodyHtml).map((reference) => ({
       sourceFile: sourcePage,
       reference,
       outputBase: '.'
-    })),
+    })));
+  }
+  const scriptConversion = await readTemplateScripts(templateRoot, sanitizedPages, inventory.files_inspected, manifest.integration_id);
+  const assetCopies = planAssetCopies(templateRoot, manifest.repository_namespace, [
+    ...htmlAssetReferences,
     ...styleConversion.asset_references
   ]);
 
-  let convertedHtml = sanitized.bodyHtml;
-  for (const asset of assetCopies) {
-    for (const original of asset.original_refs.filter((entry) => entry.output_base === '.')) {
-      convertedHtml = convertedHtml.split(original.reference).join(`./assets/${asset.asset_path}`);
-    }
-  }
+  const routeConversions = sanitizedPages.map((entry) => {
+    const assetPrefix = entry.route.primary ? './assets' : `${routeImportPrefix(entry.route.slug)}/assets`;
+    const convertedHtml = replaceHtmlAssetRefs(entry.sanitized.bodyHtml, assetCopies, entry.source_path, assetPrefix);
+    return {
+      ...entry.route,
+      source_page: entry.source_page,
+      html: namespaceHtml(convertedHtml, manifest.integration_id)
+    };
+  });
 
-  const namespacedHtml = namespaceHtml(convertedHtml, manifest.integration_id);
+  const primaryRoute = routeConversions[0];
   const frameworkName = normalizeFramework(detectedFramework);
   return {
     framework: frameworkName,
-    source_page: relativeTo(templateRoot, sourcePage),
-    removed_scripts: sanitized.removedScripts,
-    removed_inline_handlers: sanitized.removedInlineHandlers,
-    excluded_external_scripts: sanitized.scripts.filter((script) => script.src && isExternalRef(script.src)).map((script) => script.src),
+    source_page: primaryRoute?.source_page || null,
+    routes: routeConversions.map(({ html, ...route }) => route),
+    removed_scripts: sanitizedPages.reduce((total, entry) => total + entry.sanitized.removedScripts, 0),
+    removed_inline_handlers: sanitizedPages.reduce((total, entry) => total + entry.sanitized.removedInlineHandlers, 0),
+    excluded_external_scripts: uniqueRefs(sanitizedPages.flatMap((entry) => (
+      entry.sanitized.scripts.filter((script) => script.src && isExternalRef(script.src)).map((script) => script.src)
+    ))),
     isolated_scripts: scriptConversion.sources,
     asset_copies: assetCopies,
     files: buildTemplateFiles({
       manifest,
       framework: frameworkName,
-      html: namespacedHtml,
+      html: primaryRoute?.html || '',
       css: styleConversion.css,
-      behaviour: scriptConversion.module
+      behaviour: scriptConversion.module,
+      routes: shouldGenerateRoutePreviewFiles(manifest) ? routeConversions : []
     })
   };
 }
@@ -72,6 +92,17 @@ export function plannedTemplateFilePaths(manifest, framework = 'static') {
   else if (normalized === 'react' || normalized === 'next') files.push(`${namespace}/TemplatePage.jsx`);
   else if (normalized === 'vue' || normalized === 'nuxt') files.push(`${namespace}/TemplatePage.vue`);
   else files.push(`${namespace}/template.html`);
+  const routes = routeInfosForManifest(manifest);
+  if (routes.length > 0) {
+    files.push(`${namespace}/routes/manifest.json`);
+    for (const route of routes) {
+      files.push(`${namespace}/routes/${route.slug}/template-html.js`);
+      if (normalized === 'astro') files.push(`${namespace}/routes/${route.slug}/TemplatePage.astro`);
+      else if (normalized === 'react' || normalized === 'next') files.push(`${namespace}/routes/${route.slug}/TemplatePage.jsx`);
+      else if (normalized === 'vue' || normalized === 'nuxt') files.push(`${namespace}/routes/${route.slug}/TemplatePage.vue`);
+      else files.push(`${namespace}/routes/${route.slug}/template.html`);
+    }
+  }
   return files;
 }
 
@@ -96,7 +127,7 @@ export async function copyConvertedAssets(assetCopies, repoRoot, { dryRun = fals
   return copied;
 }
 
-export function buildTemplateFiles({ manifest, framework, html, css, behaviour }) {
+export function buildTemplateFiles({ manifest, framework, html, css, behaviour, routes = [] }) {
   const namespace = manifest.repository_namespace;
   const integrationId = manifest.integration_id;
   const renderer = renderTemplateModule(integrationId, html);
@@ -189,6 +220,116 @@ ${html}
 `
     });
   }
+  if (routes.length > 0) {
+    files.push(...buildRoutePreviewFiles({ manifest, framework, routes }));
+  }
+  return files;
+}
+
+function buildRoutePreviewFiles({ manifest, framework, routes }) {
+  const namespace = manifest.repository_namespace;
+  const integrationId = manifest.integration_id;
+  const normalized = normalizeFramework(framework);
+  const files = [{
+    path: `${namespace}/routes/manifest.json`,
+    json: true,
+    content: {
+      integration_id: integrationId,
+      framework: normalized,
+      note: 'Route previews are isolated. They are not registered with the host application router.',
+      routes: routes.map((route) => ({
+        slug: route.slug,
+        path: route.path,
+        source_page: route.source_page,
+        files: {
+          template_html: `${namespace}/routes/${route.slug}/template-html.js`,
+          preview: routePreviewPath(namespace, route.slug, normalized)
+        }
+      }))
+    }
+  }];
+
+  for (const route of routes) {
+    const prefix = routeImportPrefix(route.slug);
+    files.push({
+      path: `${namespace}/routes/${route.slug}/template-html.js`,
+      content: renderTemplateModule(integrationId, route.html)
+    });
+    if (normalized === 'astro') {
+      const astroHtml = route.html
+        .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{blok.headline || "$1"}<')
+        .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{blok.body || "$1"}<');
+      files.push({
+        path: `${namespace}/routes/${route.slug}/TemplatePage.astro`,
+        content: `---
+import '${prefix}/styles/template.css';
+
+const { blok = {} } = Astro.props;
+---
+
+<script>
+  import '${prefix}/behaviour/${integrationId}.js';
+</script>
+
+<main class="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}">
+${astroHtml}
+</main>
+`
+      });
+    } else if (normalized === 'react' || normalized === 'next') {
+      const jsxHtml = toJsx(route.html)
+        .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{blok.headline || "$1"}<')
+        .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{blok.body || "$1"}<');
+      files.push({
+        path: `${namespace}/routes/${route.slug}/TemplatePage.jsx`,
+        content: `import '${prefix}/styles/template.css';
+import '${prefix}/behaviour/${integrationId}.js';
+
+export function HtsTemplatePage${pascalCase(route.slug)}({ blok = {} }) {
+  return (
+    <main className="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}">
+${indent(jsxHtml, 6)}
+    </main>
+  );
+}
+`
+      });
+    } else if (normalized === 'vue' || normalized === 'nuxt') {
+      const vueHtml = route.html
+        .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{{ blok.headline || "$1" }}<')
+        .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{{ blok.body || "$1" }}<');
+      files.push({
+        path: `${namespace}/routes/${route.slug}/TemplatePage.vue`,
+        content: `<script setup>
+import '${prefix}/styles/template.css';
+import '${prefix}/behaviour/${integrationId}.js';
+
+const props = defineProps({
+  blok: {
+    type: Object,
+    default: () => ({})
+  }
+});
+</script>
+
+<template>
+  <main class="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}">
+${indent(vueHtml.replaceAll('blok.', 'props.blok.'), 4)}
+  </main>
+</template>
+`
+      });
+    } else {
+      files.push({
+        path: `${namespace}/routes/${route.slug}/template.html`,
+        content: `<main class="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}">
+${route.html}
+</main>
+<script type="module" src="${prefix}/behaviour/${integrationId}.js"></script>
+`
+      });
+    }
+  }
   return files;
 }
 
@@ -238,10 +379,94 @@ async function readTemplateCss(templateRoot, cssFiles, integrationId) {
   };
 }
 
-function selectSourcePage(templateRoot, pages) {
+function pagesForConversion(inventory, manifest) {
+  const pages = shouldGenerateRoutePreviewFiles(manifest)
+    ? manifest.template.pages
+    : [selectPrimaryPage(inventory.pages)];
+  return orderedTemplatePages(pages.filter(Boolean));
+}
+
+function shouldGenerateRoutePreviewFiles(manifest) {
+  return ensureArray(manifest.template?.pages).length > 0;
+}
+
+function routeInfosForManifest(manifest) {
+  if (!shouldGenerateRoutePreviewFiles(manifest)) return [];
+  return orderedTemplatePages(manifest.template.pages).map(routeForTemplatePage);
+}
+
+function selectPrimaryPage(pages = []) {
   if (pages.length === 0) throw new Error('template does not contain an HTML page');
-  const index = pages.find((page) => path.basename(page).toLowerCase() === 'index.html');
-  return path.join(templateRoot, index || pages[0]);
+  return pages.find((page) => path.basename(pageSource(page)).toLowerCase() === 'index.html') || pages[0];
+}
+
+function orderedTemplatePages(pages = []) {
+  if (pages.length === 0) return [];
+  const primary = selectPrimaryPage(pages);
+  return [
+    primary,
+    ...pages.filter((page) => page !== primary)
+  ];
+}
+
+function routeForTemplatePage(page) {
+  const source = pageSource(page);
+  const parsed = path.parse(source);
+  const parts = parsed.dir
+    ? [...parsed.dir.split(/[\\/]+/).filter(Boolean), parsed.name]
+    : [parsed.name];
+  const normalized = parts
+    .filter((part) => part && part !== '.')
+    .map((part, index) => {
+      if (index === parts.length - 1 && /^index$/i.test(part)) return 'home';
+      return kebabCase(part);
+    })
+    .filter(Boolean);
+  const slug = normalized.join('/') || 'home';
+  return {
+    slug,
+    path: `/${slug === 'home' ? '' : slug}`.replace(/\/$/, '') || '/home',
+    source_page: source,
+    primary: path.basename(source).toLowerCase() === 'index.html'
+  };
+}
+
+function pageSource(page) {
+  return typeof page === 'string' ? page : String(page?.page || 'index.html');
+}
+
+function routeImportPrefix(slug) {
+  const depth = String(slug || 'home').split('/').filter(Boolean).length + 1;
+  return '../'.repeat(depth).replace(/\/$/, '');
+}
+
+function routePreviewPath(namespace, slug, framework) {
+  if (framework === 'astro') return `${namespace}/routes/${slug}/TemplatePage.astro`;
+  if (framework === 'react' || framework === 'next') return `${namespace}/routes/${slug}/TemplatePage.jsx`;
+  if (framework === 'vue' || framework === 'nuxt') return `${namespace}/routes/${slug}/TemplatePage.vue`;
+  return `${namespace}/routes/${slug}/template.html`;
+}
+
+function kebabCase(value) {
+  return String(value)
+    .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
+    .replace(/[^a-zA-Z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .toLowerCase() || 'page';
+}
+
+function replaceHtmlAssetRefs(html, assetCopies, sourcePage, assetPrefix) {
+  let output = html;
+  for (const asset of assetCopies) {
+    for (const original of asset.original_refs.filter((entry) => entry.output_base === '.' && entry.source_file === sourcePage)) {
+      output = output.split(original.reference).join(`${assetPrefix}/${asset.asset_path}`);
+    }
+  }
+  return output;
+}
+
+function uniqueRefs(values) {
+  return [...new Set(values.filter(Boolean))];
 }
 
 function sanitizeHtml(html) {
@@ -283,8 +508,12 @@ function namespaceHtml(html, integrationId) {
       ));
       return `class=${quote}${classes.join(' ')}${quote}`;
     });
-  output = markFirst(output, /<h1\b([^>]*)>/i, '<h1$1 data-hts-field="headline">');
-  output = markFirst(output, /<p\b([^>]*)>/i, '<p$1 data-hts-field="body">');
+  output = markFirst(output, /<h1\b([^>]*)>/i, (_match, attributes) => (
+    /\bdata-hts-field=/.test(attributes) ? `<h1${attributes}>` : `<h1${attributes} data-hts-field="headline">`
+  ));
+  output = markFirst(output, /<p\b([^>]*)>/i, (_match, attributes) => (
+    /\bdata-hts-field=/.test(attributes) ? `<p${attributes}>` : `<p${attributes} data-hts-field="body">`
+  ));
   return output;
 }
 
@@ -499,7 +728,8 @@ function planAssetCopies(templateRoot, repositoryNamespace, references) {
     }
     bySource.get(sourceAsset).original_refs.push({
       reference: ref,
-      output_base: entry.outputBase
+      output_base: entry.outputBase,
+      source_file: entry.sourceFile
     });
   }
   return [...bySource.values()];
@@ -522,25 +752,27 @@ function rewriteCssAssetRefs(css, sourceFile, templateRoot, assetReferences) {
   });
 }
 
-async function readTemplateScripts(templateRoot, sourcePage, scripts, files, integrationId) {
+async function readTemplateScripts(templateRoot, pages, files, integrationId) {
   const sources = [];
-  for (const script of scripts) {
-    if (script.src) {
-      if (isExternalRef(script.src)) continue;
-      const source = path.resolve(path.dirname(sourcePage), stripRefQuery(script.src));
-      if (await pathExists(source) && await isFile(source)) {
+  for (const page of pages) {
+    for (const script of page.sanitized.scripts) {
+      if (script.src) {
+        if (isExternalRef(script.src)) continue;
+        const source = path.resolve(path.dirname(page.source_path), stripRefQuery(script.src));
+        if (await pathExists(source) && await isFile(source) && !sources.some((entry) => entry.source_file === relativeTo(templateRoot, source))) {
+          sources.push({
+            source_file: relativeTo(templateRoot, source),
+            content: await readFile(source, 'utf8')
+          });
+        }
+        continue;
+      }
+      if (script.content.trim()) {
         sources.push({
-          source_file: relativeTo(templateRoot, source),
-          content: await readFile(source, 'utf8')
+          source_file: `${page.source_page}#inline-script-${sources.length + 1}`,
+          content: script.content
         });
       }
-      continue;
-    }
-    if (script.content.trim()) {
-      sources.push({
-        source_file: `${relativeTo(templateRoot, sourcePage)}#inline-script-${sources.length + 1}`,
-        content: script.content
-      });
     }
   }
 

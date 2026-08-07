@@ -1,0 +1,11 @@
+{
+  "name": "hts-demo-static",
+  "private": true,
+  "type": "module",
+  "demoEntry": "index.html",
+  "scripts": {
+    "build": "node ../scripts/build-check.mjs"
+  },
+  "dependencies": {}
+}
+

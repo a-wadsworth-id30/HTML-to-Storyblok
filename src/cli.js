@@ -14,7 +14,7 @@ import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
-import { diffIntegration, runRepositoryScript, validateIntegration } from './validator.js';
+import { diffIntegration, preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 import { applyManifest, applyStoryblokOnly, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
 
 const MUTATING_COMMANDS = new Set([
@@ -202,6 +202,13 @@ export async function main(argv) {
         repoPath: args.repo ? String(args.repo) : process.cwd()
       });
       await writeArtifact(workDir, 'diff-result.json', result);
+    } else if (command === 'repository-preflight') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await preflightRepositoryIntegration(manifest, {
+        repoPath: args.repo ? String(args.repo) : process.cwd()
+      });
+      await writeArtifact(workDir, 'repository-preflight.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
     } else if (command === 'build') {
       result = await runRepositoryScript({
         repoPath: args.repo ? String(args.repo) : process.cwd(),
@@ -451,6 +458,7 @@ function createCommandExamples(manifest, { workDir, repoPath, templatePath }) {
       `html-to-storyblok storyblok-reconcile --manifest ${manifestPath}`,
       `html-to-storyblok storyblok-apply --manifest ${manifestPath} --dry-run`,
       `html-to-storyblok storyblok-verify --manifest ${manifestPath}`,
+      `html-to-storyblok repository-preflight --manifest ${manifestPath} --repo ${repoPath}`,
       `html-to-storyblok apply --manifest ${manifestPath} --repo ${repoPath} --template ${templatePath} --dry-run`,
       `html-to-storyblok rollback-preview --manifest ${manifestPath} --repo ${repoPath}`,
       `html-to-storyblok report --work-dir ${workDir} --html`
@@ -514,6 +522,7 @@ function renderShellCompletion(shell = 'zsh') {
     'sb-apply',
     'examples',
     'diff',
+    'repository-preflight',
     'validate',
     'build',
     'generate',
@@ -609,6 +618,7 @@ Usage:
   html-to-storyblok storyblok-activities [--manifest <path>] [--since <iso-date>] [--limit 50]
   html-to-storyblok examples --manifest <path> [--repo <path>] [--template <path>]
   html-to-storyblok diff --manifest <path> --repo <path>
+  html-to-storyblok repository-preflight --manifest <path> --repo <path>
   html-to-storyblok validate --manifest <path> --repo <path>
   html-to-storyblok build --repo <path> [--script build] [--dry-run]
   html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]

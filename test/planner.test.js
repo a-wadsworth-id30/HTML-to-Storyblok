@@ -96,6 +96,10 @@ test('createIntegrationPlan creates one namespaced draft story per template rout
     'acme-campaign-v1/services'
   ]);
   assert.equal(manifest.storyblok.stories_to_create[0].source_page, 'index.html');
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/routes/manifest.json'));
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/routes/home/template.html'));
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/routes/about/template.html'));
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/routes/services/template.html'));
 });
 
 async function captureStdout(callback) {

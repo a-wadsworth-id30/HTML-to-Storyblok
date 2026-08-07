@@ -4,7 +4,7 @@ import { applyInferredDuplicationCandidates } from './duplication-inference.js';
 import { createDefaultManifest, storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
 import { buildSchemaPlan } from './schema-generator.js';
 import { plannedTemplateFilePaths } from './template-converter.js';
-import { ensureArray, sha256 } from './utils.js';
+import { ensureArray, sha256, unique } from './utils.js';
 
 export async function createIntegrationPlan({
   integrationId,
@@ -59,6 +59,10 @@ export async function createIntegrationPlan({
         ...schemaPlan.schema_overrides
       };
     }
+    manifest.repository.files_to_create = unique([
+      ...manifest.repository.files_to_create,
+      ...plannedTemplateFilePaths(manifest, framework)
+    ]);
   } else {
     manifest.storyblok.components_to_create = [
       {

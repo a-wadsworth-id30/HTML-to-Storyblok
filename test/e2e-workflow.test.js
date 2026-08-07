@@ -84,6 +84,19 @@ test('CLI runs the safe local import workflow from plan through rollback', async
   assert.equal(examples.action, 'command_examples');
   assert.ok(examples.examples.some((example) => example.includes('storyblok-apply')));
 
+  const repositoryPreflightOutput = await captureStdout(() => runCli([
+    'repository-preflight',
+    '--manifest',
+    manifestPath,
+    '--repo',
+    repoPath,
+    '--work-dir',
+    workDir
+  ]));
+  const repositoryPreflight = JSON.parse(repositoryPreflightOutput);
+  assert.equal(repositoryPreflight.status, 'passed');
+  assert.equal(repositoryPreflight.collisions.length, 0);
+
   const dryRunApplyOutput = await captureStdout(() => runCli([
     'apply',
     '--manifest',

@@ -5,7 +5,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { generateIntegration } from '../src/generator.js';
 import { createIntegrationPlan } from '../src/planner.js';
-import { diffIntegration, runRepositoryScript, validateIntegration } from '../src/validator.js';
+import { diffIntegration, preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from '../src/validator.js';
 
 test('validateIntegration passes for a generated isolated integration', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-validate-'));
@@ -120,6 +120,24 @@ test('diffIntegration reports local file existence against the manifest', async 
   });
   const after = await diffIntegration(manifest, { repoPath });
   assert.ok(after.repository_files.every((file) => file.status === 'exists'));
+});
+
+test('preflightRepositoryIntegration refuses planned target collisions', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-preflight-collision-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await mkdir(path.join(repoPath, 'src/integrations/acme-homepage-v1'), { recursive: true });
+  await writeFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/template.html'), 'existing file\n');
+
+  const preflight = await preflightRepositoryIntegration(manifest, { repoPath });
+
+  assert.equal(preflight.status, 'failed');
+  assert.ok(preflight.collisions.includes('src/integrations/acme-homepage-v1/template.html'));
+  assert.ok(preflight.checks.some((check) => check.name === 'planned_targets_available' && check.status === 'failed'));
 });
 
 test('runRepositoryScript supports dry-run build command discovery', async () => {

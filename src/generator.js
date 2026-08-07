@@ -21,6 +21,10 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     const absolute = path.join(root, file.path);
     if (await pathExists(absolute)) collisions.push(file.path);
   }
+  for (const asset of ensureArray(conversion?.asset_copies)) {
+    const absolute = path.join(root, asset.target_path);
+    if (await pathExists(absolute)) collisions.push(asset.target_path);
+  }
   if (collisions.length > 0) {
     throw new Error(`refusing to overwrite existing generated files: ${collisions.join(', ')}`);
   }
