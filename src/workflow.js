@@ -3,7 +3,7 @@ import { writeArtifact } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { buildOperations, createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
-import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, getStoryblokConfig, uploadStoryblokAssets } from './storyblok.js';
+import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, getStoryblokConfig, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent } from './storyblok.js';
 import { ensureArray, readJson, requireOption } from './utils.js';
 import { validateIntegration } from './validator.js';
 import { applyInferredDuplicationCandidates } from './duplication-inference.js';
@@ -61,16 +61,20 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   const progress = typeof onProgress === 'function' ? onProgress : async () => {};
   assertApplyPreflight(manifest, { dryRun, env });
 
-  await progress({ label: 'Creating Frontend', current: 0, total: 7 });
+  await progress({ label: 'Checking Storyblok Access', current: 0, total: 9 });
+  const storyblokPreflight = await preflightStoryblokIntegration(manifest, { dryRun, env });
+  await writeArtifact(workDir, 'apply-step-00-storyblok-preflight.json', storyblokPreflight);
+  assertStoryblokPreflightPassed(storyblokPreflight);
+  await progress({ label: 'Creating Frontend', current: 1, total: 9 });
   await recordApplyStep(workDir, steps, 'apply-step-01-duplicate.json', await duplicateAll(manifest, { repoPath, dryRun, env }));
-  await progress({ label: 'Creating Frontend', current: 1, total: 7 });
+  await progress({ label: 'Creating Frontend', current: 2, total: 9 });
   await recordApplyStep(workDir, steps, 'apply-step-02-generate.json', await generateIntegration(manifest, {
     repoPath,
     templatePath: args.template ? String(args.template) : undefined,
     framework: args.framework ? String(args.framework) : 'auto',
     dryRun
   }));
-  await progress({ label: 'Validating Local Output', current: 2, total: 7 });
+  await progress({ label: 'Validating Local Output', current: 3, total: 9 });
   const localValidation = dryRun
     ? { action: 'validate_integration', status: 'skipped', reason: 'dry-run does not write generated files' }
     : await validateIntegration(manifest, { repoPath });
@@ -81,28 +85,32 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   if (localValidation.status === 'failed') {
     throw new Error('local validation failed after generation; refusing remote Storyblok mutations');
   }
-  await progress({ label: 'Creating Storyblok Components', current: 3, total: 7 });
+  await progress({ label: 'Creating Storyblok Components', current: 4, total: 9 });
   await recordApplyStep(workDir, steps, 'apply-step-04-storyblok-components.json', {
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun, env })
   });
-  await progress({ label: 'Creating Storyblok Asset Folders', current: 4, total: 7 });
+  await progress({ label: 'Creating Storyblok Asset Folders', current: 5, total: 9 });
   await recordApplyStep(workDir, steps, 'apply-step-05-storyblok-asset-folders.json', {
     action: 'storyblok_asset_folders',
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
   });
-  await progress({ label: 'Uploading Assets', current: 5, total: 7 });
+  await progress({ label: 'Uploading Assets', current: 6, total: 9 });
   const storyblokAssetsStep = {
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
   };
   await recordApplyStep(workDir, steps, 'apply-step-06-storyblok-assets.json', storyblokAssetsStep);
-  await progress({ label: 'Creating Draft Story', current: 6, total: 7 });
+  await progress({ label: 'Creating Draft Stories', current: 7, total: 9 });
   await recordApplyStep(workDir, steps, 'apply-step-07-storyblok-draft-stories.json', {
     action: 'storyblok_draft_stories',
     results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
   });
-  await progress({ label: 'Done', current: 7, total: 7 });
+  await progress({ label: 'Validating Storyblok Content', current: 8, total: 9 });
+  const storyblokContentValidation = await validateStoryblokDraftContent(manifest, { dryRun, env });
+  await recordApplyStep(workDir, steps, 'apply-step-08-storyblok-content-validation.json', storyblokContentValidation);
+  assertStoryblokContentValidationPassed(storyblokContentValidation);
+  await progress({ label: 'Done', current: 9, total: 9 });
   const result = {
     action: 'apply_manifest',
     dry_run: dryRun,
@@ -119,28 +127,36 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
   const progress = typeof onProgress === 'function' ? onProgress : async () => {};
   assertApplyPreflight(manifest, { dryRun, env });
 
-  await progress({ label: 'Creating Storyblok Components', current: 0, total: 4 });
+  await progress({ label: 'Checking Storyblok Access', current: 0, total: 6 });
+  const storyblokPreflight = await preflightStoryblokIntegration(manifest, { dryRun, env });
+  await writeArtifact(workDir, 'storyblok-apply-step-00-preflight.json', storyblokPreflight);
+  assertStoryblokPreflightPassed(storyblokPreflight);
+  await progress({ label: 'Creating Storyblok Components', current: 1, total: 6 });
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-01-components.json', {
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun, env })
   });
-  await progress({ label: 'Creating Storyblok Asset Folders', current: 1, total: 4 });
+  await progress({ label: 'Creating Storyblok Asset Folders', current: 2, total: 6 });
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-02-asset-folders.json', {
     action: 'storyblok_asset_folders',
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
   });
-  await progress({ label: 'Uploading Assets', current: 2, total: 4 });
+  await progress({ label: 'Uploading Assets', current: 3, total: 6 });
   const storyblokAssetsStep = {
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
   };
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-03-assets.json', storyblokAssetsStep);
-  await progress({ label: 'Creating Draft Story', current: 3, total: 4 });
+  await progress({ label: 'Creating Draft Stories', current: 4, total: 6 });
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-04-draft-stories.json', {
     action: 'storyblok_draft_stories',
     results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
   });
-  await progress({ label: 'Done', current: 4, total: 4 });
+  await progress({ label: 'Validating Storyblok Content', current: 5, total: 6 });
+  const storyblokContentValidation = await validateStoryblokDraftContent(manifest, { dryRun, env });
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-05-content-validation.json', storyblokContentValidation);
+  assertStoryblokContentValidationPassed(storyblokContentValidation);
+  await progress({ label: 'Done', current: 6, total: 6 });
   const result = {
     action: 'apply_storyblok_only',
     dry_run: dryRun,
@@ -162,6 +178,22 @@ function assertApplyPreflight(manifest, { dryRun, env }) {
   const config = getStoryblokConfig(env);
   if (!config.available) {
     throw new Error('Storyblok credentials unavailable; refusing to apply before local files are written. Set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID, or rerun with --dry-run.');
+  }
+}
+
+function assertStoryblokPreflightPassed(preflight) {
+  if (preflight.status === 'failed') {
+    const failed = ensureArray(preflight.checks)
+      .filter((check) => check.required !== false && check.status !== 'passed')
+      .map((check) => check.name)
+      .join(', ');
+    throw new Error(`Storyblok preflight failed${failed ? `: ${failed}` : ''}`);
+  }
+}
+
+function assertStoryblokContentValidationPassed(validation) {
+  if (validation.status === 'failed') {
+    throw new Error('Storyblok Content API validation failed after apply; remote resources remain unpublished drafts for review or rollback.');
   }
 }
 

@@ -21,6 +21,12 @@ const CONTENT_BASE_URLS = {
 const DEFAULT_STORYBLOK_RETRY_LIMIT = 6;
 const DEFAULT_STORYBLOK_RETRY_BASE_MS = 1000;
 const DEFAULT_STORYBLOK_RETRY_MAX_MS = 8000;
+const DEFAULT_STORYBLOK_TIMEOUT_MS = 30000;
+const DEFAULT_STORYBLOK_INSPECT_MAX_ITEMS = 1000;
+const DEFAULT_STORYBLOK_REQUEST_INTERVAL_MS = 0;
+
+const requestQueues = new Map();
+const lastRequestTimes = new Map();
 
 export function getStoryblokConfig(env = process.env) {
   const token = envValue([
@@ -38,6 +44,9 @@ export function getStoryblokConfig(env = process.env) {
     retryLimit: integerEnv(envValue(['STORYBLOK_RETRY_LIMIT'], env), DEFAULT_STORYBLOK_RETRY_LIMIT),
     retryBaseMs: integerEnv(envValue(['STORYBLOK_RETRY_BASE_MS'], env), DEFAULT_STORYBLOK_RETRY_BASE_MS),
     retryMaxMs: integerEnv(envValue(['STORYBLOK_RETRY_MAX_MS'], env), DEFAULT_STORYBLOK_RETRY_MAX_MS),
+    timeoutMs: integerEnv(envValue(['STORYBLOK_TIMEOUT_MS'], env), DEFAULT_STORYBLOK_TIMEOUT_MS),
+    inspectMaxItems: integerEnv(envValue(['STORYBLOK_INSPECT_MAX_ITEMS'], env), DEFAULT_STORYBLOK_INSPECT_MAX_ITEMS),
+    requestIntervalMs: integerEnv(envValue(['STORYBLOK_REQUEST_INTERVAL_MS'], env), DEFAULT_STORYBLOK_REQUEST_INTERVAL_MS),
     available: Boolean(token && spaceId)
   };
 }
@@ -53,17 +62,22 @@ export function getStoryblokContentConfig(env = process.env) {
     token,
     region,
     baseUrl: CONTENT_BASE_URLS[region] || CONTENT_BASE_URLS.eu,
+    retryLimit: integerEnv(envValue(['STORYBLOK_CONTENT_RETRY_LIMIT', 'STORYBLOK_RETRY_LIMIT'], env), DEFAULT_STORYBLOK_RETRY_LIMIT),
+    retryBaseMs: integerEnv(envValue(['STORYBLOK_CONTENT_RETRY_BASE_MS', 'STORYBLOK_RETRY_BASE_MS'], env), DEFAULT_STORYBLOK_RETRY_BASE_MS),
+    retryMaxMs: integerEnv(envValue(['STORYBLOK_CONTENT_RETRY_MAX_MS', 'STORYBLOK_RETRY_MAX_MS'], env), DEFAULT_STORYBLOK_RETRY_MAX_MS),
+    timeoutMs: integerEnv(envValue(['STORYBLOK_CONTENT_TIMEOUT_MS', 'STORYBLOK_TIMEOUT_MS'], env), DEFAULT_STORYBLOK_TIMEOUT_MS),
     available: Boolean(token)
   };
 }
 
-export async function inspectStoryblokSpace({ env = process.env } = {}) {
+export async function inspectStoryblokSpace({ env = process.env, full = false } = {}) {
   const config = getStoryblokConfig(env);
   const access = {
     management_api_available: Boolean(config.token),
     space_id_available: Boolean(config.spaceId),
     region: config.region,
     base_url: config.baseUrl,
+    inspection_limit: full ? 'unlimited' : config.inspectMaxItems,
     variable_names: Object.keys(env).filter((name) => /STORYBLOK|SB_/i.test(name)).sort(),
     note: 'Secret values are intentionally omitted.'
   };
@@ -76,9 +90,10 @@ export async function inspectStoryblokSpace({ env = process.env } = {}) {
   }
 
   const space = await storyblokRequest(config, `/spaces/${config.spaceId}`);
-  const components = await listStoryblokComponents(config);
-  const stories = await listStoryblokStories(config);
-  const assets = await listStoryblokAssets(config);
+  const listOptions = full ? {} : { maxItems: config.inspectMaxItems };
+  const components = await listStoryblokComponents(config, {}, listOptions);
+  const stories = await listStoryblokStories(config, {}, listOptions);
+  const assets = await listStoryblokAssets(config, {}, listOptions);
 
   return {
     ...access,
@@ -87,6 +102,84 @@ export async function inspectStoryblokSpace({ env = process.env } = {}) {
     components: components.map(summarizeComponent),
     stories: stories.map(summarizeStory),
     assets: assets.map(summarizeAsset)
+  };
+}
+
+export async function preflightStoryblokIntegration(manifest, { dryRun = false, env = process.env } = {}) {
+  const requirements = storyblokRequirements(manifest);
+  const checks = [];
+  if (requirements.operation_count === 0) {
+    return {
+      action: 'storyblok_preflight',
+      dry_run: dryRun,
+      status: 'skipped',
+      reason: 'Manifest does not contain Storyblok operations.',
+      requirements,
+      checks
+    };
+  }
+
+  const config = getStoryblokConfig(env);
+  const contentConfig = getStoryblokContentConfig(env);
+  checks.push(preflightCheck('management_token', Boolean(config.token), 'Management API token is present.'));
+  checks.push(preflightCheck('space_id', Boolean(config.spaceId), 'Storyblok space id is present.'));
+  checks.push(preflightCheck('content_api_token', Boolean(contentConfig.token), 'Content API token is present for post-apply draft validation.', {
+    required: false
+  }));
+
+  if (dryRun) {
+    return {
+      action: 'storyblok_preflight',
+      dry_run: true,
+      status: 'skipped',
+      reason: 'Dry run does not require live Storyblok access.',
+      requirements,
+      checks,
+      capabilities: {
+        management_api: config.available ? 'configured' : 'not_configured',
+        content_api: contentConfig.available ? 'configured' : 'not_configured',
+        write_permissions: 'not_checked_in_dry_run'
+      }
+    };
+  }
+
+  if (!config.available) {
+    return {
+      action: 'storyblok_preflight',
+      dry_run: dryRun,
+      status: 'failed',
+      reason: 'Storyblok Management API credentials are required before real apply.',
+      requirements,
+      checks
+    };
+  }
+
+  checks.push(await endpointPreflight(config, 'space_read', `/spaces/${config.spaceId}`));
+  if (requirements.components) {
+    checks.push(await endpointPreflight(config, 'components_read', `/spaces/${config.spaceId}/components/?per_page=1&page=1`));
+  }
+  if (requirements.stories) {
+    checks.push(await endpointPreflight(config, 'stories_read', `/spaces/${config.spaceId}/stories?per_page=1&page=1`));
+  }
+  if (requirements.asset_folders) {
+    checks.push(await endpointPreflight(config, 'asset_folders_read', `/spaces/${config.spaceId}/asset_folders/?per_page=1&page=1`));
+  }
+  if (requirements.assets) {
+    checks.push(await endpointPreflight(config, 'assets_read', `/spaces/${config.spaceId}/assets?per_page=1&page=1`));
+  }
+
+  const requiredChecks = checks.filter((check) => check.required !== false);
+  return {
+    action: 'storyblok_preflight',
+    dry_run: dryRun,
+    status: requiredChecks.every((check) => check.status === 'passed') ? 'passed' : 'failed',
+    requirements,
+    checks,
+    capabilities: {
+      management_api: requiredChecks.every((check) => check.status === 'passed') ? 'available' : 'unavailable',
+      content_api: contentConfig.available ? 'available' : 'not_configured',
+      write_permissions: 'verified during additive create calls; preflight performs non-mutating reads only'
+    }
   };
 }
 
@@ -172,6 +265,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
         parent_slug: target.parent_slug,
         collision_policy: 'verify_matching_draft_or_stop',
         asset_resolution: assetMap.size > 0 ? 'planned_storyblok_assets' : 'no_storyblok_assets',
+        link_summary: summarizeStoryLinks(content),
         payload
       });
     }
@@ -224,6 +318,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
           uuid: updated.uuid || entry.existing.uuid || null,
           published: Boolean(updated.published_at || entry.existing.published_at),
           link_resolution: 'story_uuid_hydrated',
+          link_summary: summarizeStoryLinks(resolvedContent, storyReferences),
           verification: summarizeStory(updated)
         });
         continue;
@@ -237,6 +332,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
         uuid: entry.existing.uuid || null,
         published: Boolean(entry.existing.published_at),
         link_resolution: match.metadata_only_difference ? 'existing_story_left_unchanged' : 'already_hydrated',
+        link_summary: summarizeStoryLinks(entry.existing.content || resolvedContent, storyReferences),
         verification: summarizeStory(entry.existing)
       });
       continue;
@@ -258,6 +354,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
       published: Boolean(remote?.published_at || entry.created?.published_at),
       folder_results: entry.folder_results,
       link_resolution: linkResolution,
+      link_summary: summarizeStoryLinks(resolvedContent, storyReferences),
       verification: remote ? summarizeStory(remote) : entry.created
     });
   }
@@ -351,6 +448,8 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
     if (!(await pathExists(localPath))) throw new Error(`asset file does not exist: ${localPath}`);
     const filename = asset.filename || path.basename(localPath);
     const fileStat = await stat(localPath);
+    const sourceBuffer = await readFile(localPath);
+    const sourceSha256 = sha256(sourceBuffer);
     const assetFolderPath = asset.asset_folder_path || defaultAssetFolderPath(manifest);
     const resolvedFolderId = asset.asset_folder_id || (assetFolderPath ? folderIds.get(assetFolderPath) : null);
     if (!dryRun && assetFolderPath && !resolvedFolderId) {
@@ -371,6 +470,7 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
         source_ref: asset.source_ref || null,
         asset_folder_path: assetFolderPath || null,
         bytes: fileStat.size,
+        source_sha256: sourceSha256,
         sign_payload: {
           ...signPayload,
           asset_folder_path: assetFolderPath || undefined
@@ -394,6 +494,8 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
         source_ref: asset.source_ref || null,
         asset_folder_path: assetFolderPath || null,
         asset_folder_id: resolvedFolderId || null,
+        bytes: fileStat.size,
+        source_sha256: sourceSha256,
         id: existing.id || null,
         verification: summarizeAsset(existing)
       });
@@ -404,7 +506,7 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
       method: 'POST',
       body: signPayload
     });
-    await uploadSignedAsset(signed, localPath, filename);
+    await uploadSignedAsset(signed, localPath, filename, config);
     const assetId = signed.id || signed.asset?.id;
     const finished = assetId
       ? await storyblokRequest(config, `/spaces/${config.spaceId}/assets/${assetId}/finish_upload`)
@@ -418,6 +520,8 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
       source_ref: asset.source_ref || null,
       asset_folder_path: assetFolderPath || null,
       asset_folder_id: resolvedFolderId || null,
+      bytes: fileStat.size,
+      source_sha256: sourceSha256,
       id: finished.asset?.id || assetId || null,
       verification: finished.asset ? summarizeAsset(finished.asset) : finished
     });
@@ -577,18 +681,121 @@ export async function inspectStoryblokContentStory({ slug, version = 'draft', en
   };
 }
 
+export async function validateStoryblokDraftContent(manifest, { dryRun = false, env = process.env, version = 'draft' } = {}) {
+  const stories = ensureArray(manifest.storyblok?.stories_to_create);
+  const config = getStoryblokContentConfig(env);
+  if (dryRun) {
+    return {
+      action: 'validate_storyblok_content',
+      status: 'skipped',
+      reason: 'Dry run does not create draft stories.',
+      stories: stories.map((story) => ({ slug: story.slug || story.full_slug, status: 'skipped' })),
+      summary: emptyContentValidationSummary()
+    };
+  }
+  if (stories.length === 0) {
+    return {
+      action: 'validate_storyblok_content',
+      status: 'skipped',
+      reason: 'Manifest does not contain draft stories.',
+      stories: [],
+      summary: emptyContentValidationSummary()
+    };
+  }
+  if (!config.available) {
+    return {
+      action: 'validate_storyblok_content',
+      status: 'skipped',
+      reason: 'Set STORYBLOK_PREVIEW_TOKEN, STORYBLOK_PUBLIC_TOKEN, or STORYBLOK_DELIVERY_TOKEN to validate draft stories through the Content API.',
+      stories: stories.map((story) => ({ slug: story.slug || story.full_slug, status: 'skipped' })),
+      summary: emptyContentValidationSummary()
+    };
+  }
+
+  const plannedSlugs = new Set(stories.map((story) => normalizeStoryLinkKey(story.slug || story.full_slug)));
+  const results = [];
+  for (const story of stories) {
+    const slug = story.slug || story.full_slug;
+    try {
+      const response = await storyblokContentRequest(config, `/stories/${encodeStorySlug(slug)}`, {
+        token: config.token,
+        version
+      }, { retryStatuses: [404] });
+      const remoteStory = response.story || {};
+      const content = remoteStory.content || {};
+      const componentNames = collectComponentNames(content);
+      const assetFields = collectAssetFields(content);
+      const storyLinks = collectStoryLinks(content).filter((link) => link.linktype === 'story');
+      const unresolvedGeneratedLinks = storyLinks.filter((link) => {
+        const target = normalizeStoryLinkKey(link.cached_url || link.url);
+        return plannedSlugs.has(target) && !link.id;
+      });
+      const unnamespacedComponents = componentNames.filter((name) => !String(name).startsWith(manifest.storyblok_prefix));
+      const missingAssetFilenames = assetFields.filter((asset) => !asset.filename);
+      const expectedRoot = story.content?.component || story.component || null;
+      const checks = [
+        contentCheck('root_component_namespaced', String(content.component || '').startsWith(manifest.storyblok_prefix), content.component || null),
+        contentCheck('root_component_matches_manifest', !expectedRoot || content.component === expectedRoot, { expected: expectedRoot, actual: content.component || null }),
+        contentCheck('all_components_namespaced', unnamespacedComponents.length === 0, unnamespacedComponents),
+        contentCheck('asset_fields_have_filenames', missingAssetFilenames.length === 0, missingAssetFilenames),
+        contentCheck('generated_story_links_have_uuid', unresolvedGeneratedLinks.length === 0, unresolvedGeneratedLinks.map((link) => link.cached_url || link.url))
+      ];
+      results.push({
+        slug,
+        status: checks.every((check) => check.status === 'passed') ? 'passed' : 'failed',
+        story: summarizeContentStory(remoteStory),
+        checks,
+        components: componentNames.length,
+        assets: assetFields.length,
+        story_links: storyLinks.length,
+        unresolved_generated_story_links: unresolvedGeneratedLinks.map((link) => link.cached_url || link.url)
+      });
+    } catch (error) {
+      results.push({
+        slug,
+        status: 'failed',
+        error: error.message || String(error),
+        checks: [
+          contentCheck('content_api_fetch', false, error.message || String(error))
+        ]
+      });
+    }
+  }
+
+  return {
+    action: 'validate_storyblok_content',
+    status: results.every((story) => story.status === 'passed') ? 'passed' : 'failed',
+    version,
+    stories: results,
+    summary: summarizeContentValidation(results)
+  };
+}
+
 async function storyblokRequest(config, endpoint, { method = 'GET', body } = {}) {
   const serializedBody = body ? JSON.stringify(body) : undefined;
   const retryLimit = Math.max(Number(config.retryLimit) || 0, 0);
   for (let attempt = 0; attempt <= retryLimit; attempt += 1) {
-    const response = await fetch(`${config.baseUrl}${endpoint}`, {
-      method,
-      headers: {
-        Authorization: config.token,
-        'Content-Type': 'application/json'
-      },
-      body: serializedBody
-    });
+    await throttleStoryblokRequest(config);
+    const timeout = createTimeout(config.timeoutMs);
+    let response;
+    try {
+      response = await fetch(`${config.baseUrl}${endpoint}`, {
+        method,
+        headers: {
+          Authorization: config.token,
+          'Content-Type': 'application/json'
+        },
+        body: serializedBody,
+        signal: timeout.signal
+      });
+    } catch (error) {
+      timeout.clear();
+      if (isAbortError(error)) {
+        throw new Error(`Storyblok ${method} ${endpoint} timed out after ${config.timeoutMs}ms`);
+      }
+      throw error;
+    }
+    timeout.clear();
     const text = await response.text();
     const data = parseJsonOrText(text);
     if (response.ok) return data;
@@ -604,38 +811,59 @@ async function storyblokRequest(config, endpoint, { method = 'GET', body } = {})
   }
 }
 
-async function storyblokContentRequest(config, endpoint, params = {}) {
+async function storyblokContentRequest(config, endpoint, params = {}, { retryStatuses = [] } = {}) {
   const search = new URLSearchParams(params);
-  const response = await fetch(`${config.baseUrl}${endpoint}?${search.toString()}`, {
-    headers: {
-      Accept: 'application/json'
+  const retryLimit = Math.max(Number(config.retryLimit) || 0, 0);
+  for (let attempt = 0; attempt <= retryLimit; attempt += 1) {
+    const timeout = createTimeout(config.timeoutMs);
+    let response;
+    try {
+      response = await fetch(`${config.baseUrl}${endpoint}?${search.toString()}`, {
+        headers: {
+          Accept: 'application/json'
+        },
+        signal: timeout.signal
+      });
+    } catch (error) {
+      timeout.clear();
+      if (isAbortError(error)) {
+        throw new Error(`Storyblok Content API GET ${endpoint} timed out after ${config.timeoutMs}ms`);
+      }
+      throw error;
     }
-  });
-  const text = await response.text();
-  const data = text ? JSON.parse(text) : {};
-  if (!response.ok) {
+    timeout.clear();
+    const text = await response.text();
+    const data = parseJsonOrText(text);
+    if (response.ok) return data;
+
+    if (attempt < retryLimit && shouldRetryStoryblokStatus(response.status, retryStatuses)) {
+      const retryAfter = retryAfterMs(response.headers?.get?.('retry-after'));
+      const fallbackDelay = retryDelayMs(config, attempt);
+      await sleep(retryAfter ?? fallbackDelay);
+      continue;
+    }
+
     throw new Error(`Storyblok Content API GET ${endpoint} failed with ${response.status}: ${safeError(data)}`);
   }
-  return data;
 }
 
-async function listStoryblokComponents(config) {
-  return listPaginated(config, `/spaces/${config.spaceId}/components/`, 'components');
+async function listStoryblokComponents(config, params = {}, options = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/components/`, 'components', params, options);
 }
 
-async function listStoryblokAssetFolders(config) {
-  return listPaginated(config, `/spaces/${config.spaceId}/asset_folders/`, 'asset_folders');
+async function listStoryblokAssetFolders(config, params = {}, options = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/asset_folders/`, 'asset_folders', params, options);
 }
 
-async function listStoryblokStories(config, params = {}) {
-  return listPaginated(config, `/spaces/${config.spaceId}/stories`, 'stories', params);
+async function listStoryblokStories(config, params = {}, options = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/stories`, 'stories', params, options);
 }
 
-async function listStoryblokAssets(config, params = {}) {
-  return listPaginated(config, `/spaces/${config.spaceId}/assets`, 'assets', params);
+async function listStoryblokAssets(config, params = {}, options = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/assets`, 'assets', params, options);
 }
 
-async function listPaginated(config, endpoint, key, params = {}) {
+async function listPaginated(config, endpoint, key, params = {}, { maxItems = 0 } = {}) {
   const perPage = Number(params.per_page || 100);
   const results = [];
   for (let page = 1; ; page += 1) {
@@ -645,8 +873,9 @@ async function listPaginated(config, endpoint, key, params = {}) {
       page
     }));
     const entries = ensureArray(response[key]);
-    results.push(...entries);
-    if (entries.length < perPage) break;
+    const remaining = Number(maxItems) > 0 ? Math.max(Number(maxItems) - results.length, 0) : entries.length;
+    results.push(...entries.slice(0, remaining));
+    if (entries.length < perPage || (Number(maxItems) > 0 && results.length >= Number(maxItems))) break;
   }
   return results;
 }
@@ -1255,7 +1484,7 @@ function sha256Json(value) {
   return sha256(stableJson(value));
 }
 
-async function uploadSignedAsset(signedResponse, localPath, filename) {
+async function uploadSignedAsset(signedResponse, localPath, filename, config = {}) {
   const postUrl = signedResponse.post_url || signedResponse.upload_url;
   const fields = signedResponse.fields || {};
   if (!postUrl) throw new Error('Storyblok signed asset response did not include post_url');
@@ -1265,7 +1494,18 @@ async function uploadSignedAsset(signedResponse, localPath, filename) {
     form.append(key, value);
   }
   form.append('file', new Blob([buffer]), filename);
-  const response = await fetch(postUrl, { method: 'POST', body: form });
+  const timeout = createTimeout(config.timeoutMs);
+  let response;
+  try {
+    response = await fetch(postUrl, { method: 'POST', body: form, signal: timeout.signal });
+  } catch (error) {
+    timeout.clear();
+    if (isAbortError(error)) {
+      throw new Error(`asset upload timed out after ${config.timeoutMs}ms`);
+    }
+    throw error;
+  }
+  timeout.clear();
   if (!response.ok) {
     throw new Error(`asset upload failed with ${response.status}`);
   }
@@ -1319,6 +1559,139 @@ function defaultSchemaFor(component) {
       description: 'Section body copy.'
     }
   };
+}
+
+function storyblokRequirements(manifest) {
+  const componentCount = ensureArray(manifest.storyblok?.components_to_create).length +
+    ensureArray(manifest.storyblok?.components_to_duplicate).length;
+  const assetFolderCount = plannedAssetFolders(manifest).length;
+  const assetCount = ensureArray(manifest.storyblok?.assets_to_create).length;
+  const storyCount = ensureArray(manifest.storyblok?.stories_to_create).length;
+  return {
+    components: componentCount > 0,
+    asset_folders: assetFolderCount > 0,
+    assets: assetCount > 0,
+    stories: storyCount > 0,
+    operation_count: componentCount + assetFolderCount + assetCount + storyCount,
+    counts: {
+      components: componentCount,
+      asset_folders: assetFolderCount,
+      assets: assetCount,
+      stories: storyCount
+    }
+  };
+}
+
+function preflightCheck(name, passed, message, { required = true, details = null } = {}) {
+  return {
+    name,
+    status: passed ? 'passed' : 'failed',
+    required,
+    message,
+    details
+  };
+}
+
+async function endpointPreflight(config, name, endpoint) {
+  try {
+    await storyblokRequest(config, endpoint);
+    return preflightCheck(name, true, `${name.replaceAll('_', ' ')} endpoint is readable.`);
+  } catch (error) {
+    return preflightCheck(name, false, `${name.replaceAll('_', ' ')} endpoint is not readable.`, {
+      details: error.message || String(error)
+    });
+  }
+}
+
+function contentCheck(name, passed, details = null) {
+  return {
+    name,
+    status: passed ? 'passed' : 'failed',
+    details
+  };
+}
+
+function emptyContentValidationSummary() {
+  return {
+    stories: 0,
+    passed: 0,
+    failed: 0,
+    components: 0,
+    assets: 0,
+    story_links: 0,
+    unresolved_generated_story_links: 0
+  };
+}
+
+function summarizeContentValidation(results) {
+  return results.reduce((summary, result) => ({
+    stories: summary.stories + 1,
+    passed: summary.passed + (result.status === 'passed' ? 1 : 0),
+    failed: summary.failed + (result.status === 'failed' ? 1 : 0),
+    components: summary.components + Number(result.components || 0),
+    assets: summary.assets + Number(result.assets || 0),
+    story_links: summary.story_links + Number(result.story_links || 0),
+    unresolved_generated_story_links: summary.unresolved_generated_story_links + ensureArray(result.unresolved_generated_story_links).length
+  }), emptyContentValidationSummary());
+}
+
+function summarizeStoryLinks(content, storyReferences = new Map()) {
+  const links = collectStoryLinks(content);
+  const storyLinks = links.filter((link) => link.linktype === 'story');
+  const unresolvedTargets = [];
+  let resolvedStoryLinks = 0;
+  for (const link of storyLinks) {
+    const target = normalizeStoryLinkKey(link.cached_url || link.url);
+    const reference = storyReferences.get(target);
+    if (link.id || reference?.uuid) {
+      resolvedStoryLinks += 1;
+    } else if (target) {
+      unresolvedTargets.push(target);
+    }
+  }
+  return {
+    total_links: links.length,
+    story_links: storyLinks.length,
+    url_links: links.filter((link) => link.linktype === 'url').length,
+    resolved_story_links: resolvedStoryLinks,
+    unresolved_story_links: unresolvedTargets.length,
+    unresolved_story_link_targets: unique(unresolvedTargets).slice(0, 20)
+  };
+}
+
+function collectComponentNames(value, names = []) {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectComponentNames(entry, names);
+    return names;
+  }
+  if (!value || typeof value !== 'object') return names;
+  if (typeof value.component === 'string') names.push(value.component);
+  for (const entry of Object.values(value)) collectComponentNames(entry, names);
+  return unique(names);
+}
+
+function collectAssetFields(value, assets = []) {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectAssetFields(entry, assets);
+    return assets;
+  }
+  if (!value || typeof value !== 'object') return assets;
+  if (value.fieldtype === 'asset' || ('filename' in value && ('id' in value || 'alt' in value || 'title' in value))) {
+    assets.push(value);
+  }
+  for (const entry of Object.values(value)) collectAssetFields(entry, assets);
+  return assets;
+}
+
+function collectStoryLinks(value, links = []) {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectStoryLinks(entry, links);
+    return links;
+  }
+  if (!value || typeof value !== 'object') return links;
+  if (isStoryblokLinkValue(value)) links.push(value);
+  for (const entry of Object.values(value)) collectStoryLinks(entry, links);
+  return links;
 }
 
 function summarizeSpace(space) {
@@ -1456,8 +1829,13 @@ function safeError(data) {
   return data.message || data.error || JSON.stringify(data);
 }
 
-function shouldRetryStoryblokStatus(status) {
-  return Number(status) === 429 || Number(status) === 500 || Number(status) === 502 || Number(status) === 503 || Number(status) === 504;
+function shouldRetryStoryblokStatus(status, extraStatuses = []) {
+  return Number(status) === 429 ||
+    Number(status) === 500 ||
+    Number(status) === 502 ||
+    Number(status) === 503 ||
+    Number(status) === 504 ||
+    extraStatuses.map(Number).includes(Number(status));
 }
 
 function retryDelayMs(config, attempt) {
@@ -1503,6 +1881,44 @@ function endpointWithQuery(endpoint, params = {}) {
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, Math.max(Number(ms) || 0, 0)));
+}
+
+async function throttleStoryblokRequest(config) {
+  const interval = Math.max(Number(config.requestIntervalMs) || 0, 0);
+  if (interval === 0) return;
+  const key = `${config.baseUrl}:${config.spaceId || 'content'}`;
+  const previous = requestQueues.get(key) || Promise.resolve();
+  let release;
+  const current = new Promise((resolve) => {
+    release = resolve;
+  });
+  requestQueues.set(key, previous.then(() => current));
+  await previous;
+  const last = lastRequestTimes.get(key) || 0;
+  const wait = interval - (Date.now() - last);
+  if (wait > 0) await sleep(wait);
+  lastRequestTimes.set(key, Date.now());
+  release();
+}
+
+function createTimeout(timeoutMs) {
+  const ms = Number(timeoutMs);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return {
+      signal: undefined,
+      clear: () => {}
+    };
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer)
+  };
+}
+
+function isAbortError(error) {
+  return error?.name === 'AbortError' || error?.code === 'ABORT_ERR';
 }
 
 function stableJson(value) {

@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, deleteStoryblokIntegrationResources, inspectStoryblokContentStory, uploadStoryblokAssets } from '../src/storyblok.js';
+import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, deleteStoryblokIntegrationResources, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent } from '../src/storyblok.js';
 
 test('createStoryblokComponents treats matching existing components as idempotent', async () => {
   const calls = mockFetch((url, options = {}) => {
@@ -784,6 +784,7 @@ test('uploadStoryblokAssets resolves integration asset folders before signing up
 
   assert.equal(result[0].status, 'created');
   assert.equal(result[0].asset_folder_id, 77);
+  assert.match(result[0].source_sha256, /^[a-f0-9]{64}$/);
   assert.ok(calls.some((call) => call.url === 'https://storyblok-upload.example/upload'));
   restoreFetch();
 });
@@ -904,6 +905,191 @@ test('inspectStoryblokContentStory summarizes draft content without exposing tok
   assert.equal(result.status, 'ok');
   assert.equal(result.story.root_component, 'hts_acme_homepage_v1_template_page');
   assert.doesNotMatch(JSON.stringify(result), /preview-token/);
+  restoreFetch();
+});
+
+test('preflightStoryblokIntegration performs non-mutating Storyblok readiness checks', async () => {
+  const calls = mockFetch((url, options = {}) => {
+    assert.equal(options.method || 'GET', 'GET');
+    if (url.endsWith('/spaces/12345')) return { space: { id: 12345, name: 'Demo' } };
+    if (url.includes('/components/')) return { components: [] };
+    if (url.includes('/stories?per_page=1')) return { stories: [] };
+    if (url.includes('/asset_folders/')) return { asset_folders: [] };
+    if (url.includes('/assets?per_page=1')) return { assets: [] };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await preflightStoryblokIntegration({
+    storyblok: {
+      components_to_create: [{ technical_name: 'hts_acme_homepage_v1_hero' }],
+      asset_folders_to_create: [{ path: 'acme-homepage-v1', name: 'acme-homepage-v1' }],
+      assets_to_create: [{ filename: 'acme-homepage-v1/hero.svg' }],
+      stories_to_create: [{ slug: 'acme-homepage-v1/home' }]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.capabilities.content_api, 'not_configured');
+  assert.ok(calls.every((call) => (call.options.method || 'GET') === 'GET'));
+  restoreFetch();
+});
+
+test('inspectStoryblokSpace caps remote list scans by default', async () => {
+  const calls = mockFetch((url) => {
+    if (url.endsWith('/spaces/12345')) return { space: { id: 12345, name: 'Demo' } };
+    if (url.includes('/components/')) {
+      return { components: [{ id: 1, name: 'one', schema: {} }, { id: 2, name: 'two', schema: {} }] };
+    }
+    if (url.includes('/stories?')) {
+      return { stories: [{ id: 3, full_slug: 'one', content: {} }, { id: 4, full_slug: 'two', content: {} }] };
+    }
+    if (url.includes('/assets?')) {
+      return { assets: [{ id: 5, filename: 'one.svg' }, { id: 6, filename: 'two.svg' }] };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await inspectStoryblokSpace({
+    env: {
+      ...storyblokEnv(),
+      STORYBLOK_INSPECT_MAX_ITEMS: '1'
+    }
+  });
+
+  assert.equal(result.inspection_limit, 1);
+  assert.equal(result.components.length, 1);
+  assert.equal(result.stories.length, 1);
+  assert.equal(result.assets.length, 1);
+  assert.equal(calls.filter((call) => call.url.includes('page=2')).length, 0);
+  restoreFetch();
+});
+
+test('validateStoryblokDraftContent verifies generated draft stories through Content API', async () => {
+  mockFetch((url) => {
+    assert.match(url, /token=preview-token/);
+    return {
+      story: {
+        id: 789,
+        uuid: 'home-story-uuid',
+        name: 'Home',
+        slug: 'home',
+        full_slug: 'acme-homepage-v1/home',
+        content: {
+          component: 'hts_acme_homepage_v1_template_page',
+          body: [
+            {
+              component: 'hts_acme_homepage_v1_hero',
+              image: {
+                id: 88,
+                filename: 'https://a.storyblok.com/f/123/acme-homepage-v1/hero.svg',
+                fieldtype: 'asset'
+              },
+              cta_link: {
+                id: 'home-story-uuid',
+                linktype: 'story',
+                cached_url: 'acme-homepage-v1/home',
+                fieldtype: 'multilink'
+              }
+            }
+          ]
+        },
+        published_at: null
+      }
+    };
+  });
+
+  const result = await validateStoryblokDraftContent({
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [
+        {
+          slug: 'acme-homepage-v1/home',
+          content: {
+            component: 'hts_acme_homepage_v1_template_page'
+          }
+        }
+      ]
+    }
+  }, {
+    env: {
+      STORYBLOK_PREVIEW_TOKEN: 'preview-token'
+    }
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.summary.assets, 1);
+  assert.equal(result.summary.story_links, 1);
+  restoreFetch();
+});
+
+test('validateStoryblokDraftContent fails generated story links without UUIDs', async () => {
+  mockFetch(() => ({
+    story: {
+      id: 789,
+      uuid: 'home-story-uuid',
+      name: 'Home',
+      slug: 'home',
+      full_slug: 'acme-homepage-v1/home',
+      content: {
+        component: 'hts_acme_homepage_v1_template_page',
+        body: [
+          {
+            component: 'hts_acme_homepage_v1_hero',
+            cta_link: {
+              linktype: 'story',
+              cached_url: 'acme-homepage-v1/about',
+              fieldtype: 'multilink'
+            }
+          }
+        ]
+      },
+      published_at: null
+    }
+  }));
+
+  const result = await validateStoryblokDraftContent({
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [
+        { slug: 'acme-homepage-v1/home', content: { component: 'hts_acme_homepage_v1_template_page' } },
+        { slug: 'acme-homepage-v1/about', content: { component: 'hts_acme_homepage_v1_template_page' } }
+      ]
+    }
+  }, {
+    env: {
+      STORYBLOK_PREVIEW_TOKEN: 'preview-token'
+    }
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.summary.unresolved_generated_story_links, 2);
+  restoreFetch();
+});
+
+test('Storyblok Management API calls fail fast when request timeout is reached', async () => {
+  originalFetch = global.fetch;
+  global.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {
+    options.signal?.addEventListener('abort', () => {
+      const error = new Error('The operation was aborted.');
+      error.name = 'AbortError';
+      reject(error);
+    });
+  });
+
+  await assert.rejects(
+    createStoryblokComponents({
+      storyblok: {
+        components_to_create: [{ technical_name: 'hts_acme_homepage_v1_hero' }]
+      }
+    }, {
+      env: {
+        ...storyblokEnv(),
+        STORYBLOK_TIMEOUT_MS: '1',
+        STORYBLOK_RETRY_LIMIT: '0'
+      }
+    }),
+    /timed out/
+  );
   restoreFetch();
 });
 

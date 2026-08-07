@@ -44,6 +44,9 @@ test('applyManifest writes completed step artifacts before a later remote failur
   const originalFetch = global.fetch;
   global.fetch = async (url, options = {}) => {
     const href = String(url);
+    if (href.endsWith('/spaces/12345')) {
+      return jsonResponse({ space: { id: 12345, name: 'Demo' } });
+    }
     if (href.includes('/components/') && (options.method || 'GET') === 'GET') {
       return jsonResponse({ components: [] });
     }
@@ -61,8 +64,20 @@ test('applyManifest writes completed step artifacts before a later remote failur
         }
       });
     }
-    if (href.includes('/asset_folders/') && (options.method || 'GET') === 'GET') {
+    if (href.includes('/stories?per_page=1') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ stories: [] });
+    }
+    if (href.includes('/asset_folders/?per_page=1') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ asset_folders: [] });
+    }
+    if (href.includes('/assets?per_page=1') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ assets: [] });
+    }
+    if (href.endsWith('/asset_folders/') && options.method === 'POST') {
       return jsonResponse({ error: 'asset folder unavailable' }, { ok: false, status: 500 });
+    }
+    if (href.includes('/asset_folders/') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ asset_folders: [] });
     }
     throw new Error(`unexpected request: ${href}`);
   };

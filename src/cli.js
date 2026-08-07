@@ -12,7 +12,7 @@ import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlif
 import { validatePlan } from './policy.js';
 import { createReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
-import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, uploadStoryblokAssets } from './storyblok.js';
+import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
 import { diffIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 import { applyManifest, applyStoryblokOnly, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
@@ -87,7 +87,7 @@ export async function main(argv) {
       result = await inspectNetlify(requireOption(args, 'repo'));
       await writeArtifact(workDir, 'netlify-inspection.json', result);
     } else if (command === 'inspect-storyblok') {
-      result = args.remote ? await inspectStoryblokSpace({ env }) : inspectStoryblokEnvironment(env);
+      result = args.remote ? await inspectStoryblokSpace({ env, full: Boolean(args.full) }) : inspectStoryblokEnvironment(env);
       await writeArtifact(workDir, 'storyblok-access.json', result);
     } else if (command === 'inspect-storyblok-content') {
       result = await inspectStoryblokContentStory({
@@ -152,6 +152,20 @@ export async function main(argv) {
       result = validatePlan(manifest);
       await writeArtifact(workDir, 'plan-validation.json', result);
       if (!result.valid) process.exitCode = 2;
+    } else if (command === 'storyblok-preflight') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await preflightStoryblokIntegration(manifest, { dryRun: Boolean(args.dry_run), env });
+      await writeArtifact(workDir, 'storyblok-preflight.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'validate-storyblok') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await validateStoryblokDraftContent(manifest, {
+        dryRun: Boolean(args.dry_run),
+        version: args.version ? String(args.version) : 'draft',
+        env
+      });
+      await writeArtifact(workDir, 'storyblok-content-validation.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
     } else if (command === 'diff') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await diffIntegration(manifest, {
@@ -324,7 +338,7 @@ Usage:
   html-to-storyblok view-report
   html-to-storyblok inspect-template --template <path>
   html-to-storyblok inspect-repository --repo <path>
-  html-to-storyblok inspect-storyblok
+  html-to-storyblok inspect-storyblok [--remote] [--full]
   html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
@@ -332,6 +346,8 @@ Usage:
   html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--template <path>] [--schema-overrides <json>] [--infer-duplicates --repo <path>] [--framework auto|astro|react|next|vue|nuxt|static]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
+  html-to-storyblok storyblok-preflight --manifest <path> [--dry-run]
+  html-to-storyblok validate-storyblok --manifest <path> [--version draft|published] [--dry-run]
   html-to-storyblok diff --manifest <path> --repo <path>
   html-to-storyblok validate --manifest <path> --repo <path>
   html-to-storyblok build --repo <path> [--script build] [--dry-run]
