@@ -2,6 +2,7 @@ import path from 'node:path';
 import { inspectTemplate } from './inspectors.js';
 import { applyInferredDuplicationCandidates } from './duplication-inference.js';
 import { createDefaultManifest, storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
+import { plannedRepositoryAdapterFilePaths } from './repository-adapter.js';
 import { buildSchemaPlan } from './schema-generator.js';
 import { plannedTemplateFilePaths } from './template-converter.js';
 import { ensureArray, sha256, unique } from './utils.js';
@@ -97,6 +98,7 @@ function addBaseRepositoryFiles(manifest, framework, hasTemplate) {
     `${namespace}/integration-manifest.json`,
     `${namespace}/index.js`,
     `${namespace}/components.js`,
+    ...plannedRepositoryAdapterFilePaths(manifest),
     `${namespace}/README.md`,
     `${namespace}/styles/${manifest.integration_id}.css`
   ];

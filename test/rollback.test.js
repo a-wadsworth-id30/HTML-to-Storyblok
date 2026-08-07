@@ -50,3 +50,31 @@ test('rollbackIntegration removes generated local files only after integration c
   assert.deepEqual(await readdir(repoPath), ['src']);
   assert.ok(result.remote_resources_not_removed.storyblok_components.length > 0);
 });
+
+test('rollbackIntegration prunes multi-page route preview directories', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-rollback-routes-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-campaign-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'static'
+  });
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'templates/acme-campaign',
+    framework: 'static'
+  });
+
+  const preview = createRollbackPreview(manifest, { repoPath });
+
+  assert.ok(preview.empty_directories_to_prune.includes('src/integrations/acme-campaign-v1/routes/home'));
+  assert.ok(preview.empty_directories_to_prune.includes('src/integrations/acme-campaign-v1/routes'));
+
+  const result = await rollbackIntegration(manifest, {
+    repoPath,
+    confirmIntegrationId: 'acme-campaign-v1'
+  });
+
+  assert.ok(result.directories_pruned.includes('src/integrations/acme-campaign-v1/routes/home'));
+  assert.ok(result.directories_pruned.includes('src/integrations/acme-campaign-v1/routes'));
+  assert.deepEqual(await readdir(repoPath), ['src']);
+});

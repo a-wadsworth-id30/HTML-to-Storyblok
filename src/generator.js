@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
 import { copyConvertedAssets, convertTemplate } from './template-converter.js';
+import { buildRepositoryAdapterFiles } from './repository-adapter.js';
 import { ensureArray, pathExists, writeJson, writeText } from './utils.js';
 
 export async function generateIntegration(manifest, { repoPath = process.cwd(), templatePath, framework = 'auto', dryRun = false } = {}) {
@@ -95,6 +96,10 @@ export function buildGeneratedFiles(manifest, { conversion = null } = {}) {
   if (conversion) {
     files.push(...conversion.files);
   }
+  files.push(...buildRepositoryAdapterFiles(manifest, {
+    conversion,
+    framework: manifest.template?.framework || 'static'
+  }));
   return files;
 }
 

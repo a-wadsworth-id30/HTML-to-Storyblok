@@ -29,6 +29,7 @@ export async function validateIntegration(manifest, { repoPath = process.cwd() }
 
   await checkPlannedFiles(manifest, root, checks);
   await checkPlannedAssets(manifest, root, checks);
+  await checkRepositoryAdapterPlan(manifest, root, checks);
   await checkForbiddenCoupling(manifest, root, checks);
   await checkCssScoping(manifest, root, checks);
   await checkGitStatus(manifest, root, checks);
@@ -216,6 +217,43 @@ async function checkPlannedAssets(manifest, root, checks) {
   }
 }
 
+async function checkRepositoryAdapterPlan(manifest, root, checks) {
+  const adapterPath = `${manifest.repository_namespace}/adapter-plan.json`;
+  const fullPath = path.join(root, adapterPath);
+  if (!(await pathExists(fullPath))) return;
+
+  try {
+    const adapter = JSON.parse(await readFile(fullPath, 'utf8'));
+    const routeFailures = ensureArray(adapter.routes).filter((route) => (
+      (route.preview_file && !isInsideNamespace(route.preview_file, manifest.repository_namespace)) ||
+      (route.template_html_module && !isInsideNamespace(route.template_html_module, manifest.repository_namespace)) ||
+      !String(route.storyblok_slug || '').startsWith(`${manifest.integration_id}/`) ||
+      route.registration_policy !== 'manual_review_required'
+    ));
+    const violations = [
+      adapter.integration_id === manifest.integration_id ? null : 'integration_id does not match manifest',
+      adapter.storyblok_prefix === manifest.storyblok_prefix ? null : 'storyblok_prefix does not match manifest',
+      adapter.repository_namespace === manifest.repository_namespace ? null : 'repository_namespace does not match manifest',
+      adapter.additive_only === true ? null : 'additive_only must be true',
+      adapter.host_routes_modified === false ? null : 'host_routes_modified must be false',
+      adapter.host_registries_modified === false ? null : 'host_registries_modified must be false',
+      String(adapter.root_component || '').startsWith(manifest.storyblok_prefix) ? null : 'root_component must be namespaced',
+      adapter.entrypoints?.root_preview && !isInsideNamespace(adapter.entrypoints.root_preview, manifest.repository_namespace) ? 'root_preview must stay inside the integration namespace' : null,
+      adapter.entrypoints?.storyblok_renderer && !isInsideNamespace(adapter.entrypoints.storyblok_renderer, manifest.repository_namespace) ? 'storyblok_renderer must stay inside the integration namespace' : null,
+      routeFailures.length === 0 ? null : `route mappings failed additive-only validation: ${routeFailures.map((route) => route.slug || route.preview_file).join(', ')}`
+    ].filter(Boolean);
+    addCheck(
+      checks,
+      'repository_adapter_plan',
+      violations.length === 0,
+      violations.length === 0 ? 'Repository adapter plan is additive-only and matches the manifest.' : 'Repository adapter plan failed additive-only validation.',
+      violations
+    );
+  } catch (error) {
+    addCheck(checks, 'repository_adapter_plan', false, 'Repository adapter plan is not valid JSON.', error.message || String(error));
+  }
+}
+
 async function resolveSourcePath(manifest, root, source) {
   if (path.isAbsolute(source)) return source;
   const cwdRelative = path.resolve(source);
@@ -290,6 +328,12 @@ function plannedRepositorySources(manifest) {
       .filter((asset) => asset.source_path && asset.source_type !== 'template')
       .map((asset) => asset.source_path)
   ]);
+}
+
+function isInsideNamespace(filePath, namespace) {
+  const normalized = String(filePath || '').replaceAll('\\', '/').replace(/^\/+/, '');
+  const normalizedNamespace = String(namespace || '').replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
+  return normalized === normalizedNamespace || normalized.startsWith(`${normalizedNamespace}/`);
 }
 
 async function checkGitStatus(manifest, root, checks) {

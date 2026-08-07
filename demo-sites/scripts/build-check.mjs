@@ -19,12 +19,22 @@ async function validateGeneratedIntegrations(root, packageJson) {
     const integrationRoot = path.join(integrationsRoot, entry.name);
     const expected = expectedPreviewFile(packageJson);
     await access(path.join(integrationRoot, expected));
+    await access(path.join(integrationRoot, 'adapter-plan.json'));
+    await access(path.join(integrationRoot, 'INTEGRATION_GUIDE.md'));
     await access(path.join(integrationRoot, 'routes/manifest.json'));
     const routeManifest = JSON.parse(await readFile(path.join(integrationRoot, 'routes/manifest.json'), 'utf8'));
+    const adapterPlan = JSON.parse(await readFile(path.join(integrationRoot, 'adapter-plan.json'), 'utf8'));
+    if (adapterPlan.host_routes_modified !== false || adapterPlan.host_registries_modified !== false) {
+      throw new Error(`adapter plan must remain additive-only for ${entry.name}`);
+    }
     for (const route of routeManifest.routes || []) {
       const preview = route.files?.preview;
       if (!preview) throw new Error(`route preview missing from manifest for ${route.slug}`);
       await access(path.join(root, preview));
+      const adapterRoute = (adapterPlan.routes || []).find((item) => item.slug === route.slug);
+      if (!adapterRoute || adapterRoute.preview_file !== preview) {
+        throw new Error(`adapter route mapping missing or mismatched for ${route.slug}`);
+      }
     }
     const content = await readFile(path.join(integrationRoot, expected), 'utf8');
     if (expected.endsWith('.jsx') && !/export function HtsTemplatePage/.test(content)) {

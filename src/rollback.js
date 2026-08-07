@@ -21,12 +21,7 @@ export function createRollbackPreview(manifest, { repoPath = process.cwd() } = {
       path: file,
       owned_by_integration: isOwnedRepositoryPath(manifest, file)
     })),
-    empty_directories_to_prune: [
-      `${manifest.repository_namespace}/assets`,
-      `${manifest.repository_namespace}/behaviour`,
-      `${manifest.repository_namespace}/styles`,
-      manifest.repository_namespace
-    ],
+    empty_directories_to_prune: pruneDirectoriesForFiles(manifest, repositoryFiles),
     storyblok_component_groups_to_remove: ensureArray(manifest.storyblok?.component_groups_to_create).map((group) => group.path || group.name || group),
     storyblok_internal_tags_to_remove: ensureArray(manifest.storyblok?.internal_tags_to_create).map((tag) => tag.name || tag.tag || tag),
     storyblok_components_to_remove: [
@@ -115,9 +110,35 @@ export async function rollbackIntegration(manifest, {
   };
 }
 
+function pruneDirectoriesForFiles(manifest, repositoryFiles) {
+  const directories = [];
+  for (const file of repositoryFiles) {
+    let directory = path.posix.dirname(toPosix(file));
+    while (directory && directory !== '.') {
+      if (isOwnedRepositoryPath(manifest, directory)) directories.push(directory);
+      directory = path.posix.dirname(directory);
+    }
+  }
+  return unique(directories)
+    .sort((a, b) => pathDepth(b) - pathDepth(a) || b.length - a.length);
+}
+
 function isOwnedRepositoryPath(manifest, filePath) {
-  return String(filePath).startsWith(`${manifest.repository_namespace}/`) ||
-    String(filePath).startsWith(`public/integrations/${manifest.integration_id}/`);
+  const file = toPosix(filePath);
+  const namespace = toPosix(manifest.repository_namespace);
+  const publicNamespace = `public/integrations/${manifest.integration_id}`;
+  return file === namespace ||
+    file.startsWith(`${namespace}/`) ||
+    file === publicNamespace ||
+    file.startsWith(`${publicNamespace}/`);
+}
+
+function pathDepth(filePath) {
+  return toPosix(filePath).split('/').filter(Boolean).length;
+}
+
+function toPosix(filePath) {
+  return String(filePath || '').replaceAll('\\', '/').replace(/\/+$/g, '');
 }
 
 async function isDirectoryEmpty(directory) {

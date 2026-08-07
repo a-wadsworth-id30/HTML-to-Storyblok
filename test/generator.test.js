@@ -6,6 +6,7 @@ import test from 'node:test';
 import { generateIntegration } from '../src/generator.js';
 import { createIntegrationPlan } from '../src/planner.js';
 import { createDefaultManifest } from '../src/policy.js';
+import { plannedRepositoryAdapterFilePaths } from '../src/repository-adapter.js';
 import { plannedTemplateFilePaths } from '../src/template-converter.js';
 
 test('generate converts template HTML into isolated framework files', async () => {
@@ -20,6 +21,7 @@ test('generate converts template HTML into isolated framework files', async () =
     'src/integrations/acme-homepage-v1/integration-manifest.json',
     'src/integrations/acme-homepage-v1/index.js',
     'src/integrations/acme-homepage-v1/components.js',
+    ...plannedRepositoryAdapterFilePaths(manifest),
     'src/integrations/acme-homepage-v1/README.md',
     'src/integrations/acme-homepage-v1/styles/acme-homepage-v1.css',
     ...plannedTemplateFilePaths(manifest, 'astro')
@@ -36,6 +38,8 @@ test('generate converts template HTML into isolated framework files', async () =
   assert.equal(result.removed_inline_handlers, 1);
   assert.deepEqual(result.excluded_external_scripts, ['https://example.com/tracker.js']);
   assert.ok(result.files.includes('src/integrations/acme-homepage-v1/TemplatePage.astro'));
+  assert.ok(result.files.includes('src/integrations/acme-homepage-v1/adapter-plan.json'));
+  assert.ok(result.files.includes('src/integrations/acme-homepage-v1/INTEGRATION_GUIDE.md'));
   assert.ok(result.files.includes('src/integrations/acme-homepage-v1/template-html.js'));
   assert.ok(result.files.includes('src/integrations/acme-homepage-v1/behaviour/acme-homepage-v1.js'));
   assert.deepEqual(result.assets, ['src/integrations/acme-homepage-v1/assets/hero.svg']);
@@ -47,6 +51,11 @@ test('generate converts template HTML into isolated framework files', async () =
   const astro = await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/TemplatePage.astro'), 'utf8');
   assert.match(astro, /import '\.\/behaviour\/acme-homepage-v1\.js'/);
   assert.match(astro, /class="hts-acme-homepage-v1-site-header"/);
+
+  const adapterPlan = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/adapter-plan.json'), 'utf8'));
+  assert.equal(adapterPlan.framework, 'astro');
+  assert.equal(adapterPlan.host_routes_modified, false);
+  assert.equal(adapterPlan.entrypoints.root_preview, 'src/integrations/acme-homepage-v1/TemplatePage.astro');
 });
 
 test('generate converts complex HTML attributes into React-safe JSX', async () => {
@@ -78,6 +87,7 @@ test('generate converts complex HTML attributes into React-safe JSX', async () =
     'src/integrations/react-template-v1/integration-manifest.json',
     'src/integrations/react-template-v1/index.js',
     'src/integrations/react-template-v1/components.js',
+    ...plannedRepositoryAdapterFilePaths(manifest),
     'src/integrations/react-template-v1/README.md',
     'src/integrations/react-template-v1/styles/react-template-v1.css',
     ...plannedTemplateFilePaths(manifest, 'react')
@@ -135,4 +145,31 @@ test('generate writes isolated route previews for every template page without to
   assert.match(about, /data-route="about"/);
   assert.match(about, /src="\.\.\/\.\.\/assets\/assets\/hero\.svg"/);
   assert.doesNotMatch(about, /data-hts-field="about_headline" data-hts-field="headline"/);
+
+  const adapterPlan = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/adapter-plan.json'), 'utf8'));
+  assert.equal(adapterPlan.framework, 'static');
+  assert.deepEqual(adapterPlan.routes.map((route) => route.suggested_site_path), ['/', '/about', '/contact', '/gallery', '/services']);
+  assert.equal(adapterPlan.routes[0].storyblok_slug, 'acme-campaign-v1/home');
+
+  const guide = await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/INTEGRATION_GUIDE.md'), 'utf8');
+  assert.match(guide, /Host routes modified: no/);
+  assert.match(guide, /Imported Routes/);
+});
+
+test('generate writes schema-only adapter without preview paths', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-schema-only-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'schema-only-v1'
+  });
+
+  const result = await generateIntegration(manifest, { repoPath });
+
+  assert.ok(result.files.includes('src/integrations/schema-only-v1/adapter-plan.json'));
+  const adapterPlan = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/schema-only-v1/adapter-plan.json'), 'utf8'));
+  assert.equal(adapterPlan.entrypoints.root_preview, null);
+  assert.equal(adapterPlan.routes[0].preview_file, null);
+  assert.equal(adapterPlan.routes[0].storyblok_slug, 'schema-only-v1/home');
+
+  const guide = await readFile(path.join(repoPath, 'src/integrations/schema-only-v1/INTEGRATION_GUIDE.md'), 'utf8');
+  assert.match(guide, /No template preview component was generated/);
 });

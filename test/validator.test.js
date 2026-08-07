@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -79,6 +79,29 @@ test('validateIntegration checks duplicated component targets for forbidden coup
     check.name === 'forbidden_coupling:src/integrations/acme-homepage-v1/components/HtsHero.js' &&
     check.status === 'failed'
   ));
+});
+
+test('validateIntegration rejects adapter plans that claim host route mutation', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-adapter-validation-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-campaign-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'static'
+  });
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'templates/acme-campaign',
+    framework: 'static'
+  });
+  const adapterPath = path.join(repoPath, 'src/integrations/acme-campaign-v1/adapter-plan.json');
+  const adapter = JSON.parse(await readFile(adapterPath, 'utf8'));
+  adapter.host_routes_modified = true;
+  await writeFile(adapterPath, `${JSON.stringify(adapter, null, 2)}\n`);
+
+  const result = await validateIntegration(manifest, { repoPath });
+
+  assert.equal(result.status, 'failed');
+  assert.ok(result.checks.some((check) => check.name === 'repository_adapter_plan' && check.status === 'failed'));
 });
 
 test('diffIntegration reports duplicated component targets separately from generated files', async () => {
