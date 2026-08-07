@@ -47,6 +47,42 @@ test('applyManifest writes completed step artifacts before a later remote failur
     if (href.endsWith('/spaces/12345')) {
       return jsonResponse({ space: { id: 12345, name: 'Demo' } });
     }
+    if (href.includes('/component_groups/?per_page=1') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ component_groups: [] });
+    }
+    if (href.includes('/internal_tags/?per_page=1') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ internal_tags: [] });
+    }
+    if (href.includes('/presets/?per_page=1') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ presets: [] });
+    }
+    if (href.includes('/component_groups/') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ component_groups: [] });
+    }
+    if (href.endsWith('/component_groups/') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      return jsonResponse({
+        component_group: {
+          id: 55,
+          uuid: 'component-folder-uuid',
+          name: payload.component_group.name,
+          parent_id: payload.component_group.parent_id || 0
+        }
+      });
+    }
+    if (href.includes('/internal_tags/') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ internal_tags: [] });
+    }
+    if (href.endsWith('/internal_tags/') && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      return jsonResponse({
+        internal_tag: {
+          id: 56,
+          name: payload.internal_tag.name,
+          object_type: payload.internal_tag.object_type
+        }
+      });
+    }
     if (href.includes('/components/') && (options.method || 'GET') === 'GET') {
       return jsonResponse({ components: [] });
     }
@@ -96,9 +132,9 @@ test('applyManifest writes completed step artifacts before a later remote failur
       }, workDir),
       /asset folder unavailable/
     );
-    await stat(path.join(workDir, 'apply-step-04-storyblok-components.json'));
+    await stat(path.join(workDir, 'apply-step-06-storyblok-components.json'));
     await assert.rejects(
-      stat(path.join(workDir, 'apply-step-05-storyblok-asset-folders.json')),
+      stat(path.join(workDir, 'apply-step-07-storyblok-asset-folders.json')),
       /ENOENT/
     );
   } finally {

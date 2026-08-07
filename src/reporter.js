@@ -113,7 +113,10 @@ async function summarizeArtifact(artifact) {
         repository_files: data.repository?.files_to_create?.length || 0,
         repository_components_to_duplicate: data.repository?.components_to_duplicate?.length || 0,
         repository_assets_to_create: data.repository?.assets_to_create?.length || 0,
+        storyblok_component_groups: data.storyblok?.component_groups_to_create?.length || 0,
+        storyblok_internal_tags: data.storyblok?.internal_tags_to_create?.length || 0,
         storyblok_components: data.storyblok?.components_to_create?.length || 0,
+        storyblok_presets: data.storyblok?.presets_to_create?.length || 0,
         storyblok_stories: data.storyblok?.stories_to_create?.length || 0,
         storyblok_assets: data.storyblok?.assets_to_create?.length || 0,
         duplication_inference: data.duplication_inference
@@ -229,6 +232,9 @@ function summarizeStoryblokApplyResult(data, artifact, name) {
   const draftResults = stepResults.filter((result) => result.action === 'create_draft_story');
   const assetResults = stepResults.filter((result) => result.action === 'upload_asset');
   const componentResults = stepResults.filter((result) => result.action === 'create_component');
+  const componentGroupResults = stepResults.filter((result) => result.action === 'create_component_group');
+  const internalTagResults = stepResults.filter((result) => result.action === 'create_internal_tag');
+  const presetResults = stepResults.filter((result) => result.action === 'create_component_preset');
   const linkSummary = draftResults.reduce((summary, result) => ({
     total_links: summary.total_links + Number(result.link_summary?.total_links || 0),
     story_links: summary.story_links + Number(result.link_summary?.story_links || 0),
@@ -245,7 +251,10 @@ function summarizeStoryblokApplyResult(data, artifact, name) {
     artifact,
     status: data.status || data.action || 'recorded',
     dry_run: Boolean(data.dry_run),
+    component_groups_created_or_reused: componentGroupResults.length,
+    internal_tags_created_or_reused: internalTagResults.length,
     components_created_or_reused: componentResults.length,
+    presets_created_or_reused: presetResults.length,
     assets_created_or_reused: assetResults.length,
     draft_stories_created_or_reused: draftResults.length,
     link_summary: linkSummary

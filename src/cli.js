@@ -12,7 +12,7 @@ import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlif
 import { validatePlan } from './policy.js';
 import { createReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
-import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponents, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent } from './storyblok.js';
+import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
 import { diffIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 import { applyManifest, applyStoryblokOnly, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
@@ -28,7 +28,10 @@ const MUTATING_COMMANDS = new Set([
   'rollback',
   'storyblok-apply',
   'storyblok-asset-folders',
+  'storyblok-component-groups',
   'storyblok-components',
+  'storyblok-internal-tags',
+  'storyblok-presets',
   'upload-assets'
 ]);
 
@@ -202,6 +205,18 @@ export async function main(argv) {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await createStoryblokComponents(manifest, { dryRun: Boolean(args.dry_run), env });
       await writeArtifact(workDir, 'storyblok-components-result.json', result);
+    } else if (command === 'storyblok-component-groups') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createStoryblokComponentGroups(manifest, { dryRun: Boolean(args.dry_run), env });
+      await writeArtifact(workDir, 'storyblok-component-groups-result.json', result);
+    } else if (command === 'storyblok-internal-tags') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createStoryblokInternalTags(manifest, { dryRun: Boolean(args.dry_run), env });
+      await writeArtifact(workDir, 'storyblok-internal-tags-result.json', result);
+    } else if (command === 'storyblok-presets') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createStoryblokPresets(manifest, { dryRun: Boolean(args.dry_run), env });
+      await writeArtifact(workDir, 'storyblok-presets-result.json', result);
     } else if (command === 'storyblok-asset-folders') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await createStoryblokAssetFolders(manifest, { dryRun: Boolean(args.dry_run), env });
@@ -354,9 +369,12 @@ function renderShellCompletion(shell = 'zsh') {
     'build',
     'generate',
     'duplicate',
+    'storyblok-component-groups',
+    'storyblok-internal-tags',
     'storyblok-components',
     'storyblok-asset-folders',
     'upload-assets',
+    'storyblok-presets',
     'create-draft-story',
     'storyblok-apply',
     'apply',
@@ -433,9 +451,12 @@ Usage:
   html-to-storyblok build --repo <path> [--script build] [--dry-run]
   html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
   html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
+  html-to-storyblok storyblok-component-groups --manifest <path> [--dry-run]
+  html-to-storyblok storyblok-internal-tags --manifest <path> [--dry-run]
   html-to-storyblok storyblok-components --manifest <path> [--dry-run]
   html-to-storyblok storyblok-asset-folders --manifest <path> [--dry-run]
   html-to-storyblok upload-assets --manifest <path> [--dry-run]
+  html-to-storyblok storyblok-presets --manifest <path> [--dry-run]
   html-to-storyblok create-draft-story --manifest <path> [--dry-run]
   html-to-storyblok storyblok-apply --manifest <path> [--dry-run]
   html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]

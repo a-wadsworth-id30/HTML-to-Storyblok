@@ -2,7 +2,7 @@
 
 `html-to-storyblok` is a safety-first CLI for integrating supplied HTML templates into existing Storyblok-powered repositories.
 
-It performs deterministic discovery, additive-only planning, dependency-aware duplication candidate inference, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, Storyblok Content API draft checks, Storyblok asset folder and asset import, GitHub/GitLab review branch preparation, draft pull-request and merge-request creation, Netlify deploy-preview polling, optional Netlify CLI log snapshots, local validation, local rollback, and confirmed remote Storyblok rollback for integration-owned draft resources.
+It performs deterministic discovery, additive-only planning, dependency-aware duplication candidate inference, policy validation, evidence logging, isolated file generation, Storyblok Management API operations, Storyblok component folder creation, internal tag creation, component preset creation, Storyblok Content API draft checks, Storyblok asset folder and asset import, GitHub/GitLab review branch preparation, draft pull-request and merge-request creation, Netlify deploy-preview polling, optional Netlify CLI log snapshots, local validation, local rollback, and confirmed remote Storyblok rollback for integration-owned draft resources.
 
 ## Requirements
 
@@ -89,7 +89,7 @@ Navigation supports arrow keys, `Enter`, `Esc`, `q`, `Tab`, and `Ctrl+C`. The wi
 
 The create flow guides you through choosing a template from `templates/`, choosing a nearby repository, reviewing repository/Storyblok/template summaries, confirming the integration ID, previewing the derived prefix and namespace, validating the plan, running a dry run, optionally applying the real integration, and writing `.tmp/html-to-storyblok/report.md`.
 
-Dry runs now include a human-readable apply preview diff covering repository files, assets, Storyblok components, asset folders, draft stories, and generated Storyblok link resolution. Long-running progress output includes percentages and elapsed time.
+Dry runs now include a human-readable apply preview diff covering repository files, assets, Storyblok component folders, internal tags, components, presets, asset folders, draft stories, and generated Storyblok link resolution. Long-running progress output includes percentages and elapsed time.
 
 After a completed interactive action, the CLI shows a success checkpoint with the latest plan/local validation status, then stays open on a `Next` menu. From there you can return to the main menu, run a validation check, view the latest report, or exit intentionally.
 
@@ -301,7 +301,7 @@ To query the remote Storyblok space, add `--remote`:
 html-to-storyblok inspect-storyblok --remote
 ```
 
-Remote inspection reads are capped by default so large spaces do not cause slow full-space scans. Use `--full` when you intentionally want to list every component, story, and asset:
+Remote inspection reads are capped by default so large spaces do not cause slow full-space scans. It summarizes space details, component folders, components, stories, asset folders, assets, internal tags, and component presets. Use `--full` when you intentionally want to list every supported remote resource:
 
 ```sh
 html-to-storyblok inspect-storyblok --remote --full
@@ -561,9 +561,12 @@ html-to-storyblok apply \
 - duplicate approved frontend and Storyblok components into the integration namespace
 - convert supplied template HTML/CSS/assets into isolated framework files
 - validate the generated local integration before remote mutations
+- create or reuse matching integration-owned Storyblok component folders
+- create or reuse matching integration-owned Storyblok internal tags
 - create new Storyblok components
 - create or reuse matching integration-owned Storyblok asset folders
 - upload new Storyblok assets listed in the manifest
+- create or reuse matching integration-owned Storyblok component presets
 - create new draft Storyblok stories with asset fields hydrated from the uploaded Storyblok assets
 - validate created draft stories through the Storyblok Content API when a preview/delivery token is available
 
@@ -720,7 +723,27 @@ html-to-storyblok storyblok-preflight \
   --manifest .tmp/html-to-storyblok/integration-manifest.json
 ```
 
-Preflight performs non-mutating Management API reads for the resources required by the manifest. It verifies credentials, space access, and read access for components, stories, asset folders, and assets before additive create calls begin.
+Preflight performs non-mutating Management API reads for the resources required by the manifest. It verifies credentials, space access, and read access for component folders, internal tags, components, stories, asset folders, assets, and presets before additive create calls begin.
+
+Create Storyblok component folders listed in `storyblok.component_groups_to_create`:
+
+```sh
+html-to-storyblok storyblok-component-groups \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --dry-run
+```
+
+Generated template components are filed into a single integration-owned component folder by default. Matching folders are reused by name and parent; existing component folders are never renamed or updated.
+
+Create Storyblok internal tags listed in `storyblok.internal_tags_to_create`:
+
+```sh
+html-to-storyblok storyblok-internal-tags \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --dry-run
+```
+
+Generated manifests add namespaced component and asset tags such as `hts_acme_homepage_v1_components` and `hts_acme_homepage_v1_assets`. Tags are created additively and never assigned to existing non-integration resources.
 
 Create Storyblok components:
 
@@ -756,6 +779,16 @@ When `apply` or `storyblok-apply` runs the full workflow, uploaded asset results
 
 Existing Storyblok assets are reused only when the match is integration-owned and exact. The CLI compares the manifest filename/path and the resolved integration asset folder, so a generic existing asset with the same basename, such as `logo.svg`, is not treated as a safe match unless it belongs to the planned integration namespace. Upload evidence now includes the local byte size and SHA-256 hash for each source file.
 
+Create Storyblok component presets listed in `storyblok.presets_to_create`:
+
+```sh
+html-to-storyblok storyblok-presets \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --dry-run
+```
+
+Template-derived plans create one namespaced editor preset per generated block where representative draft content exists. Presets are attached only to integration-owned components. When the full workflow runs, preset asset fields are hydrated from uploaded Storyblok asset results before the preset is created.
+
 Create draft stories:
 
 ```sh
@@ -774,7 +807,7 @@ html-to-storyblok storyblok-apply \
   --dry-run
 ```
 
-This combines component creation, asset folder creation, asset upload, and draft story creation. It is useful for validating the Storyblok side of a template before a target repository exists. For real execution, omit `--dry-run`; the command requires `STORYBLOK_MANAGEMENT_TOKEN` and `STORYBLOK_SPACE_ID`, or credentials entered in the interactive wizard.
+This combines component folder creation, internal tag creation, component creation, asset folder creation, asset upload, component preset creation, and draft story creation. It is useful for validating the Storyblok side of a template before a target repository exists. For real execution, omit `--dry-run`; the command requires `STORYBLOK_MANAGEMENT_TOKEN` and `STORYBLOK_SPACE_ID`, or credentials entered in the interactive wizard.
 
 After real Storyblok apply, run Content API validation manually if needed:
 
@@ -894,7 +927,7 @@ html-to-storyblok rollback \
   --confirm-remote-delete
 ```
 
-Remote rollback deletes only manifest-owned namespaced components, unpublished draft stories with namespaced root components, exact namespaced assets, and matching namespaced asset folders. Published stories, unnamespaced resources, and unverified asset matches are refused or skipped.
+Remote rollback deletes only manifest-owned namespaced component folders, internal tags, components, presets, unpublished draft stories with namespaced root components, exact namespaced assets, and matching namespaced asset folders. Published stories, unnamespaced resources, and unverified asset matches are refused or skipped.
 
 ## Command reference
 
@@ -922,9 +955,12 @@ html-to-storyblok validate --manifest <path> --repo <path>
 html-to-storyblok build --repo <path> [--script build] [--dry-run]
 html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
 html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
+html-to-storyblok storyblok-component-groups --manifest <path> [--dry-run]
+html-to-storyblok storyblok-internal-tags --manifest <path> [--dry-run]
 html-to-storyblok storyblok-components --manifest <path> [--dry-run]
 html-to-storyblok storyblok-asset-folders --manifest <path> [--dry-run]
 html-to-storyblok upload-assets --manifest <path> [--dry-run]
+html-to-storyblok storyblok-presets --manifest <path> [--dry-run]
 html-to-storyblok create-draft-story --manifest <path> [--dry-run]
 html-to-storyblok storyblok-apply --manifest <path> [--dry-run]
 html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
@@ -991,8 +1027,8 @@ Implemented:
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
-- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, route-specific draft story overrides, one-draft-story-per-route generation, draft story route link hydration, asset folder creation, asset upload with source hashes, draft story asset hydration, Storyblok-only apply, and idempotent collision handling.
-- Paginated Storyblok Management API reads for components, stories, asset folders, and assets, with bounded remote inspection, retry/backoff, timeouts, and optional request pacing.
+- Richer Storyblok component schema generation for navigation, feature grids, galleries, testimonials, stats, pricing, steps/timelines, FAQ/accordion content, team/profile grids, CTA groups, forms, nested form fields, explicit template field hints, additive schema override files, route-specific draft story overrides, one-draft-story-per-route generation, draft story route link hydration, component folder creation, internal tag creation, component preset creation, asset folder creation, asset upload with source hashes, draft story asset hydration, Storyblok-only apply, and idempotent collision handling.
+- Paginated Storyblok Management API reads for component folders, components, stories, asset folders, assets, internal tags, and presets, with bounded remote inspection, retry/backoff, timeouts, and optional request pacing.
 - Storyblok preflight checks and Content API draft story validation without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
 - Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus apply preflight checks, incremental apply step artifacts, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.

@@ -80,6 +80,8 @@ export async function createIntegrationPlan({
     });
   }
 
+  addStoryblokManagementResources(manifest);
+
   manifest.operations = buildOperations(manifest);
   manifest.validation = validatePlan(manifest);
   return manifest;
@@ -116,6 +118,16 @@ export function buildOperations(manifest) {
       resource_type: 'repository_asset',
       resource: asset.target_path
     })),
+    ...ensureArray(manifest.storyblok?.component_groups_to_create).map((group) => ({
+      type: 'create_new_resource',
+      resource_type: 'storyblok_component_group',
+      resource: group.path || group.name || group
+    })),
+    ...ensureArray(manifest.storyblok?.internal_tags_to_create).map((tag) => ({
+      type: 'create_new_resource',
+      resource_type: 'storyblok_internal_tag',
+      resource: tag.name || tag.tag || tag
+    })),
     ...ensureArray(manifest.storyblok?.components_to_create).map((component) => ({
       type: 'create_new_resource',
       resource_type: 'storyblok_component',
@@ -136,10 +148,107 @@ export function buildOperations(manifest) {
       resource_type: 'storyblok_asset',
       resource: asset.filename || asset.local_path
     })),
+    ...ensureArray(manifest.storyblok?.presets_to_create).map((preset) => ({
+      type: 'create_new_resource',
+      resource_type: 'storyblok_preset',
+      resource: preset.name || preset.component_technical_name || preset.component
+    })),
     ...ensureArray(manifest.storyblok?.stories_to_create).map((story) => ({
       type: 'create_new_resource',
       resource_type: 'storyblok_story',
       resource: story.slug || story.full_slug
     }))
   ];
+}
+
+function addStoryblokManagementResources(manifest) {
+  const storyblok = manifest.storyblok || {};
+  const createdComponents = ensureArray(storyblok.components_to_create);
+  const createdAssets = ensureArray(storyblok.assets_to_create);
+  const draftStories = ensureArray(storyblok.stories_to_create);
+  if (createdComponents.length > 0) {
+    storyblok.component_groups_to_create = addUniqueBy(
+      ensureArray(storyblok.component_groups_to_create),
+      { path: manifest.integration_id, name: manifest.integration_id, parent_id: 0 },
+      (group) => group.path || group.name || group
+    );
+    for (const component of createdComponents) {
+      component.component_group_path ||= manifest.integration_id;
+    }
+    storyblok.internal_tags_to_create = addUniqueBy(
+      ensureArray(storyblok.internal_tags_to_create),
+      { name: `${manifest.storyblok_prefix}components`, object_type: 'component' },
+      (tag) => `${tag.object_type || 'component'}:${tag.name || tag}`
+    );
+  }
+  if (createdAssets.length > 0) {
+    storyblok.internal_tags_to_create = addUniqueBy(
+      ensureArray(storyblok.internal_tags_to_create),
+      { name: `${manifest.storyblok_prefix}assets`, object_type: 'asset' },
+      (tag) => `${tag.object_type || 'component'}:${tag.name || tag}`
+    );
+  }
+  storyblok.presets_to_create = addUniqueManyBy(
+    ensureArray(storyblok.presets_to_create),
+    defaultPresetsFromDraftStories(manifest, createdComponents, draftStories),
+    (preset) => `${preset.component_technical_name || preset.component}:${preset.name}`
+  );
+  manifest.storyblok = storyblok;
+}
+
+function defaultPresetsFromDraftStories(manifest, components, draftStories) {
+  const generatedComponentNames = new Set(components
+    .filter((component) => component.component_type !== 'content_type' && component.is_root !== true)
+    .map((component) => component.technical_name || component.name)
+    .filter(Boolean));
+  const presets = [];
+  const seen = new Set();
+  for (const story of draftStories) {
+    for (const block of collectPresetBlocks(story.content || {})) {
+      const componentName = block.component;
+      if (!generatedComponentNames.has(componentName) || seen.has(componentName)) continue;
+      seen.add(componentName);
+      presets.push({
+        name: `${componentName}_default`,
+        component_technical_name: componentName,
+        preset: stripStoryblokEditorMetadata(block)
+      });
+    }
+  }
+  return presets;
+}
+
+function collectPresetBlocks(value, blocks = []) {
+  if (Array.isArray(value)) {
+    for (const entry of value) collectPresetBlocks(entry, blocks);
+    return blocks;
+  }
+  if (!value || typeof value !== 'object') return blocks;
+  if (typeof value.component === 'string') blocks.push(value);
+  for (const entry of Object.values(value)) collectPresetBlocks(entry, blocks);
+  return blocks;
+}
+
+function stripStoryblokEditorMetadata(value) {
+  if (Array.isArray(value)) return value.map(stripStoryblokEditorMetadata);
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => key !== '_uid' && key !== '_editable')
+    .map(([key, entry]) => [key, stripStoryblokEditorMetadata(entry)]));
+}
+
+function addUniqueBy(entries, entry, keyFn) {
+  return addUniqueManyBy(entries, [entry], keyFn);
+}
+
+function addUniqueManyBy(entries, additions, keyFn) {
+  const output = [...entries];
+  const seen = new Set(output.map(keyFn).filter(Boolean));
+  for (const addition of additions) {
+    const key = keyFn(addition);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    output.push(addition);
+  }
+  return output;
 }

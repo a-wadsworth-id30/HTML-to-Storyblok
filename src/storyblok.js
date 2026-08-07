@@ -92,16 +92,24 @@ export async function inspectStoryblokSpace({ env = process.env, full = false } 
   const space = await storyblokRequest(config, `/spaces/${config.spaceId}`);
   const listOptions = full ? {} : { maxItems: config.inspectMaxItems };
   const components = await listStoryblokComponents(config, {}, listOptions);
+  const componentGroups = await listStoryblokComponentGroups(config, {}, listOptions);
   const stories = await listStoryblokStories(config, {}, listOptions);
+  const assetFolders = await listStoryblokAssetFolders(config, {}, listOptions);
   const assets = await listStoryblokAssets(config, {}, listOptions);
+  const internalTags = await listStoryblokInternalTags(config, {}, listOptions);
+  const presets = await listStoryblokPresets(config, {}, listOptions);
 
   return {
     ...access,
     status: 'ok',
     space: space.space ? summarizeSpace(space.space) : space,
     components: components.map(summarizeComponent),
+    component_groups: componentGroups.map(summarizeComponentGroup),
     stories: stories.map(summarizeStory),
-    assets: assets.map(summarizeAsset)
+    asset_folders: assetFolders.map(summarizeAssetFolder),
+    assets: assets.map(summarizeAsset),
+    internal_tags: internalTags.map(summarizeInternalTag),
+    presets: presets.map(summarizePreset)
   };
 }
 
@@ -155,6 +163,12 @@ export async function preflightStoryblokIntegration(manifest, { dryRun = false, 
   }
 
   checks.push(await endpointPreflight(config, 'space_read', `/spaces/${config.spaceId}`));
+  if (requirements.component_groups) {
+    checks.push(await endpointPreflight(config, 'component_groups_read', `/spaces/${config.spaceId}/component_groups/?per_page=1&page=1`));
+  }
+  if (requirements.internal_tags) {
+    checks.push(await endpointPreflight(config, 'internal_tags_read', `/spaces/${config.spaceId}/internal_tags/?per_page=1&page=1`));
+  }
   if (requirements.components) {
     checks.push(await endpointPreflight(config, 'components_read', `/spaces/${config.spaceId}/components/?per_page=1&page=1`));
   }
@@ -166,6 +180,9 @@ export async function preflightStoryblokIntegration(manifest, { dryRun = false, 
   }
   if (requirements.assets) {
     checks.push(await endpointPreflight(config, 'assets_read', `/spaces/${config.spaceId}/assets?per_page=1&page=1`));
+  }
+  if (requirements.presets) {
+    checks.push(await endpointPreflight(config, 'presets_read', `/spaces/${config.spaceId}/presets/?per_page=1&page=1`));
   }
 
   const requiredChecks = checks.filter((check) => check.required !== false);
@@ -183,7 +200,132 @@ export async function preflightStoryblokIntegration(manifest, { dryRun = false, 
   };
 }
 
-export async function createStoryblokComponents(manifest, { dryRun = false, env = process.env } = {}) {
+export async function createStoryblokComponentGroups(manifest, { dryRun = false, env = process.env } = {}) {
+  const config = getStoryblokConfig(env);
+  const groups = plannedComponentGroups(manifest);
+  const results = [];
+  if (groups.length === 0) return results;
+  if (!config.available && !dryRun) {
+    throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
+  }
+
+  if (dryRun) {
+    return groups.map((group) => ({
+      action: 'create_component_group',
+      dry_run: true,
+      group_path: group.path,
+      payload: {
+        component_group: componentGroupPayload(group, null)
+      },
+      collision_policy: 'reuse_matching_component_folder_or_create'
+    }));
+  }
+
+  const existingGroups = await listStoryblokComponentGroups(config);
+  const resolved = new Map();
+  for (const group of groups) {
+    const parent = group.parent_path ? resolved.get(group.parent_path) : rootComponentGroupParent(group);
+    if (group.parent_path && !parent) throw new Error(`parent Storyblok component folder was not resolved: ${group.parent_path}`);
+    const existing = existingGroups.find((entry) => componentGroupMatches(entry, group.name, parent));
+    if (existing) {
+      const summary = summarizeComponentGroup(existing, group.path);
+      resolved.set(group.path, summary);
+      results.push({
+        action: 'create_component_group',
+        dry_run: false,
+        status: 'already_exists',
+        group_path: group.path,
+        id: summary.id,
+        uuid: summary.uuid,
+        verification: summary
+      });
+      continue;
+    }
+
+    const payload = {
+      component_group: componentGroupPayload(group, parent)
+    };
+    const response = await storyblokRequest(config, `/spaces/${config.spaceId}/component_groups/`, {
+      method: 'POST',
+      body: payload
+    });
+    const created = response.component_group || response;
+    existingGroups.push(created);
+    const summary = summarizeComponentGroup(created, group.path);
+    resolved.set(group.path, summary);
+    results.push({
+      action: 'create_component_group',
+      dry_run: false,
+      status: 'created',
+      group_path: group.path,
+      id: summary.id,
+      uuid: summary.uuid,
+      verification: summary
+    });
+  }
+  return results;
+}
+
+export async function createStoryblokInternalTags(manifest, { dryRun = false, env = process.env } = {}) {
+  const config = getStoryblokConfig(env);
+  const tags = plannedInternalTags(manifest);
+  const results = [];
+  if (tags.length === 0) return results;
+  if (!config.available && !dryRun) {
+    throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
+  }
+
+  if (dryRun) {
+    return tags.map((tag) => ({
+      action: 'create_internal_tag',
+      dry_run: true,
+      name: tag.name,
+      object_type: tag.object_type,
+      payload: {
+        internal_tag: tag
+      },
+      collision_policy: 'reuse_matching_internal_tag_or_create'
+    }));
+  }
+
+  const existingTags = await listStoryblokInternalTags(config);
+  for (const tag of tags) {
+    const existing = existingTags.find((entry) => internalTagMatches(entry, tag));
+    if (existing) {
+      results.push({
+        action: 'create_internal_tag',
+        dry_run: false,
+        status: 'already_exists',
+        name: tag.name,
+        object_type: tag.object_type,
+        id: existing.id || null,
+        verification: summarizeInternalTag(existing)
+      });
+      continue;
+    }
+
+    const response = await storyblokRequest(config, `/spaces/${config.spaceId}/internal_tags/`, {
+      method: 'POST',
+      body: {
+        internal_tag: tag
+      }
+    });
+    const created = response.internal_tag || response;
+    existingTags.push(created);
+    results.push({
+      action: 'create_internal_tag',
+      dry_run: false,
+      status: 'created',
+      name: created.name || tag.name,
+      object_type: created.object_type || tag.object_type,
+      id: created.id || null,
+      verification: summarizeInternalTag(created)
+    });
+  }
+  return results;
+}
+
+export async function createStoryblokComponents(manifest, { dryRun = false, env = process.env, componentGroupResults = null } = {}) {
   const config = getStoryblokConfig(env);
   const components = ensureArray(manifest.storyblok?.components_to_create);
   const results = [];
@@ -193,13 +335,22 @@ export async function createStoryblokComponents(manifest, { dryRun = false, env 
   }
 
   let existingComponents = null;
+  const componentGroupUuids = dryRun
+    ? new Map()
+    : await resolveComponentGroupUuids(manifest, { env, componentGroupResults });
   for (const component of components) {
-    const payload = { component: normalizeComponent(component) };
+    const payload = {
+      component: normalizeComponent(component, {
+        componentGroupUuid: component.component_group_uuid ||
+          (component.component_group_path ? componentGroupUuids.get(component.component_group_path) : null)
+      })
+    };
     if (dryRun) {
       results.push({
         action: 'create_component',
         dry_run: true,
         technical_name: payload.component.name,
+        component_group_path: component.component_group_path || null,
         collision_policy: 'verify_matching_or_stop',
         payload
       });
@@ -529,6 +680,86 @@ export async function uploadStoryblokAssets(manifest, { dryRun = false, env = pr
   return results;
 }
 
+export async function createStoryblokPresets(manifest, {
+  dryRun = false,
+  env = process.env,
+  componentResults = null,
+  assetResults = null
+} = {}) {
+  const config = getStoryblokConfig(env);
+  const presets = plannedPresets(manifest);
+  const results = [];
+  if (presets.length === 0) return results;
+  if (!config.available && !dryRun) {
+    throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
+  }
+
+  const assetMap = await createStoryAssetMap(manifest, { config, dryRun, assetResults });
+  if (dryRun) {
+    return presets.map((preset) => ({
+      action: 'create_component_preset',
+      dry_run: true,
+      name: preset.name,
+      component_technical_name: preset.component_technical_name,
+      collision_policy: 'verify_matching_or_stop',
+      payload: {
+        preset: {
+          name: preset.name,
+          component_id: '<resolved during real apply>',
+          preset: hydrateStoryAssets(preset.preset, assetMap)
+        }
+      }
+    }));
+  }
+
+  const componentIds = await resolveComponentIds(manifest, { env, componentResults });
+  const existingPresets = await listStoryblokPresets(config);
+  for (const preset of presets) {
+    const componentId = componentIds.get(preset.component_technical_name);
+    if (!componentId) {
+      throw new Error(`Storyblok preset component was not resolved: ${preset.component_technical_name}`);
+    }
+    const intended = {
+      name: preset.name,
+      component_id: componentId,
+      preset: hydrateStoryAssets(preset.preset, assetMap)
+    };
+    const existing = existingPresets.find((entry) => presetMatches(entry, intended));
+    if (existing) {
+      assertPresetMatches(existing, intended);
+      results.push({
+        action: 'create_component_preset',
+        dry_run: false,
+        status: 'already_exists',
+        name: existing.name || preset.name,
+        component_technical_name: preset.component_technical_name,
+        id: existing.id || null,
+        verification: summarizePreset(existing)
+      });
+      continue;
+    }
+
+    const response = await storyblokRequest(config, `/spaces/${config.spaceId}/presets/`, {
+      method: 'POST',
+      body: {
+        preset: intended
+      }
+    });
+    const created = response.preset || response;
+    existingPresets.push(created);
+    results.push({
+      action: 'create_component_preset',
+      dry_run: false,
+      status: 'created',
+      name: created.name || preset.name,
+      component_technical_name: preset.component_technical_name,
+      id: created.id || null,
+      verification: summarizePreset(created)
+    });
+  }
+  return results;
+}
+
 export async function duplicateStoryblokComponents(manifest, { dryRun = false, env = process.env } = {}) {
   const config = getStoryblokConfig(env);
   const entries = ensureArray(manifest.storyblok?.components_to_duplicate);
@@ -649,7 +880,10 @@ export async function deleteStoryblokIntegrationResources(manifest, {
     story_folders: await deleteIntegrationStoryFolders(config, manifest, { dryRun }),
     assets: await deleteIntegrationAssets(config, manifest, { dryRun }),
     asset_folders: await deleteIntegrationAssetFolders(config, manifest, { dryRun }),
-    components: await deleteIntegrationComponents(config, manifest, { dryRun })
+    presets: await deleteIntegrationPresets(config, manifest, { dryRun }),
+    components: await deleteIntegrationComponents(config, manifest, { dryRun }),
+    internal_tags: await deleteIntegrationInternalTags(config, manifest, { dryRun }),
+    component_groups: await deleteIntegrationComponentGroups(config, manifest, { dryRun })
   };
 }
 
@@ -849,6 +1083,18 @@ async function storyblokContentRequest(config, endpoint, params = {}, { retrySta
 
 async function listStoryblokComponents(config, params = {}, options = {}) {
   return listPaginated(config, `/spaces/${config.spaceId}/components/`, 'components', params, options);
+}
+
+async function listStoryblokComponentGroups(config, params = {}, options = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/component_groups/`, 'component_groups', params, options);
+}
+
+async function listStoryblokInternalTags(config, params = {}, options = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/internal_tags/`, 'internal_tags', params, options);
+}
+
+async function listStoryblokPresets(config, params = {}, options = {}) {
+  return listPaginated(config, `/spaces/${config.spaceId}/presets/`, 'presets', params, options);
 }
 
 async function listStoryblokAssetFolders(config, params = {}, options = {}) {
@@ -1290,6 +1536,53 @@ async function deleteIntegrationAssetFolders(config, manifest, { dryRun }) {
   return results;
 }
 
+async function deleteIntegrationPresets(config, manifest, { dryRun }) {
+  const presets = plannedPresets(manifest);
+  if (presets.length === 0) return [];
+  if (dryRun) {
+    return presets.map((preset) => ({
+      action: 'delete_component_preset',
+      dry_run: true,
+      name: preset.name,
+      component_technical_name: preset.component_technical_name,
+      collision_policy: 'delete_only_namespaced_matching_component_preset'
+    }));
+  }
+
+  const componentIds = await resolveComponentIds(manifest, { config });
+  const existingPresets = await listStoryblokPresets(config);
+  const results = [];
+  for (const preset of presets) {
+    const componentId = componentIds.get(preset.component_technical_name);
+    const existing = componentId
+      ? existingPresets.find((entry) => presetMatches(entry, { name: preset.name, component_id: componentId }))
+      : null;
+    if (!existing) {
+      results.push({
+        action: 'delete_component_preset',
+        dry_run: false,
+        status: 'missing',
+        name: preset.name,
+        component_technical_name: preset.component_technical_name
+      });
+      continue;
+    }
+    if (!preset.name.startsWith(manifest.storyblok_prefix) || !preset.component_technical_name.startsWith(manifest.storyblok_prefix)) {
+      throw new Error(`remote rollback refused for unnamespaced Storyblok preset: ${preset.name}`);
+    }
+    await storyblokRequest(config, `/spaces/${config.spaceId}/presets/${existing.id}`, { method: 'DELETE' });
+    results.push({
+      action: 'delete_component_preset',
+      dry_run: false,
+      status: 'deleted',
+      name: preset.name,
+      component_technical_name: preset.component_technical_name,
+      id: existing.id
+    });
+  }
+  return results;
+}
+
 async function deleteIntegrationComponents(config, manifest, { dryRun }) {
   const names = unique([
     ...ensureArray(manifest.storyblok?.components_to_create).map((component) => component.technical_name || component.name || component),
@@ -1327,11 +1620,91 @@ async function deleteIntegrationComponents(config, manifest, { dryRun }) {
   return results;
 }
 
+async function deleteIntegrationInternalTags(config, manifest, { dryRun }) {
+  const tags = plannedInternalTags(manifest);
+  if (tags.length === 0) return [];
+  if (dryRun) {
+    return tags.map((tag) => ({
+      action: 'delete_internal_tag',
+      dry_run: true,
+      name: tag.name,
+      object_type: tag.object_type,
+      collision_policy: 'delete_only_namespaced_internal_tag'
+    }));
+  }
+
+  const existingTags = await listStoryblokInternalTags(config);
+  const results = [];
+  for (const tag of tags) {
+    const existing = existingTags.find((entry) => internalTagMatches(entry, tag));
+    if (!existing) {
+      results.push({
+        action: 'delete_internal_tag',
+        dry_run: false,
+        status: 'missing',
+        name: tag.name,
+        object_type: tag.object_type
+      });
+      continue;
+    }
+    await storyblokRequest(config, `/spaces/${config.spaceId}/internal_tags/${existing.id}`, { method: 'DELETE' });
+    results.push({
+      action: 'delete_internal_tag',
+      dry_run: false,
+      status: 'deleted',
+      name: tag.name,
+      object_type: tag.object_type,
+      id: existing.id
+    });
+  }
+  return results;
+}
+
+async function deleteIntegrationComponentGroups(config, manifest, { dryRun }) {
+  const groups = plannedComponentGroups(manifest).reverse();
+  if (groups.length === 0) return [];
+  if (dryRun) {
+    return groups.map((group) => ({
+      action: 'delete_component_group',
+      dry_run: true,
+      group_path: group.path,
+      collision_policy: 'delete_only_matching_namespaced_component_folder'
+    }));
+  }
+
+  const existingGroups = await listStoryblokComponentGroups(config);
+  const resolved = resolvePlannedComponentGroups(existingGroups, groups);
+  const results = [];
+  for (const group of groups) {
+    const existing = resolved.get(group.path);
+    if (!existing) {
+      results.push({ action: 'delete_component_group', dry_run: false, status: 'missing', group_path: group.path });
+      continue;
+    }
+    await storyblokRequest(config, `/spaces/${config.spaceId}/component_groups/${existing.id}`, { method: 'DELETE' });
+    results.push({
+      action: 'delete_component_group',
+      dry_run: false,
+      status: 'deleted',
+      group_path: group.path,
+      id: existing.id,
+      uuid: existing.uuid || null
+    });
+  }
+  return results;
+}
+
 function assertComponentMatches(existing, intended) {
   const existingComparable = comparableComponent(existing);
   const intendedComparable = comparableComponent(intended);
   if (sha256Json(existingComparable) !== sha256Json(intendedComparable)) {
     throw new Error(`Storyblok component drift detected for ${intended.name}; existing component does not match the manifest.`);
+  }
+}
+
+function assertPresetMatches(existing, intended) {
+  if (sha256Json(existing.preset || {}) !== sha256Json(intended.preset || {})) {
+    throw new Error(`Storyblok preset drift detected for ${intended.name}; existing preset does not match the manifest.`);
   }
 }
 
@@ -1360,6 +1733,21 @@ function assertRemoteRollbackIsNamespaced(manifest) {
   for (const folder of plannedAssetFolders(manifest)) {
     if (!String(folder.path).startsWith(manifest.integration_id) && !String(folder.path).startsWith(manifest.storyblok_prefix)) {
       throw new Error(`remote rollback refused for unnamespaced Storyblok asset folder: ${folder.path}`);
+    }
+  }
+  for (const group of plannedComponentGroups(manifest)) {
+    if (!String(group.path).startsWith(manifest.integration_id) && !String(group.path).startsWith(manifest.storyblok_prefix)) {
+      throw new Error(`remote rollback refused for unnamespaced Storyblok component folder: ${group.path}`);
+    }
+  }
+  for (const tag of plannedInternalTags(manifest)) {
+    if (!String(tag.name).startsWith(manifest.storyblok_prefix)) {
+      throw new Error(`remote rollback refused for unnamespaced Storyblok internal tag: ${tag.name}`);
+    }
+  }
+  for (const preset of plannedPresets(manifest)) {
+    if (!String(preset.name).startsWith(manifest.storyblok_prefix) || !String(preset.component_technical_name).startsWith(manifest.storyblok_prefix)) {
+      throw new Error(`remote rollback refused for unnamespaced Storyblok preset: ${preset.name}`);
     }
   }
 }
@@ -1408,6 +1796,17 @@ function resolvePlannedFolders(existingFolders, folders) {
     const parentId = folder.parent_path ? resolved.get(folder.parent_path)?.id : folder.parent_id || 0;
     const existing = existingFolders.find((entry) => entry.name === folder.name && Number(entry.parent_id || 0) === Number(parentId || 0));
     if (existing) resolved.set(folder.path, existing);
+  }
+  return resolved;
+}
+
+function resolvePlannedComponentGroups(existingGroups, groups) {
+  const ascending = [...groups].reverse();
+  const resolved = new Map();
+  for (const group of ascending) {
+    const parent = group.parent_path ? resolved.get(group.parent_path) : rootComponentGroupParent(group);
+    const existing = existingGroups.find((entry) => componentGroupMatches(entry, group.name, parent));
+    if (existing) resolved.set(group.path, existing);
   }
   return resolved;
 }
@@ -1476,7 +1875,8 @@ function isolateComponentSchema(sourceComponent, targetName, manifest, entry) {
     is_nestable: entry.component_type === 'nestable' || (entry.is_nestable ?? Boolean(sourceComponent.is_nestable)),
     schema,
     preview_field: entry.preview_field || sourceComponent.preview_field || 'headline',
-    component_group_id: entry.component_group_id
+    component_group_id: entry.component_group_id,
+    component_group_uuid: entry.component_group_uuid
   };
 }
 
@@ -1511,9 +1911,9 @@ async function uploadSignedAsset(signedResponse, localPath, filename, config = {
   }
 }
 
-function normalizeComponent(component) {
+function normalizeComponent(component, { componentGroupUuid = null } = {}) {
   const name = component.name || component.technical_name;
-  return {
+  const normalized = {
     name,
     display_name: component.display_name || titleFromTechnicalName(name),
     is_root: component.component_type === 'content_type' || component.is_root === true,
@@ -1522,10 +1922,12 @@ function normalizeComponent(component) {
     preview_field: component.preview_field || 'headline',
     component_group_id: component.component_group_id
   };
+  if (componentGroupUuid || component.component_group_uuid) normalized.component_group_uuid = componentGroupUuid || component.component_group_uuid;
+  return normalized;
 }
 
 function comparableComponent(component) {
-  return {
+  const comparable = {
     name: component.name || component.technical_name,
     display_name: component.display_name || titleFromTechnicalName(component.name || component.technical_name),
     is_root: Boolean(component.is_root),
@@ -1533,6 +1935,8 @@ function comparableComponent(component) {
     schema: component.schema || {},
     preview_field: component.preview_field || 'headline'
   };
+  if (component.component_group_uuid) comparable.component_group_uuid = component.component_group_uuid;
+  return comparable;
 }
 
 function defaultSchemaFor(component) {
@@ -1564,19 +1968,28 @@ function defaultSchemaFor(component) {
 function storyblokRequirements(manifest) {
   const componentCount = ensureArray(manifest.storyblok?.components_to_create).length +
     ensureArray(manifest.storyblok?.components_to_duplicate).length;
+  const componentGroupCount = plannedComponentGroups(manifest).length;
+  const internalTagCount = plannedInternalTags(manifest).length;
   const assetFolderCount = plannedAssetFolders(manifest).length;
   const assetCount = ensureArray(manifest.storyblok?.assets_to_create).length;
+  const presetCount = plannedPresets(manifest).length;
   const storyCount = ensureArray(manifest.storyblok?.stories_to_create).length;
   return {
+    component_groups: componentGroupCount > 0,
+    internal_tags: internalTagCount > 0,
     components: componentCount > 0,
     asset_folders: assetFolderCount > 0,
     assets: assetCount > 0,
+    presets: presetCount > 0,
     stories: storyCount > 0,
-    operation_count: componentCount + assetFolderCount + assetCount + storyCount,
+    operation_count: componentGroupCount + internalTagCount + componentCount + assetFolderCount + assetCount + presetCount + storyCount,
     counts: {
+      component_groups: componentGroupCount,
+      internal_tags: internalTagCount,
       components: componentCount,
       asset_folders: assetFolderCount,
       assets: assetCount,
+      presets: presetCount,
       stories: storyCount
     }
   };
@@ -1708,11 +2121,23 @@ function summarizeComponent(component) {
     technical_name: component.name,
     display_name: component.display_name,
     id: component.id,
+    component_group_uuid: component.component_group_uuid || null,
     type: component.is_root ? 'content_type' : 'nestable',
     fields: Object.keys(component.schema || {}),
     allowed_children: Object.values(component.schema || {})
       .filter((field) => field.type === 'bloks')
       .flatMap((field) => ensureArray(field.component_whitelist))
+  };
+}
+
+function summarizeComponentGroup(group, groupPath = null) {
+  return {
+    id: group.id,
+    uuid: group.uuid || null,
+    name: group.name,
+    parent_id: group.parent_id || 0,
+    parent_uuid: group.parent_uuid || null,
+    group_path: groupPath
   };
 }
 
@@ -1742,6 +2167,23 @@ function summarizeAssetFolder(folder, folderPath = null) {
     name: folder.name,
     parent_id: folder.parent_id || 0,
     folder_path: folderPath
+  };
+}
+
+function summarizeInternalTag(tag) {
+  return {
+    id: tag.id,
+    name: tag.name,
+    object_type: tag.object_type || tag.object || tag.type || null
+  };
+}
+
+function summarizePreset(preset) {
+  return {
+    id: preset.id,
+    name: preset.name,
+    component_id: preset.component_id || preset.component?.id || null,
+    preset_hash: sha256Json(preset.preset || {})
   };
 }
 
@@ -1779,6 +2221,137 @@ function lastSlugSegment(slug) {
 async function resolveAssetFolderIds(manifest, { env = process.env } = {}) {
   const folders = await createStoryblokAssetFolders(manifest, { env });
   return new Map(folders.filter((folder) => folder.id).map((folder) => [folder.folder_path, folder.id]));
+}
+
+async function resolveComponentGroupUuids(manifest, { env = process.env, componentGroupResults = null } = {}) {
+  const results = componentGroupResults || await createStoryblokComponentGroups(manifest, { env });
+  return new Map(results
+    .filter((group) => group.group_path && (group.uuid || group.verification?.uuid))
+    .map((group) => [group.group_path, group.uuid || group.verification.uuid]));
+}
+
+async function resolveComponentIds(manifest, { env = process.env, componentResults = null, config = null } = {}) {
+  const resultMap = new Map(ensureArray(componentResults)
+    .filter((result) => result?.technical_name && result?.id)
+    .map((result) => [result.technical_name, result.id]));
+  const missing = plannedPresets(manifest)
+    .map((preset) => preset.component_technical_name)
+    .filter((name) => name && !resultMap.has(name));
+  if (missing.length === 0) return resultMap;
+
+  const resolvedConfig = config || getStoryblokConfig(env);
+  const components = await listStoryblokComponents(resolvedConfig);
+  for (const component of components) {
+    if (component.name && component.id && missing.includes(component.name)) {
+      resultMap.set(component.name, component.id);
+    }
+  }
+  return resultMap;
+}
+
+function plannedComponentGroups(manifest) {
+  const explicit = ensureArray(manifest.storyblok?.component_groups_to_create);
+  const fromComponents = ensureArray(manifest.storyblok?.components_to_create)
+    .map((component) => component.component_group_path || component.component_group)
+    .filter(Boolean)
+    .map((groupPath) => ({ path: groupPath }));
+  const planned = [];
+  const seen = new Set();
+  for (const entry of [...explicit, ...fromComponents]) {
+    for (const group of expandComponentGroup(entry)) {
+      if (seen.has(group.path)) continue;
+      seen.add(group.path);
+      planned.push(group);
+    }
+  }
+  return planned.sort((left, right) => left.path.split('/').length - right.path.split('/').length || left.path.localeCompare(right.path));
+}
+
+function expandComponentGroup(entry) {
+  const groupPath = String(entry.path || entry.name || entry.component_group_path || entry || '').replace(/^\/+|\/+$/g, '');
+  if (!groupPath) return [];
+  const parts = groupPath.split('/').filter(Boolean);
+  return parts.map((part, index) => ({
+    path: parts.slice(0, index + 1).join('/'),
+    name: index === parts.length - 1 && entry.name ? entry.name : part,
+    parent_path: index > 0 ? parts.slice(0, index).join('/') : null,
+    parent_id: index === 0 ? entry.parent_id || 0 : undefined,
+    parent_uuid: index === 0 ? entry.parent_uuid || null : undefined
+  }));
+}
+
+function rootComponentGroupParent(group) {
+  return {
+    id: group.parent_id || 0,
+    uuid: group.parent_uuid || null
+  };
+}
+
+function componentGroupPayload(group, parent) {
+  const payload = {
+    name: group.name
+  };
+  const parentUuid = parent?.uuid || group.parent_uuid;
+  const parentId = parent?.id || group.parent_id;
+  if (parentUuid) payload.parent_uuid = parentUuid;
+  else if (parentId) payload.parent_id = parentId;
+  return payload;
+}
+
+function componentGroupMatches(entry, name, parent) {
+  if (entry.name !== name) return false;
+  const parentUuid = parent?.uuid || null;
+  const parentId = Number(parent?.id || 0);
+  if (parentUuid) return entry.parent_uuid === parentUuid;
+  return Number(entry.parent_id || 0) === parentId;
+}
+
+function plannedInternalTags(manifest) {
+  const seen = new Set();
+  const tags = [];
+  for (const entry of ensureArray(manifest.storyblok?.internal_tags_to_create)) {
+    const tag = normalizeInternalTag(entry);
+    const key = `${tag.object_type}:${tag.name}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    tags.push(tag);
+  }
+  return tags;
+}
+
+function normalizeInternalTag(entry) {
+  return {
+    name: String(entry.name || entry.tag || entry || ''),
+    object_type: String(entry.object_type || entry.object || entry.type || 'component')
+  };
+}
+
+function internalTagMatches(entry, tag) {
+  return entry.name === tag.name && String(entry.object_type || entry.object || entry.type || 'component') === tag.object_type;
+}
+
+function plannedPresets(manifest) {
+  const seen = new Set();
+  const presets = [];
+  for (const entry of ensureArray(manifest.storyblok?.presets_to_create)) {
+    const componentTechnicalName = entry.component_technical_name || entry.component || entry.technical_name;
+    const name = String(entry.name || `${componentTechnicalName}_default`);
+    const preset = entry.preset || entry.content || entry.default_values || {};
+    const key = `${componentTechnicalName}:${name}`;
+    if (!componentTechnicalName || seen.has(key)) continue;
+    seen.add(key);
+    presets.push({
+      name,
+      component_technical_name: String(componentTechnicalName),
+      preset
+    });
+  }
+  return presets;
+}
+
+function presetMatches(entry, intended) {
+  return String(entry.name || '') === intended.name &&
+    Number(entry.component_id || entry.component?.id || 0) === Number(intended.component_id || 0);
 }
 
 function plannedAssetFolders(manifest) {

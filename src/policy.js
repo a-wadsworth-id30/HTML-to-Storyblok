@@ -35,9 +35,12 @@ export function createDefaultManifest({
       assets_to_create: []
     },
     storyblok: {
+      component_groups_to_create: [],
       components_to_create: [],
       components_to_duplicate: [],
       existing_components_reused: [],
+      internal_tags_to_create: [],
+      presets_to_create: [],
       stories_to_create: [],
       stories_to_modify: [],
       asset_folders_to_create: [],
@@ -216,6 +219,23 @@ export function validatePlan(manifest) {
   }
 
   for (const component of ensureArray(manifest.storyblok?.components_to_create)) {
+    const groupPath = component.component_group_path || component.component_group;
+    if (groupPath && !isSafeStorySlug(groupPath)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_component',
+        resource: component.technical_name || component.name,
+        reason: 'Storyblok component group path must be a safe relative path.'
+      });
+    }
+    if (groupPath && !String(groupPath).startsWith(manifest.integration_id) && !String(groupPath).startsWith(manifest.storyblok_prefix)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_component',
+        resource: component.technical_name || component.name,
+        reason: 'Storyblok component group path must be namespaced by integration ID or Storyblok prefix.'
+      });
+    }
     for (const nestedName of nestedComponentWhitelists(component.schema)) {
       if (!String(nestedName).startsWith(manifest.storyblok_prefix)) {
         violations.push({
@@ -226,6 +246,99 @@ export function validatePlan(manifest) {
         });
       }
     }
+  }
+
+  const componentGroupPaths = ensureArray(manifest.storyblok?.component_groups_to_create).map((group) => group.path || group.name || group);
+  for (const groupPath of componentGroupPaths) {
+    if (!isSafeStorySlug(groupPath) || (!String(groupPath).startsWith(`${manifest.integration_id}`) && !String(groupPath).startsWith(`${manifest.storyblok_prefix}`))) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_component_group',
+        resource: groupPath || 'component_group',
+        reason: 'Storyblok component folder paths must be safe and namespaced by integration ID or Storyblok prefix.'
+      });
+    }
+  }
+  for (const groupPath of findDuplicates(componentGroupPaths)) {
+    violations.push({
+      operation: 'create',
+      resource_type: 'storyblok_component_group',
+      resource: groupPath,
+      reason: 'Duplicate Storyblok component folder path in manifest.'
+    });
+  }
+
+  const internalTags = ensureArray(manifest.storyblok?.internal_tags_to_create)
+    .map((tag) => ({
+      name: tag.name || tag.tag || tag,
+      object_type: tag.object_type || tag.object || tag.type || 'component'
+    }));
+  for (const tag of internalTags) {
+    if (!String(tag.name || '').startsWith(manifest.storyblok_prefix)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_internal_tag',
+        resource: tag.name || 'internal_tag',
+        reason: 'Storyblok internal tag names must be namespaced with the integration prefix.'
+      });
+    }
+    if (!['asset', 'component'].includes(String(tag.object_type || ''))) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_internal_tag',
+        resource: tag.name || 'internal_tag',
+        reason: 'Storyblok internal tag object_type must be asset or component.'
+      });
+    }
+  }
+  for (const duplicateTag of findDuplicates(internalTags.map((tag) => `${tag.object_type}:${tag.name}`))) {
+    violations.push({
+      operation: 'create',
+      resource_type: 'storyblok_internal_tag',
+      resource: duplicateTag,
+      reason: 'Duplicate Storyblok internal tag in manifest.'
+    });
+  }
+
+  const presetKeys = [];
+  for (const preset of ensureArray(manifest.storyblok?.presets_to_create)) {
+    const componentName = preset.component_technical_name || preset.component || preset.technical_name;
+    const presetName = preset.name || `${componentName}_default`;
+    presetKeys.push(`${componentName}:${presetName}`);
+    if (!String(presetName || '').startsWith(manifest.storyblok_prefix)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_preset',
+        resource: presetName || 'preset',
+        reason: 'Storyblok preset names must be namespaced with the integration prefix.'
+      });
+    }
+    if (!String(componentName || '').startsWith(manifest.storyblok_prefix)) {
+      violations.push({
+        operation: 'create',
+        resource_type: 'storyblok_preset',
+        resource: componentName || 'component',
+        reason: 'Storyblok presets may only target integration-owned components.'
+      });
+    }
+    for (const componentReference of storyComponentNames(preset.preset || preset.content || preset.default_values || {})) {
+      if (!String(componentReference).startsWith(manifest.storyblok_prefix)) {
+        violations.push({
+          operation: 'create',
+          resource_type: 'storyblok_preset',
+          resource: presetName || 'preset',
+          reason: `Storyblok preset content contains unnamespaced component: ${componentReference}`
+        });
+      }
+    }
+  }
+  for (const duplicatePreset of findDuplicates(presetKeys)) {
+    violations.push({
+      operation: 'create',
+      resource_type: 'storyblok_preset',
+      resource: duplicatePreset,
+      reason: 'Duplicate Storyblok preset in manifest.'
+    });
   }
 
   const storySlugs = ensureArray(manifest.storyblok?.stories_to_create).map((story) => story.slug || story.full_slug);

@@ -321,6 +321,8 @@ export async function createDashboardModel({
     last_integration: manifest?.integration_id || null,
     validation: validation ? validation.valid ? 'Passed' : 'Failed' : 'Not run',
     pending_draft_stories: count(manifest?.storyblok?.stories_to_create),
+    generated_component_groups: count(manifest?.storyblok?.component_groups_to_create),
+    generated_presets: count(manifest?.storyblok?.presets_to_create),
     generated_components: componentResult ? count(componentResult) : count(manifest?.storyblok?.components_to_create),
     assets_uploaded: assetsResult ? count(assetsResult) : 0
   };
@@ -605,6 +607,7 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
     ['Storyblok Prefix', storyblokPrefix, 'success'],
     ['Repository Namespace', repositoryNamespace, 'success'],
     ['CSS Root', `.hts-${integrationId}-root`, 'success'],
+    ['Storyblok Folder', integrationId, 'success'],
     ['Storyblok Components', `${storyblokPrefix}hero`, 'success'],
     ['Draft Stories', `${draftStoryCount} under ${integrationId}/`, 'success']
   ]);
@@ -711,6 +714,7 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
     ['Storyblok Prefix', storyblokPrefix, 'success'],
     ['Repository Output', 'Skipped for this test', 'warning'],
     ['Repository Namespace', repositoryNamespace, 'warning'],
+    ['Storyblok Folder', integrationId, 'success'],
     ['Storyblok Components', `${storyblokPrefix}hero`, 'success'],
     ['Draft Stories', `${draftStoryCount} under ${integrationId}/`, 'success']
   ]);
@@ -1205,7 +1209,10 @@ function renderManifestApplyPreview(terminal, manifest) {
   terminal.panel('Apply Preview Diff', [
     ['Repository Files', count(manifest.repository?.files_to_create), count(manifest.repository?.files_to_create) ? 'success' : 'warning'],
     ['Repository Assets', count(manifest.repository?.assets_to_create), count(manifest.repository?.assets_to_create) ? 'success' : 'warning'],
+    ['Component Folders', count(manifest.storyblok?.component_groups_to_create), count(manifest.storyblok?.component_groups_to_create) ? 'success' : 'warning'],
+    ['Internal Tags', count(manifest.storyblok?.internal_tags_to_create), count(manifest.storyblok?.internal_tags_to_create) ? 'success' : 'warning'],
     ['Storyblok Components', count(manifest.storyblok?.components_to_create) + count(manifest.storyblok?.components_to_duplicate), 'success'],
+    ['Presets', count(manifest.storyblok?.presets_to_create), count(manifest.storyblok?.presets_to_create) ? 'success' : 'warning'],
     ['Asset Folders', count(manifest.storyblok?.asset_folders_to_create), count(manifest.storyblok?.asset_folders_to_create) ? 'success' : 'warning'],
     ['Assets', count(manifest.storyblok?.assets_to_create), count(manifest.storyblok?.assets_to_create) ? 'success' : 'warning'],
     ['Draft Stories', count(manifest.storyblok?.stories_to_create), count(manifest.storyblok?.stories_to_create) ? 'success' : 'warning'],
@@ -1220,7 +1227,10 @@ async function renderInteractiveRollbackPreview({ terminal, config, manifest, an
   });
   terminal.panel('Rollback Preview', [
     ['Repository Files', count(preview.repository_files_to_remove), count(preview.repository_files_to_remove) ? 'warning' : 'success'],
+    ['Component Folders', count(preview.storyblok_component_groups_to_remove), count(preview.storyblok_component_groups_to_remove) ? 'warning' : 'success'],
+    ['Internal Tags', count(preview.storyblok_internal_tags_to_remove), count(preview.storyblok_internal_tags_to_remove) ? 'warning' : 'success'],
     ['Storyblok Components', count(preview.storyblok_components_to_remove), count(preview.storyblok_components_to_remove) ? 'warning' : 'success'],
+    ['Storyblok Presets', count(preview.storyblok_presets_to_remove), count(preview.storyblok_presets_to_remove) ? 'warning' : 'success'],
     ['Storyblok Stories', count(preview.storyblok_stories_to_remove), count(preview.storyblok_stories_to_remove) ? 'warning' : 'success'],
     ['Storyblok Assets', count(preview.storyblok_assets_to_remove), count(preview.storyblok_assets_to_remove) ? 'warning' : 'success'],
     ['Mode', 'Preview only', 'success']
@@ -1304,7 +1314,7 @@ async function createResumeModel(workDir, manifest) {
   const failed = [...evidence].reverse().find((entry) => entry.type === 'command_failed');
   const latestApply = applyResult || storyblokApplyResult || null;
   const completedSteps = count(latestApply?.steps);
-  const plannedSteps = latestApply?.action === 'apply_manifest' ? 8 : latestApply?.action === 'apply_storyblok_only' ? 5 : 0;
+  const plannedSteps = latestApply?.action === 'apply_manifest' ? 11 : latestApply?.action === 'apply_storyblok_only' ? 8 : 0;
   const validationStatus = planValidation ? planValidation.valid ? 'Passed' : 'Failed' : manifest.validation?.valid ? 'Passed' : 'Not run';
   const contentStatus = storyblokContentValidation?.status || latestStoryblokContentStep(latestApply)?.status || 'Not run';
   const failedStep = failed?.message || failedStepFromApply(latestApply);
@@ -1350,7 +1360,9 @@ function renderDashboard(terminal, model) {
     ['Last Integration', model.last_integration || 'None', model.last_integration ? 'success' : 'warning'],
     ['Validation', model.validation, model.validation === 'Passed' ? 'success' : model.validation === 'Failed' ? 'error' : 'warning'],
     ['Pending Draft Stories', model.pending_draft_stories],
+    ['Component Folders', model.generated_component_groups],
     ['Generated Components', model.generated_components],
+    ['Generated Presets', model.generated_presets],
     ['Assets Uploaded', model.assets_uploaded]
   ]);
 }
@@ -1431,7 +1443,9 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
     const manifest = report.artifacts.find((artifact) => artifact.type === 'integration_manifest');
     terminal.panel('Rollback Targets', [
       ['Repository Files', manifest?.repository_files || 0, manifest?.repository_files ? 'warning' : 'success'],
+      ['Component Folders', manifest?.storyblok_component_groups || 0, manifest?.storyblok_component_groups ? 'warning' : 'success'],
       ['Storyblok Components', manifest?.storyblok_components || 0, manifest?.storyblok_components ? 'warning' : 'success'],
+      ['Storyblok Presets', manifest?.storyblok_presets || 0, manifest?.storyblok_presets ? 'warning' : 'success'],
       ['Storyblok Stories', manifest?.storyblok_stories || 0, manifest?.storyblok_stories ? 'warning' : 'success'],
       ['Storyblok Assets', manifest?.storyblok_assets || 0, manifest?.storyblok_assets ? 'warning' : 'success'],
       ['Mode', 'Preview before confirmed rollback', 'success']
@@ -1488,8 +1502,12 @@ function renderStoryblokSummary(terminal, storyblok, config, env = process.env) 
     ['Preview API', access.storyblok_content.ready || storyblok.preview_api_available ? 'Available' : 'Not configured', access.storyblok_content.ready || storyblok.preview_api_available ? 'success' : 'warning'],
     ['Region', String(region).toUpperCase()],
     ['Space', storyblok.space?.id || env.STORYBLOK_SPACE_ID || env.SB_SPACE_ID || 'Not configured', storyblok.space?.id || env.STORYBLOK_SPACE_ID || env.SB_SPACE_ID ? 'success' : 'warning'],
+    ['Component Folders', storyblok.component_groups ? count(storyblok.component_groups) : 'Not queried'],
     ['Components', storyblok.components ? count(storyblok.components) : 'Not queried'],
     ['Stories', storyblok.stories ? count(storyblok.stories) : 'Not queried'],
+    ['Asset Folders', storyblok.asset_folders ? count(storyblok.asset_folders) : 'Not queried'],
+    ['Internal Tags', storyblok.internal_tags ? count(storyblok.internal_tags) : 'Not queried'],
+    ['Presets', storyblok.presets ? count(storyblok.presets) : 'Not queried'],
     ['Assets', storyblok.assets ? count(storyblok.assets) : 'Not queried']
   ]);
 }
@@ -1497,7 +1515,10 @@ function renderStoryblokSummary(terminal, storyblok, config, env = process.env) 
 function renderStoryblokPreflightSummary(terminal, preflight) {
   terminal.panel('Storyblok Preflight', [
     ['Status', preflight.status, preflight.status === 'passed' || preflight.status === 'skipped' ? 'success' : 'error'],
+    ['Component Folders', preflight.requirements?.counts?.component_groups || 0],
+    ['Internal Tags', preflight.requirements?.counts?.internal_tags || 0],
     ['Components', preflight.requirements?.counts?.components || 0],
+    ['Presets', preflight.requirements?.counts?.presets || 0],
     ['Asset Folders', preflight.requirements?.counts?.asset_folders || 0],
     ['Assets', preflight.requirements?.counts?.assets || 0],
     ['Stories', preflight.requirements?.counts?.stories || 0],
@@ -1531,7 +1552,9 @@ function renderTemplateSummary(terminal, template) {
 function renderPlanSummary(terminal, manifest) {
   terminal.panel('Plan Summary', [
     ['Repository', `${count(manifest.repository?.files_to_create)} files to create`, 'success'],
+    ['Storyblok Folders', count(manifest.storyblok?.component_groups_to_create), 'success'],
     ['Storyblok Components', count(manifest.storyblok?.components_to_create), 'success'],
+    ['Storyblok Presets', count(manifest.storyblok?.presets_to_create), count(manifest.storyblok?.presets_to_create) ? 'success' : 'warning'],
     ['Draft Stories', count(manifest.storyblok?.stories_to_create), 'success'],
     ['Storyblok Assets', count(manifest.storyblok?.assets_to_create), 'success'],
     ['Netlify', 'No changes', 'success'],
@@ -1545,7 +1568,10 @@ function renderApplyPreviewDiff(terminal, result) {
   terminal.panel('Apply Preview Diff', [
     ['Repository Files', summary.repository_files, summary.repository_files ? 'success' : 'warning'],
     ['Repository Assets', summary.repository_assets, summary.repository_assets ? 'success' : 'warning'],
+    ['Component Folders', summary.component_groups, summary.component_groups ? 'success' : 'warning'],
+    ['Internal Tags', summary.internal_tags, summary.internal_tags ? 'success' : 'warning'],
     ['Storyblok Components', summary.storyblok_components, summary.storyblok_components ? 'success' : 'warning'],
+    ['Presets', summary.presets, summary.presets ? 'success' : 'warning'],
     ['Asset Folders', summary.asset_folders, summary.asset_folders ? 'success' : 'warning'],
     ['Assets', summary.assets, summary.assets ? 'success' : 'warning'],
     ['Draft Stories', summary.draft_stories, summary.draft_stories ? 'success' : 'warning'],
@@ -1556,7 +1582,10 @@ function renderApplyPreviewDiff(terminal, result) {
 function renderStoryblokOnlyPlanSummary(terminal, manifest) {
   terminal.panel('Storyblok Plan Summary', [
     ['Repository', 'Skipped for this test', 'warning'],
+    ['Component Folders', count(manifest.storyblok?.component_groups_to_create), 'success'],
+    ['Internal Tags', count(manifest.storyblok?.internal_tags_to_create), count(manifest.storyblok?.internal_tags_to_create) ? 'success' : 'warning'],
     ['Storyblok Components', count(manifest.storyblok?.components_to_create), 'success'],
+    ['Presets', count(manifest.storyblok?.presets_to_create), count(manifest.storyblok?.presets_to_create) ? 'success' : 'warning'],
     ['Asset Folders', count(manifest.storyblok?.asset_folders_to_create), 'success'],
     ['Storyblok Assets', count(manifest.storyblok?.assets_to_create), 'success'],
     ['Draft Stories', count(manifest.storyblok?.stories_to_create), 'success'],
@@ -1588,7 +1617,9 @@ function renderCompletion(terminal, result, reportPath) {
     ['Updated', result.dry_run ? 'Dry run only' : 'Yes', result.dry_run ? 'warning' : 'success']
   ]);
   terminal.panel('Storyblok', [
+    ['Component Folders', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success'],
     ['Components Created', 'Completed', 'success'],
+    ['Presets Created', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success'],
     ['Assets Uploaded', 'Completed', 'success'],
     ['Draft Story Created', 'Completed', 'success']
   ]);
@@ -1606,7 +1637,9 @@ function renderStoryblokOnlyCompletion(terminal, result, reportPath) {
     ['Updated', 'No', 'warning']
   ]);
   terminal.panel('Storyblok', [
+    ['Component Folders', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success'],
     ['Components Created', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success'],
+    ['Presets Created', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success'],
     ['Assets Uploaded', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success'],
     ['Draft Story Created', result.dry_run ? 'Dry run only' : 'Completed', result.dry_run ? 'warning' : 'success']
   ]);
@@ -1636,7 +1669,10 @@ function summarizeApplyResult(result) {
   return {
     repository_files: count(generateStep?.files_created || generateStep?.repository_files),
     repository_assets: count(duplicateStep?.repository_assets),
+    component_groups: flatResults.filter((entry) => entry?.action === 'create_component_group').length,
+    internal_tags: flatResults.filter((entry) => entry?.action === 'create_internal_tag').length,
     storyblok_components: flatResults.filter((entry) => entry?.action === 'create_component' || entry?.action === 'duplicate_storyblok_component').length,
+    presets: flatResults.filter((entry) => entry?.action === 'create_component_preset').length,
     asset_folders: flatResults.filter((entry) => entry?.action === 'create_asset_folder').length,
     assets: flatResults.filter((entry) => entry?.action === 'upload_asset').length,
     draft_stories: draftStories.length,
@@ -1808,7 +1844,7 @@ function storyblokArtifactSummary(artifact) {
     return `${artifact.status}; ${artifact.stories || 0} stories; ${artifact.unresolved_generated_story_links || 0} unresolved links`;
   }
   if (artifact.type === 'storyblok_apply_result' || artifact.type === 'apply_result') {
-    return `${artifact.draft_stories_created_or_reused || 0} stories; ${artifact.assets_created_or_reused || 0} assets`;
+    return `${artifact.component_groups_created_or_reused || 0} folders; ${artifact.components_created_or_reused || 0} components; ${artifact.presets_created_or_reused || 0} presets; ${artifact.assets_created_or_reused || 0} assets; ${artifact.draft_stories_created_or_reused || 0} stories`;
   }
   return artifact.status || 'recorded';
 }

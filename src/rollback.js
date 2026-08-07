@@ -27,10 +27,13 @@ export function createRollbackPreview(manifest, { repoPath = process.cwd() } = {
       `${manifest.repository_namespace}/styles`,
       manifest.repository_namespace
     ],
+    storyblok_component_groups_to_remove: ensureArray(manifest.storyblok?.component_groups_to_create).map((group) => group.path || group.name || group),
+    storyblok_internal_tags_to_remove: ensureArray(manifest.storyblok?.internal_tags_to_create).map((tag) => tag.name || tag.tag || tag),
     storyblok_components_to_remove: [
       ...ensureArray(manifest.storyblok?.components_to_create),
       ...ensureArray(manifest.storyblok?.components_to_duplicate)
     ].map((component) => component.technical_name || component.name || component),
+    storyblok_presets_to_remove: ensureArray(manifest.storyblok?.presets_to_create).map((preset) => preset.name || preset.component_technical_name || preset.component),
     storyblok_stories_to_remove: ensureArray(manifest.storyblok?.stories_to_create).map((story) => story.slug || story.full_slug),
     storyblok_assets_to_remove: ensureArray(manifest.storyblok?.assets_to_create).map((asset) => asset.id || asset.filename || asset.local_path),
     remote_rollback: 'manual_or_future_confirmed_remote_operation',
@@ -101,7 +104,10 @@ export async function rollbackIntegration(manifest, {
     directories_pruned: prunedDirectories,
     remote_rollback: remoteRollback,
     remote_resources_not_removed: remote ? null : {
+      storyblok_component_groups: preview.storyblok_component_groups_to_remove,
+      storyblok_internal_tags: preview.storyblok_internal_tags_to_remove,
       storyblok_components: preview.storyblok_components_to_remove,
+      storyblok_presets: preview.storyblok_presets_to_remove,
       storyblok_stories: preview.storyblok_stories_to_remove,
       storyblok_assets: preview.storyblok_assets_to_remove,
       reason: 'Pass --remote --confirm-remote-delete to delete integration-owned Storyblok draft resources.'

@@ -177,6 +177,54 @@ test('unnamespaced Storyblok asset folder paths are rejected', () => {
   assert.match(result.violations.at(-1).reason, /asset folder paths must be safe and namespaced/);
 });
 
+test('unnamespaced Storyblok component folders are rejected', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.component_groups_to_create.push({ path: 'shared-components' });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.match(result.violations.at(-1).reason, /component folder paths must be safe and namespaced/);
+});
+
+test('Storyblok internal tags must be namespaced and use supported object types', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.internal_tags_to_create.push({ name: 'shared', object_type: 'story' });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.ok(result.violations.some((violation) => /internal tag names/.test(violation.reason)));
+  assert.ok(result.violations.some((violation) => /object_type must be asset or component/.test(violation.reason)));
+});
+
+test('Storyblok presets must target integration-owned components', () => {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.presets_to_create.push({
+    name: 'shared_hero_default',
+    component_technical_name: 'shared_hero',
+    preset: {
+      component: 'shared_hero'
+    }
+  });
+
+  const result = validatePlan(manifest);
+  assert.equal(result.valid, false);
+  assert.ok(result.violations.some((violation) => /preset names must be namespaced/.test(violation.reason)));
+  assert.ok(result.violations.some((violation) => /only target integration-owned components/.test(violation.reason)));
+  assert.ok(result.violations.some((violation) => /preset content contains unnamespaced component/.test(violation.reason)));
+});
+
 test('generator produces isolated files inside repository namespace', () => {
   const manifest = createDefaultManifest({
     integrationId: 'acme-homepage-v1',
