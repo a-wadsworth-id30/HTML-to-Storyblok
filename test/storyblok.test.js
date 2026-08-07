@@ -462,6 +462,7 @@ test('createDraftStories creates one integration folder before imported draft st
 
   assert.equal(result[0].status, 'created');
   assert.equal(result[0].slug, 'acme-homepage-v1/home');
+  assert.equal(result[0].editor_url, 'https://app.storyblok.com/#/me/spaces/12345/stories/0/0/457');
   assert.equal(result[0].folder_results[0].status, 'created');
   assert.equal(calls.filter((call) => call.options.method === 'POST').length, 2);
   restoreFetch();

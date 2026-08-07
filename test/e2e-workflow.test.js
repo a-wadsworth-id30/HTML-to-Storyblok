@@ -43,6 +43,47 @@ test('CLI runs the safe local import workflow from plan through rollback', async
   const planValidation = JSON.parse(planValidationOutput);
   assert.equal(planValidation.valid, true);
 
+  const summaryValidationOutput = await captureStdout(() => runCli([
+    'validate-plan',
+    '--manifest',
+    manifestPath,
+    '--json-summary',
+    '--work-dir',
+    workDir
+  ]));
+  const summaryValidation = JSON.parse(summaryValidationOutput);
+  assert.equal(summaryValidation.command, 'validate-plan');
+  assert.equal(summaryValidation.status, 'passed');
+  assert.equal(summaryValidation.plan_valid, true);
+
+  const warningValidationOutput = await captureStdout(() => runCli([
+    'validate-plan',
+    '--manifest',
+    manifestPath,
+    '--severity',
+    'warning',
+    '--work-dir',
+    workDir
+  ]));
+  const warningValidation = JSON.parse(warningValidationOutput);
+  assert.equal(warningValidation.severity_filter, 'warning');
+  assert.equal(warningValidation.violation_counts.warning, 0);
+
+  const examplesOutput = await captureStdout(() => runCli([
+    'examples',
+    '--manifest',
+    manifestPath,
+    '--repo',
+    repoPath,
+    '--template',
+    templatePath,
+    '--work-dir',
+    workDir
+  ]));
+  const examples = JSON.parse(examplesOutput);
+  assert.equal(examples.action, 'command_examples');
+  assert.ok(examples.examples.some((example) => example.includes('storyblok-apply')));
+
   const dryRunApplyOutput = await captureStdout(() => runCli([
     'apply',
     '--manifest',

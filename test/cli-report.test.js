@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -44,6 +44,13 @@ test('report summarizes manifest, validation, and command failure evidence', asy
   assert.equal(report.latest_validation.status, 'passed');
   assert.ok(report.artifacts.some((artifact) => artifact.type === 'integration_manifest'));
   assert.doesNotMatch(JSON.stringify(report), /secret-token/);
+
+  const htmlReportOutput = await captureStdout(async () => {
+    await main(['node', 'html-to-storyblok', 'report', '--html', '--work-dir', workDir]);
+  });
+  const htmlReport = JSON.parse(htmlReportOutput);
+  assert.match(htmlReport.html_report, /report\.html$/);
+  assert.match(await readFile(htmlReport.html_report, 'utf8'), /HTML-to-Storyblok Report/);
 });
 
 test('report surfaces skipped duplication diagnostics from the manifest', async () => {

@@ -18,6 +18,14 @@ const CONTENT_BASE_URLS = {
   cn: 'https://app.storyblokchina.cn/v2/cdn'
 };
 
+const STORYBLOK_APP_BASE_URLS = {
+  eu: 'https://app.storyblok.com',
+  us: 'https://app.storyblok.com',
+  ca: 'https://app.storyblok.com',
+  ap: 'https://app.storyblok.com',
+  cn: 'https://app.storyblokchina.cn'
+};
+
 const DEFAULT_STORYBLOK_RETRY_LIMIT = 6;
 const DEFAULT_STORYBLOK_RETRY_BASE_MS = 1000;
 const DEFAULT_STORYBLOK_RETRY_MAX_MS = 8000;
@@ -482,6 +490,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
           slug: updated.full_slug || entry.existing.full_slug || entry.story.slug,
           id: updated.id || entry.existing.id || null,
           uuid: updated.uuid || entry.existing.uuid || null,
+          editor_url: storyblokEditorUrl(config, updated.id || entry.existing.id),
           published: Boolean(updated.published_at || entry.existing.published_at),
           link_resolution: 'story_uuid_hydrated',
           link_summary: summarizeStoryLinks(resolvedContent, storyReferences),
@@ -496,6 +505,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
         slug: entry.existing.full_slug || entry.story.slug,
         id: entry.existing.id || null,
         uuid: entry.existing.uuid || null,
+        editor_url: storyblokEditorUrl(config, entry.existing.id),
         published: Boolean(entry.existing.published_at),
         link_resolution: match.metadata_only_difference ? 'existing_story_left_unchanged' : 'already_hydrated',
         link_summary: summarizeStoryLinks(entry.existing.content || resolvedContent, storyReferences),
@@ -517,6 +527,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
       slug: remote?.full_slug || entry.created?.full_slug || entry.story.slug,
       id: remote?.id || entry.created?.id || null,
       uuid: remote?.uuid || entry.created?.uuid || null,
+      editor_url: storyblokEditorUrl(config, remote?.id || entry.created?.id),
       published: Boolean(remote?.published_at || entry.created?.published_at),
       folder_results: entry.folder_results,
       link_resolution: linkResolution,
@@ -1714,6 +1725,12 @@ function draftStoryPayload(story, target, content) {
     },
     publish: false
   };
+}
+
+function storyblokEditorUrl(config, storyId) {
+  if (!config?.spaceId || !storyId) return null;
+  const baseUrl = STORYBLOK_APP_BASE_URLS[config.region] || STORYBLOK_APP_BASE_URLS.eu;
+  return `${baseUrl}/#/me/spaces/${config.spaceId}/stories/0/0/${storyId}`;
 }
 
 async function updateDraftStoryContent(config, story, target, content, existing) {

@@ -62,3 +62,20 @@ test('loadEnvironment merges cwd and repository .env files without overriding sh
   assert.equal(result.files_loaded.length, 3);
   assert.deepEqual(result.variables_loaded, ['NETLIFY_SITE_ID', 'STORYBLOK_REGION', 'STORYBLOK_SPACE_ID']);
 });
+
+test('loadEnvironment uses non-secret Storyblok profile defaults when env files omit them', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'hts-env-profile-'));
+
+  const result = await loadEnvironment({
+    cwd: root,
+    env: {},
+    config: {
+      storyblok_region: 'us',
+      storyblok_space_id: 'profile-space'
+    }
+  });
+
+  assert.equal(result.env.STORYBLOK_REGION, 'us');
+  assert.equal(result.env.STORYBLOK_SPACE_ID, 'profile-space');
+  assert.deepEqual(result.files_loaded, []);
+});

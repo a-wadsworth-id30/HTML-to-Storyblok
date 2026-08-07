@@ -33,6 +33,9 @@ export async function loadEnvironment({
   if (!merged.STORYBLOK_REGION && config.storyblok_region) {
     merged.STORYBLOK_REGION = config.storyblok_region;
   }
+  if (!merged.STORYBLOK_SPACE_ID && !merged.SB_SPACE_ID && config.storyblok_space_id) {
+    merged.STORYBLOK_SPACE_ID = config.storyblok_space_id;
+  }
 
   return {
     env: merged,

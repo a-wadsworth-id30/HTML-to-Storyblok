@@ -10,7 +10,7 @@ import { runDashboard, runDoctorCommand, runInteractiveApp, runReportViewer, run
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlify.js';
 import { validatePlan } from './policy.js';
-import { createReport } from './reporter.js';
+import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
@@ -36,7 +36,7 @@ const MUTATING_COMMANDS = new Set([
 ]);
 
 export async function main(argv) {
-  const command = commandName(argv);
+  const command = normalizeCommand(commandName(argv));
   const args = parseArgs(argv);
   const workDir = String(args.work_dir || DEFAULT_WORK_DIR);
   await ensureWorkDir(workDir);
@@ -160,6 +160,7 @@ export async function main(argv) {
     } else if (command === 'validate-plan') {
       const manifest = await readJson(requireOption(args, 'manifest'));
       result = validatePlan(manifest);
+      if (args.severity) result = filterValidationBySeverity(result, String(args.severity));
       await writeArtifact(workDir, 'plan-validation.json', result);
       if (!result.valid) process.exitCode = 2;
     } else if (command === 'storyblok-preflight') {
@@ -222,7 +223,13 @@ export async function main(argv) {
         printJson = false;
       } else {
         result = await createReport(workDir);
+        if (args.html) {
+          result.html_report = await writeHtmlReport(workDir, result);
+        }
       }
+    } else if (command === 'examples') {
+      const manifest = args.manifest ? await readJson(requireOption(args, 'manifest')) : await readJson(`${workDir}/integration-manifest.json`);
+      result = createCommandExamples(manifest, { workDir, repoPath: args.repo ? String(args.repo) : '<repo-path>', templatePath: args.template ? String(args.template) : manifest.template?.source_path || '<template-path>' });
     } else if (command === 'storyblok-components') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await createStoryblokComponents(manifest, { dryRun: Boolean(args.dry_run), env });
@@ -339,8 +346,10 @@ export async function main(argv) {
       type: 'command_failed',
       command,
       exit_code: process.exitCode || 1,
+      error_code: errorCodeFor(error, command),
       message: redactMessage(error.message || String(error))
     });
+    error.code ||= errorCodeFor(error, command);
     throw error;
   }
 
@@ -349,7 +358,22 @@ export async function main(argv) {
     command,
     exit_code: process.exitCode || 0
   });
-  if (printJson) console.log(JSON.stringify(result, null, 2));
+  if (printJson) console.log(JSON.stringify(args.json_summary ? summarizeCommandResult(command, result) : result, null, 2));
+}
+
+function normalizeCommand(command) {
+  const aliases = {
+    'sb-audit': 'storyblok-audit',
+    'sb-reconcile': 'storyblok-reconcile',
+    'sb-verify': 'storyblok-verify',
+    'sb-activities': 'storyblok-activities',
+    'sb-preflight': 'storyblok-preflight',
+    'sb-validate': 'validate-storyblok',
+    'sb-apply': 'storyblok-apply',
+    history: 'dashboard',
+    examples: 'examples'
+  };
+  return aliases[command] || command;
 }
 
 function redactArgs(args) {
@@ -365,6 +389,97 @@ function redactMessage(message) {
     .replace(/(token|secret|password|key)=([^&\s]+)/gi, '$1=[REDACTED]')
     .replace(/Bearer\s+[A-Za-z0-9._-]+/g, 'Bearer [REDACTED]')
     .replace(/Authorization:\s*[A-Za-z0-9._-]+/gi, 'Authorization: [REDACTED]');
+}
+
+function errorCodeFor(error, command) {
+  const message = String(error?.message || error || '');
+  if (/credential|token|space id|Management API/i.test(message)) return 'HTS_STORYBLOK_CREDENTIALS';
+  if (/manifest failed|additive-only|Policy|violations/i.test(message)) return 'HTS_POLICY_VALIDATION';
+  if (/Storyblok .* failed with 429|rate limit/i.test(message)) return 'HTS_STORYBLOK_RATE_LIMIT';
+  if (/timeout|timed out/i.test(message)) return 'HTS_TIMEOUT';
+  if (/unknown command/i.test(message)) return 'HTS_UNKNOWN_COMMAND';
+  if (/local validation failed|validate/i.test(message) || command === 'validate') return 'HTS_VALIDATION_FAILED';
+  return 'HTS_COMMAND_FAILED';
+}
+
+function summarizeCommandResult(command, result) {
+  const summary = {
+    command,
+    action: result?.action || command,
+    status: result?.status || statusFromResult(result),
+    dry_run: Boolean(result?.dry_run)
+  };
+  if (result?.integration_id) summary.integration_id = result.integration_id;
+  if (result?.validation?.valid !== undefined) summary.plan_valid = Boolean(result.validation.valid);
+  if (result?.valid !== undefined) summary.plan_valid = Boolean(result.valid);
+  if (result?.summary) summary.summary = result.summary;
+  if (Array.isArray(result?.steps)) summary.steps = result.steps.length;
+  if (Array.isArray(result?.resources)) {
+    summary.resources = result.resources.length;
+    summary.failed_resources = result.resources.filter((entry) => ['drifted', 'blocked'].includes(entry.status)).length;
+  }
+  if (Array.isArray(result?.stories)) {
+    summary.stories = result.stories.length;
+    summary.failed_stories = result.stories.filter((entry) => entry.status === 'failed').length;
+  }
+  if (result?.html_report) summary.html_report = result.html_report;
+  if (result?.markdown_report) summary.markdown_report = result.markdown_report;
+  return summary;
+}
+
+function statusFromResult(result) {
+  if (!result) return 'unknown';
+  if (result.valid === false) return 'failed';
+  if (result.valid === true) return 'passed';
+  if (Array.isArray(result.resources) && result.resources.some((entry) => ['drifted', 'blocked'].includes(entry.status))) return 'failed';
+  if (Array.isArray(result.steps) && result.steps.some((step) => step.status === 'failed')) return 'failed';
+  return 'recorded';
+}
+
+function createCommandExamples(manifest, { workDir, repoPath, templatePath }) {
+  const manifestPath = `${workDir}/integration-manifest.json`;
+  const integrationId = manifest.integration_id || '<integration-id>';
+  return {
+    action: 'command_examples',
+    integration_id: integrationId,
+    examples: [
+      `html-to-storyblok inspect-template --template ${templatePath}`,
+      `html-to-storyblok storyblok-audit --full --work-dir ${workDir}`,
+      `html-to-storyblok plan --integration-id ${integrationId} --template ${templatePath} --framework ${manifest.template?.framework || 'static'} --work-dir ${workDir}`,
+      `html-to-storyblok validate-plan --manifest ${manifestPath}`,
+      `html-to-storyblok storyblok-preflight --manifest ${manifestPath}`,
+      `html-to-storyblok storyblok-reconcile --manifest ${manifestPath}`,
+      `html-to-storyblok storyblok-apply --manifest ${manifestPath} --dry-run`,
+      `html-to-storyblok storyblok-verify --manifest ${manifestPath}`,
+      `html-to-storyblok apply --manifest ${manifestPath} --repo ${repoPath} --template ${templatePath} --dry-run`,
+      `html-to-storyblok rollback-preview --manifest ${manifestPath} --repo ${repoPath}`,
+      `html-to-storyblok report --work-dir ${workDir} --html`
+    ]
+  };
+}
+
+function filterValidationBySeverity(validation, requestedSeverity) {
+  const severity = requestedSeverity === 'warning' || requestedSeverity === 'error' ? requestedSeverity : 'all';
+  const annotated = (validation.violations || []).map((violation) => ({
+    severity: validationSeverity(violation),
+    ...violation
+  }));
+  const violations = severity === 'all' ? annotated : annotated.filter((violation) => violation.severity === severity);
+  return {
+    ...validation,
+    severity_filter: severity,
+    violation_counts: {
+      error: annotated.filter((violation) => violation.severity === 'error').length,
+      warning: annotated.filter((violation) => violation.severity === 'warning').length
+    },
+    violations
+  };
+}
+
+function validationSeverity(violation) {
+  const text = `${violation.operation || ''} ${violation.resource_type || ''} ${violation.reason || ''}`;
+  if (/modify|authorisation|policy|unsafe|outside|unnamespaced|published|dependency|deployment|prefix|slug/i.test(text)) return 'error';
+  return 'warning';
 }
 
 function renderShellCompletion(shell = 'zsh') {
@@ -390,6 +505,14 @@ function renderShellCompletion(shell = 'zsh') {
     'storyblok-reconcile',
     'storyblok-verify',
     'storyblok-activities',
+    'sb-audit',
+    'sb-reconcile',
+    'sb-verify',
+    'sb-activities',
+    'sb-preflight',
+    'sb-validate',
+    'sb-apply',
+    'examples',
     'diff',
     'validate',
     'build',
@@ -422,6 +545,10 @@ function renderShellCompletion(shell = 'zsh') {
     '--audit',
     '--since',
     '--limit',
+    '--json-summary',
+    '--html',
+    '--search',
+    '--severity',
     '--version',
     '--config',
     '--profile',
@@ -474,11 +601,13 @@ Usage:
   html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--template <path>] [--schema-overrides <json>] [--infer-duplicates --repo <path>] [--framework auto|astro|react|next|vue|nuxt|static]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
+  html-to-storyblok validate-plan --manifest <path> [--severity all|error|warning]
   html-to-storyblok storyblok-preflight --manifest <path> [--dry-run]
   html-to-storyblok validate-storyblok --manifest <path> [--version draft|published] [--dry-run]
   html-to-storyblok storyblok-reconcile --manifest <path>
   html-to-storyblok storyblok-verify --manifest <path> [--dry-run]
   html-to-storyblok storyblok-activities [--manifest <path>] [--since <iso-date>] [--limit 50]
+  html-to-storyblok examples --manifest <path> [--repo <path>] [--template <path>]
   html-to-storyblok diff --manifest <path> --repo <path>
   html-to-storyblok validate --manifest <path> --repo <path>
   html-to-storyblok build --repo <path> [--script build] [--dry-run]
@@ -497,10 +626,12 @@ Usage:
   html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
   html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
   html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--dry-run]
-  html-to-storyblok report [--view]
+  html-to-storyblok report [--view] [--html]
 
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
 Use --no-interactive for scriptable non-interactive execution.
+Use --json-summary for compact CI output.
+Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
 `);

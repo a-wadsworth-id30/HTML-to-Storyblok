@@ -51,6 +51,13 @@ export async function writeMarkdownReport(workDir, report = null) {
   return filePath;
 }
 
+export async function writeHtmlReport(workDir, report = null) {
+  const resolvedReport = report || await createReport(workDir);
+  const filePath = path.join(workDir, 'report.html');
+  await writeText(filePath, renderHtmlReport(resolvedReport));
+  return filePath;
+}
+
 export function renderMarkdownReport(report) {
   const latestValidation = report.latest_validation
     ? `${report.latest_validation.status || (report.latest_validation.valid ? 'passed' : 'failed')}`
@@ -97,6 +104,66 @@ ${skippedDuplicationRows}
 ## Failures
 
 ${failureRows}
+`;
+}
+
+export function renderHtmlReport(report) {
+  const latestValidation = report.latest_validation
+    ? report.latest_validation.status || (report.latest_validation.valid ? 'passed' : 'failed')
+    : 'not run';
+  const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
+  const artifactRows = report.artifacts.map((artifact) => `<tr><td>${escapeHtml(artifact.type)}</td><td>${escapeHtml(artifact.status || 'recorded')}</td><td><code>${escapeHtml(artifact.artifact)}</code></td></tr>`).join('\n') ||
+    '<tr><td colspan="3">None recorded</td></tr>';
+  const failureRows = report.commands_failed.map((failure) => `<li><strong>${escapeHtml(failure.command)}</strong>: ${escapeHtml(failure.message)}</li>`).join('\n') ||
+    '<li>None</li>';
+  return `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HTML-to-Storyblok Report</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 32px; color: #1f2933; line-height: 1.45; }
+      h1, h2 { margin: 0 0 12px; }
+      section { margin: 28px 0; }
+      table { border-collapse: collapse; width: 100%; }
+      th, td { border: 1px solid #d8dee4; padding: 8px 10px; text-align: left; vertical-align: top; }
+      th { background: #f6f8fa; }
+      code { background: #f6f8fa; padding: 2px 4px; border-radius: 4px; }
+      .ok { color: #116329; }
+      .warn { color: #9a6700; }
+    </style>
+  </head>
+  <body>
+    <h1>HTML-to-Storyblok Report</h1>
+    <section>
+      <h2>Summary</h2>
+      <p><strong>Work directory:</strong> <code>${escapeHtml(report.work_dir)}</code></p>
+      <p><strong>Latest validation:</strong> ${escapeHtml(latestValidation)}</p>
+      <p><strong>Latest Storyblok validation:</strong> ${escapeHtml(latestStoryblokValidation)}</p>
+      <p><strong>Commands completed:</strong> ${report.commands_completed}</p>
+    </section>
+    <section>
+      <h2>Safety</h2>
+      <ul>
+        <li class="${report.safety_confirmation.plan_valid ? 'ok' : 'warn'}">Plan valid: ${report.safety_confirmation.plan_valid ? 'yes' : 'no'}</li>
+        <li class="${report.safety_confirmation.storyblok_content_valid ? 'ok' : 'warn'}">Storyblok content valid: ${report.safety_confirmation.storyblok_content_valid ? 'yes' : 'no'}</li>
+        <li>Secret handling: ${escapeHtml(report.safety_confirmation.command_argument_redaction)}</li>
+      </ul>
+    </section>
+    <section>
+      <h2>Artifacts</h2>
+      <table>
+        <thead><tr><th>Type</th><th>Status</th><th>Path</th></tr></thead>
+        <tbody>${artifactRows}</tbody>
+      </table>
+    </section>
+    <section>
+      <h2>Failures</h2>
+      <ul>${failureRows}</ul>
+    </section>
+  </body>
+</html>
 `;
 }
 
@@ -349,4 +416,13 @@ function normalizeSkippedCandidates(candidates) {
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
 }

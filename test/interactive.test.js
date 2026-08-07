@@ -22,6 +22,7 @@ test('configuration is persisted without secret-like keys', async () => {
   config = updateConfigValue(config, 'verbose_logging', 'yes');
   config = updateProfileValue(config, 'Client Site', 'default_repository', '../client-site');
   config = updateProfileValue(config, 'Client Site', 'storyblok_region', 'us');
+  config = updateProfileValue(config, 'Client Site', 'storyblok_space_id', '12345');
   config = updateConfigValue(config, 'active_profile', 'client-site');
   await saveConfig({ ...config, secret_token: 'do-not-store' }, { configPath });
 
@@ -31,12 +32,14 @@ test('configuration is persisted without secret-like keys', async () => {
   assert.equal(persisted.active_profile, 'client-site');
   assert.equal(persisted.project_profiles['client-site'].default_repository, '../client-site');
   assert.equal(persisted.project_profiles['client-site'].storyblok_region, 'us');
+  assert.equal(persisted.project_profiles['client-site'].storyblok_space_id, '12345');
   assert.equal(Object.hasOwn(persisted, 'secret_token'), false);
   assert.deepEqual(parseSettingAssignment('storyblok_region=us'), { key: 'storyblok_region', value: 'us' });
 
   const applied = await loadConfig({ configPath });
   assert.equal(applied.default_repository, '../client-site');
   assert.equal(applied.storyblok_region, 'us');
+  assert.equal(applied.storyblok_space_id, '12345');
 });
 
 test('template and repository discovery find nearby integration inputs', async () => {
@@ -493,6 +496,8 @@ test('completion command prints shell completions', async () => {
   assert.match(output, /complete -c html-to-storyblok/);
   assert.match(output, /storyblok-apply/);
   assert.match(output, /validate-storyblok/);
+  assert.match(output, /sb-apply/);
+  assert.match(output, /examples/);
 });
 
 async function createFixtureWorkspace() {
