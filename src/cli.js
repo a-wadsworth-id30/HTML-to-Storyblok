@@ -446,13 +446,14 @@ function statusFromResult(result) {
 function createCommandExamples(manifest, { workDir, repoPath, templatePath }) {
   const manifestPath = `${workDir}/integration-manifest.json`;
   const integrationId = manifest.integration_id || '<integration-id>';
+  const planRepositoryArg = repoPath && repoPath !== '<repo-path>' ? ` --repo ${repoPath}` : '';
   return {
     action: 'command_examples',
     integration_id: integrationId,
     examples: [
       `html-to-storyblok inspect-template --template ${templatePath}`,
       `html-to-storyblok storyblok-audit --full --work-dir ${workDir}`,
-      `html-to-storyblok plan --integration-id ${integrationId} --template ${templatePath} --framework ${manifest.template?.framework || 'static'} --work-dir ${workDir}`,
+      `html-to-storyblok plan --integration-id ${integrationId} --template ${templatePath}${planRepositoryArg} --framework ${manifest.template?.framework || 'static'} --work-dir ${workDir}`,
       `html-to-storyblok validate-plan --manifest ${manifestPath}`,
       `html-to-storyblok storyblok-preflight --manifest ${manifestPath}`,
       `html-to-storyblok storyblok-reconcile --manifest ${manifestPath}`,
@@ -607,7 +608,7 @@ Usage:
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
-  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--template <path>] [--schema-overrides <json>] [--infer-duplicates --repo <path>] [--framework auto|astro|react|next|vue|nuxt|static]
+  html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--template <path>] [--schema-overrides <json>] [--repo <path>] [--infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
   html-to-storyblok validate-plan --manifest <path> [--severity all|error|warning]

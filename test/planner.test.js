@@ -104,6 +104,36 @@ test('createIntegrationPlan creates one namespaced draft story per template rout
   assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/route-proposals/home/route.js'));
 });
 
+test('createIntegrationPlan resolves auto framework from the target repository', async () => {
+  const manifest = await createIntegrationPlan({
+    integrationId: 'auto-next-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'auto',
+    repoPath: 'demo-sites/next'
+  });
+
+  assert.equal(manifest.template.framework, 'next');
+  assert.equal(manifest.template.framework_requested, 'auto');
+  assert.equal(manifest.template.framework_resolution.source, 'repository_inspection');
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/auto-next-v1/TemplatePage.jsx'));
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/auto-next-v1/route-proposals/home/page.jsx'));
+  assert.equal(manifest.repository.files_to_create.includes('src/integrations/auto-next-v1/template.html'), false);
+});
+
+test('createIntegrationPlan uses deterministic static output for auto without a repository', async () => {
+  const manifest = await createIntegrationPlan({
+    integrationId: 'auto-static-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'auto'
+  });
+
+  assert.equal(manifest.template.framework, 'static');
+  assert.equal(manifest.template.framework_requested, 'auto');
+  assert.equal(manifest.template.framework_resolution.source, 'fallback');
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/auto-static-v1/template.html'));
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/auto-static-v1/route-proposals/home/route.js'));
+});
+
 async function captureStdout(callback) {
   const originalLog = console.log;
   let output = '';

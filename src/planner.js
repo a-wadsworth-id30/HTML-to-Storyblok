@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { inspectTemplate } from './inspectors.js';
+import { inspectRepository, inspectTemplate } from './inspectors.js';
 import { applyInferredDuplicationCandidates } from './duplication-inference.js';
 import { createDefaultManifest, storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
 import { plannedRepositoryAdapterFilePaths } from './repository-adapter.js';
@@ -21,13 +21,14 @@ export async function createIntegrationPlan({
 }) {
   const namespace = repositoryNamespace || path.posix.join('src/integrations', integrationId);
   const resolvedStoryblokPrefix = storyblokPrefix || storyblokPrefixForIntegrationId(integrationId);
+  const frameworkResolution = await resolvePlanFramework(framework, repoPath);
   const manifest = createDefaultManifest({
     integrationId,
     storyblokPrefix: resolvedStoryblokPrefix,
     repositoryNamespace: namespace
   });
 
-  addBaseRepositoryFiles(manifest, framework, Boolean(templatePath));
+  addBaseRepositoryFiles(manifest, frameworkResolution.framework, Boolean(templatePath));
 
   if (templatePath) {
     const inventory = await inspectTemplate(templatePath);
@@ -41,7 +42,9 @@ export async function createIntegrationPlan({
     });
     manifest.template = {
       source_path: String(templatePath),
-      framework,
+      framework: frameworkResolution.framework,
+      framework_requested: frameworkResolution.requested,
+      framework_resolution: frameworkResolution,
       inventory_hash: sha256(JSON.stringify(inventory)),
       pages: inventory.pages,
       shared_sections: inventory.shared_sections,
@@ -62,7 +65,7 @@ export async function createIntegrationPlan({
     }
     manifest.repository.files_to_create = unique([
       ...manifest.repository.files_to_create,
-      ...plannedTemplateFilePaths(manifest, framework)
+      ...plannedTemplateFilePaths(manifest, frameworkResolution.framework)
     ]);
   } else {
     manifest.storyblok.components_to_create = [
@@ -110,6 +113,53 @@ function addBaseRepositoryFiles(manifest, framework, hasTemplate) {
   if (hasTemplate) {
     manifest.repository.files_to_create.push(...plannedTemplateFilePaths(manifest, framework));
   }
+}
+
+async function resolvePlanFramework(framework, repoPath) {
+  const requested = normalizeFrameworkName(framework || 'static');
+  if (requested !== 'auto') {
+    return {
+      requested,
+      framework: requested,
+      source: 'explicit'
+    };
+  }
+  if (!repoPath) {
+    return {
+      requested,
+      framework: 'static',
+      source: 'fallback',
+      reason: 'No repository path was provided, so automatic framework planning fell back to static output.'
+    };
+  }
+  try {
+    const inspection = await inspectRepository(repoPath);
+    const detected = normalizeFrameworkName(inspection.framework?.name || inspection.framework?.package || 'static');
+    return {
+      requested,
+      framework: detected === 'auto' ? 'static' : detected,
+      source: 'repository_inspection',
+      detected: inspection.framework?.name || 'Uncertain'
+    };
+  } catch (error) {
+    return {
+      requested,
+      framework: 'static',
+      source: 'fallback',
+      reason: `Repository inspection failed, so automatic framework planning fell back to static output: ${error.message || String(error)}`
+    };
+  }
+}
+
+function normalizeFrameworkName(value) {
+  const lower = String(value || '').toLowerCase();
+  if (lower.includes('auto')) return 'auto';
+  if (lower.includes('astro')) return 'astro';
+  if (lower.includes('next')) return 'next';
+  if (lower.includes('nuxt')) return 'nuxt';
+  if (lower.includes('vue')) return 'vue';
+  if (lower.includes('react')) return 'react';
+  return 'static';
 }
 
 export function buildOperations(manifest) {

@@ -186,3 +186,24 @@ test('generate writes schema-only adapter without preview paths', async () => {
   const guide = await readFile(path.join(repoPath, 'src/integrations/schema-only-v1/INTEGRATION_GUIDE.md'), 'utf8');
   assert.match(guide, /No template preview component was generated/);
 });
+
+test('generate honors the planned framework when runtime framework is auto', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-auto-framework-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'auto-next-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'auto',
+    repoPath: 'demo-sites/next'
+  });
+
+  const result = await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'templates/acme-campaign',
+    framework: 'auto'
+  });
+
+  assert.equal(result.framework, 'next');
+  assert.ok(result.files.includes('src/integrations/auto-next-v1/TemplatePage.jsx'));
+  assert.ok(result.files.includes('src/integrations/auto-next-v1/route-proposals/home/page.jsx'));
+  assert.equal(result.files.includes('src/integrations/auto-next-v1/template.html'), false);
+});

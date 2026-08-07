@@ -8,8 +8,9 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
   const root = path.resolve(repoPath);
   const namespace = manifest.repository_namespace;
   if (!namespace) throw new Error('manifest is missing repository_namespace');
+  const generationFramework = resolveGenerationFramework(manifest, framework);
 
-  const conversion = await convertTemplate({ templatePath, repoPath: root, manifest, framework });
+  const conversion = await convertTemplate({ templatePath, repoPath: root, manifest, framework: generationFramework });
   const files = buildGeneratedFiles(manifest, { conversion });
   const unplanned = files
     .map((file) => file.path)
@@ -62,6 +63,13 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
       ? 'Dry run only. Existing generated files are reported as collisions; real apply will refuse to overwrite them.'
       : 'Generated files are isolated. Existing registries and routes are not modified.'
   };
+}
+
+function resolveGenerationFramework(manifest, framework) {
+  const requested = normalizeFrameworkName(framework || 'auto');
+  if (requested !== 'auto') return requested;
+  const planned = normalizeFrameworkName(manifest.template?.framework || 'static');
+  return planned === 'auto' ? 'static' : planned;
 }
 
 export function buildGeneratedFiles(manifest, { conversion = null } = {}) {
@@ -231,4 +239,15 @@ function functionName(name) {
   const parts = String(name).split(/[^a-zA-Z0-9]+/).filter(Boolean);
   const pascal = parts.map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join('');
   return `render${pascal}`;
+}
+
+function normalizeFrameworkName(value) {
+  const lower = String(value || '').toLowerCase();
+  if (lower.includes('auto')) return 'auto';
+  if (lower.includes('astro')) return 'astro';
+  if (lower.includes('next')) return 'next';
+  if (lower.includes('nuxt')) return 'nuxt';
+  if (lower.includes('vue')) return 'vue';
+  if (lower.includes('react')) return 'react';
+  return 'static';
 }

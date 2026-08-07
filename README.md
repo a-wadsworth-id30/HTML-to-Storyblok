@@ -467,6 +467,8 @@ html-to-storyblok plan \
   --framework astro
 ```
 
+Use `--framework auto` with `--repo <path>` when you want the planner to inspect the target repository and store a concrete framework in the manifest. If `auto` is used without a repository path, planning falls back to static output and later generation honors that planned mode for deterministic file creation.
+
 To infer likely frontend and Storyblok component duplication candidates during planning, also pass a repository path:
 
 ```sh
@@ -1039,7 +1041,7 @@ html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|publi
 html-to-storyblok inspect-netlify --repo <path>
 html-to-storyblok check-access
 html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
-html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--schema-overrides <json>] [--repo <path> --infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
+html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--schema-overrides <json>] [--repo <path>] [--infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
 html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
 html-to-storyblok validate-plan --manifest <path> [--severity all|error|warning]
 html-to-storyblok storyblok-preflight --manifest <path> [--dry-run]
@@ -1097,6 +1099,7 @@ html-to-storyblok check-access
 html-to-storyblok plan \
   --integration-id acme-campaign-v1 \
   --template templates/acme-campaign \
+  --repo ../client-site \
   --schema-overrides templates/acme-campaign/schema-overrides.json \
   --framework auto
 
