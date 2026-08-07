@@ -1148,6 +1148,8 @@ npm run check
 npm test
 ```
 
+`npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
+
 The test suite includes a temp-directory end-to-end CLI workflow test that exercises the production command path without requiring live Storyblok, Netlify, GitHub, or GitLab credentials.
 
 To run the opt-in live Storyblok sandbox test against a disposable integration namespace:
