@@ -93,6 +93,8 @@ The create flow guides you through choosing a template from `templates/`, choosi
 
 Dry runs now include a human-readable apply preview diff covering repository files, assets, Storyblok component folders, internal tags, components, presets, asset folders, draft stories, and generated Storyblok link resolution. Long-running progress output includes percentages and elapsed time.
 
+Real repository apply runs available host `lint`, `typecheck`, and `build` scripts before writing generated files, then runs local output validation and the same host checks again before any Storyblok remote mutation. Missing scripts are reported as skipped, failing scripts stop the apply. Use `--host-checks lint,typecheck,build` to customize the script list, or `--skip-host-checks` only when you have already run equivalent checks.
+
 After a completed interactive action, the CLI shows a success checkpoint with the latest plan/local validation status, then stays open on a `Next` menu. From there you can return to the main menu, run a validation check, view the latest report, or exit intentionally.
 
 If an interactive action fails, the wizard stays open and shows a recovery menu. From there you can retry the failed action, validate the current state, view the latest report, show a rollback preview, return to the main menu, or exit intentionally.
@@ -127,6 +129,18 @@ html-to-storyblok settings --profile client-site
 
 Settings are stored in `~/.html-to-storyblok/config.json`. Secrets are never stored in the config file. Named profiles can store non-secret defaults for a project, including repository path, templates folder, Storyblok region, Storyblok space ID, preferred framework, output folder, color mode, and verbose logging. `html-to-storyblok settings --profile <name>` activates a profile, and `--profile <name> --set key=value` creates or updates profile-specific defaults.
 
+Create a local environment scaffold for credentials:
+
+```sh
+html-to-storyblok env --init
+```
+
+This writes `.env.local` in the current project and refuses to overwrite an existing file unless `--force` is passed. `.env.local`, `.env`, and other `.env.*` files are ignored by git. The command writes placeholders only; fill real credentials locally in your editor or shell. To print the scaffold without writing a file:
+
+```sh
+html-to-storyblok env --print
+```
+
 Generate shell completions:
 
 ```sh
@@ -141,6 +155,7 @@ Credential handling:
 - `Test Credentials` in the home screen checks Management API readiness, manifest preflight, and Content API draft validation when the relevant credentials are available.
 - Tokens entered in the wizard are kept in memory for that CLI run only.
 - The Preview API token prompt is optional; press `Enter` to skip it when you only need Management API component, asset, and draft-story testing.
+- Local credentials should live in `.env.local` or shell environment variables, not in `settings`.
 - Scriptable commands read credentials from shell environment variables and local `.env` / `.env.local` files.
 - Shell environment variables override `.env` values.
 - `.env` values are loaded from the current working directory and, when `--repo` or a selected repository is available, the target repository.
@@ -297,6 +312,14 @@ demo-sites/react
 ```
 
 These demo sites are intentionally dependency-light. They look like their target framework, expose a local `npm run build` check, and are used by automated tests to verify framework detection, isolated route-preview generation, route-relative asset references, Git worktree safety, and that generated files stay inside `src/integrations/<integration-id>` while existing app files remain unchanged.
+
+To compile the generated route proposal handoff inside the real demo framework compilers, use the generated integration matrix:
+
+```sh
+npm run test:demo-sites-generated
+```
+
+This temporarily wires a generated route proposal into each demo site, runs the real Astro, Next, Nuxt, Vue, and React framework builds, then restores the demo files. It is opt-in because it installs and runs full framework dependency trees.
 
 ### 3. Check Storyblok access
 
@@ -636,6 +659,7 @@ For multi-page templates, generation keeps the existing primary preview file for
 src/integrations/<integration-id>/
   adapter-plan.json
   INTEGRATION_GUIDE.md
+  generated-file-hashes.json
   TemplatePage.astro | TemplatePage.jsx | TemplatePage.vue | template.html
   routes/
     manifest.json
@@ -790,7 +814,7 @@ html-to-storyblok storyblok-preflight \
   --manifest .tmp/html-to-storyblok/integration-manifest.json
 ```
 
-Preflight performs non-mutating Management API reads for the resources required by the manifest. It verifies credentials, space access, read access for component folders, internal tags, components, stories, asset folders, assets, and presets, and returns a permission matrix showing which planned resource classes are readable and which additive create calls will verify write access during execution.
+Preflight performs non-mutating Management API reads for the resources required by the manifest. It verifies credentials, space access, read access for component folders, components, stories, asset folders, assets, and presets, and returns a permission matrix showing which planned resource classes are readable and which additive create calls will verify write access during execution. Storyblok internal tags are treated as optional metadata: if the current space, token, region, or plan does not expose the internal-tags endpoint, the import continues and records the planned tags as skipped or present-unverified instead of blocking component, asset, and draft-story creation.
 
 Create Storyblok component folders listed in `storyblok.component_groups_to_create`:
 
@@ -902,7 +926,7 @@ html-to-storyblok storyblok-verify \
   --manifest .tmp/html-to-storyblok/integration-manifest.json
 ```
 
-This combines reconcile with story-level checks for unpublished imported drafts, namespaced root and nested components, generated story links with UUID metadata, generated links that target planned routes, and asset fields that have been hydrated to uploaded Storyblok assets rather than local template paths.
+This combines reconcile with story-level checks for unpublished imported drafts, namespaced root and nested components, generated story links with UUID metadata, generated links that target planned routes, and asset fields that have been hydrated to uploaded Storyblok assets rather than local template paths. Management verification hydrates planned component and story summaries through single-resource Management API reads when list responses omit schema or story content, and component schema checks compare the intended contract while ignoring Storyblok-generated editor metadata.
 
 To capture Storyblok activity evidence for the current integration:
 
@@ -935,6 +959,8 @@ or:
 ```text
 GH_TOKEN
 ```
+
+The CLI infers the GitHub repository from `origin` by default, including SSH remotes such as `git@github.com:owner/repo.git`, `ssh://git@github.com/owner/repo.git`, HTTPS remotes, and GitHub SSH host aliases. If no GitHub token is available, the command refuses to create the PR through the API and prints a manual GitHub compare URL that can be opened in the browser.
 
 To prepare the review branch before opening the PR, pass the manifest and explicit Git flags:
 
@@ -1009,7 +1035,7 @@ html-to-storyblok rollback \
   --confirm-integration-id acme-homepage-v1
 ```
 
-Rollback removes only manifest-listed local files and assets inside the integration namespace by default.
+Rollback removes only manifest-listed local files and assets inside the integration namespace by default. New generated integrations include `generated-file-hashes.json`; rollback verifies generated file hashes before deleting local files and refuses drifted files unless you pass `--allow-modified-generated-files` after review.
 
 To also delete integration-owned Storyblok draft resources, use explicit remote confirmation:
 
@@ -1030,6 +1056,7 @@ Remote rollback deletes only manifest-owned namespaced component folders, intern
 html-to-storyblok
 html-to-storyblok dashboard
 html-to-storyblok settings [--show] [--set key=value] [--profile <name>]
+html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
 html-to-storyblok doctor
 html-to-storyblok view-report
 html-to-storyblok completion [--shell zsh|bash|fish]
@@ -1064,11 +1091,11 @@ html-to-storyblok upload-assets --manifest <path> [--dry-run]
 html-to-storyblok storyblok-presets --manifest <path> [--dry-run]
 html-to-storyblok create-draft-story --manifest <path> [--dry-run]
 html-to-storyblok storyblok-apply --manifest <path> [--dry-run]
-html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--host-checks lint,typecheck,build] [--skip-host-checks] [--dry-run]
 html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
 html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
 html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
-html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--dry-run]
+html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--allow-modified-generated-files] [--dry-run]
 html-to-storyblok report [--view] [--html]
 ```
 
@@ -1143,7 +1170,7 @@ Implemented:
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
 - Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, and repository conversion now writes isolated preview files for every route under `src/integrations/<integration-id>/routes/`, plus an adapter plan, guide, and `route-proposals/` wrappers for manual host wiring. These route previews and proposal wrappers are deliberately not registered with the host site router automatically.
-- The default demo-site build checks validate generated integration shape, framework-specific preview files, route manifests, and existing-file safety without installing full Astro/Next/Nuxt/Vue/React dependency trees. The opt-in full demo runner can install and build the framework demos with preview smoke checks, but before wiring an import into a real client route, run that client repository's own install, typecheck, lint, build, and browser checks.
+- The default demo-site build checks validate generated integration shape, framework-specific preview files, route manifests, and existing-file safety without installing full Astro/Next/Nuxt/Vue/React dependency trees. The opt-in generated demo runner can temporarily wire generated route proposals and compile them through the real Astro/Next/Nuxt/Vue/React framework builds. Before wiring an import into a real client route, still run that client repository's own install and browser checks.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Optional Storyblok audit collections such as approvals, branches, workflow stages, or activities may be unavailable depending on the Storyblok plan, space features, token scope, and region. The audit records unavailable collections instead of treating them as a failed import.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials from the shell environment, `.env` / `.env.local`, or the interactive session; use `html-to-storyblok check-access` to verify readiness.
@@ -1153,6 +1180,9 @@ Implemented:
 
 ```sh
 npm run check
+npm run lint
+npm run typecheck
+npm run security:audit
 npm test
 npm run test:demo-sites-full:list
 ```
@@ -1168,6 +1198,12 @@ npm run test:demo-sites-full:install
 ```
 
 This installs each demo site's dependencies, runs its dependency-light build contract, runs the real framework build where available, starts the framework preview server, and fetches the configured preview URL. It is intentionally opt-in because it downloads Astro, Next, Nuxt, Vue, React, Vite, and Storyblok framework packages.
+
+To also compile generated route proposal handoffs through each real framework compiler, run:
+
+```sh
+npm run test:demo-sites-generated
+```
 
 To run the opt-in live Storyblok sandbox test against a disposable integration namespace:
 

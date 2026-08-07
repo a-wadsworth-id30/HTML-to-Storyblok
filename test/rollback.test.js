@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readdir } from 'node:fs/promises';
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -77,4 +77,37 @@ test('rollbackIntegration prunes multi-page route preview directories', async ()
   assert.ok(result.directories_pruned.includes('src/integrations/acme-campaign-v1/routes/home'));
   assert.ok(result.directories_pruned.includes('src/integrations/acme-campaign-v1/routes'));
   assert.deepEqual(await readdir(repoPath), ['src']);
+});
+
+test('rollbackIntegration refuses modified generated files when hash ledger detects drift', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-rollback-drift-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-drift-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+
+  await writeFile(path.join(repoPath, 'src/integrations/acme-drift-v1/template.html'), '<main>edited after generation</main>\n');
+
+  await assert.rejects(
+    rollbackIntegration(manifest, {
+      repoPath,
+      confirmIntegrationId: 'acme-drift-v1'
+    }),
+    /generated files were modified/
+  );
+
+  const result = await rollbackIntegration(manifest, {
+    repoPath,
+    confirmIntegrationId: 'acme-drift-v1',
+    allowModifiedGeneratedFiles: true
+  });
+
+  assert.equal(result.repository_file_hash_verification.status, 'failed');
+  assert.ok(result.repository_files_removed.includes('src/integrations/acme-drift-v1/template.html'));
 });

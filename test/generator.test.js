@@ -19,6 +19,7 @@ test('generate converts template HTML into isolated framework files', async () =
   manifest.storyblok.components_to_create.push({ technical_name: 'hts_acme_homepage_v1_template_page' });
   manifest.repository.files_to_create.push(
     'src/integrations/acme-homepage-v1/integration-manifest.json',
+    'src/integrations/acme-homepage-v1/generated-file-hashes.json',
     'src/integrations/acme-homepage-v1/index.js',
     'src/integrations/acme-homepage-v1/components.js',
     ...plannedRepositoryAdapterFilePaths(manifest),
@@ -70,6 +71,7 @@ test('generate converts complex HTML attributes into React-safe JSX', async () =
       <input id="email" class="field" style="background-color: red; --gap: 1rem;" required readonly autofocus maxlength="30">
       <a href="#email" aria-controls="email">Jump</a>
       <img src="./hero.svg" alt="Hero">
+      <p>Do not rewrite text that mentions ./hero.svg outside an attribute.</p>
       <svg viewBox="0 0 10 10"><path fill-rule="evenodd" stroke-width="2"></path></svg>
       <my-widget class="widget" custom-attr="demo" data-mode="compact" onclick=alert(1)></my-widget>
     </main>
@@ -85,6 +87,7 @@ test('generate converts complex HTML attributes into React-safe JSX', async () =
   manifest.storyblok.components_to_create.push({ technical_name: 'hts_react_template_v1_template_page' });
   manifest.repository.files_to_create.push(
     'src/integrations/react-template-v1/integration-manifest.json',
+    'src/integrations/react-template-v1/generated-file-hashes.json',
     'src/integrations/react-template-v1/index.js',
     'src/integrations/react-template-v1/components.js',
     ...plannedRepositoryAdapterFilePaths(manifest),
@@ -111,6 +114,7 @@ test('generate converts complex HTML attributes into React-safe JSX', async () =
   assert.match(jsx, /style=\{\{ backgroundColor: "red", "--gap": "1rem" \}\}/);
   assert.match(jsx, /required readOnly autoFocus maxLength="30"/);
   assert.match(jsx, /<img src="\.\/assets\/hero\.svg" alt="Hero" \/>/);
+  assert.match(jsx, /Do not rewrite text that mentions \.\/hero\.svg outside an attribute/);
   assert.match(jsx, /fillRule="evenodd" strokeWidth="2"/);
   assert.match(jsx, /<my-widget class="hts-react-template-v1-widget" custom-attr="demo" data-mode="compact">/);
   assert.doesNotMatch(jsx, /onclick/);
@@ -141,6 +145,7 @@ test('generate writes isolated route previews for every template page without to
 
   const routeManifest = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/routes/manifest.json'), 'utf8'));
   assert.deepEqual(routeManifest.routes.map((route) => route.slug), ['home', 'about', 'contact', 'gallery', 'services']);
+  assert.equal(routeManifest.routes[0].path, '/');
   assert.equal(routeManifest.note.includes('not registered with the host application router'), true);
 
   const about = await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/routes/about/template.html'), 'utf8');

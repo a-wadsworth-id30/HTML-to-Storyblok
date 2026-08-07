@@ -104,7 +104,8 @@ export async function inspectStoryblokSpace({ env = process.env, full = false, a
   const stories = await listStoryblokStories(config, {}, listOptions);
   const assetFolders = await listStoryblokAssetFolders(config, {}, listOptions);
   const assets = await listStoryblokAssets(config, {}, listOptions);
-  const internalTags = await listStoryblokInternalTags(config, {}, listOptions);
+  const internalTagsResult = await optionalStoryblokItems(config, 'internal_tags', listStoryblokInternalTags, {}, listOptions);
+  const internalTags = internalTagsResult.items;
   const presets = await listStoryblokPresets(config, {}, listOptions);
   const auditResult = audit ? await inspectStoryblokAuditResources(config, listOptions) : null;
 
@@ -118,6 +119,9 @@ export async function inspectStoryblokSpace({ env = process.env, full = false, a
     asset_folders: assetFolders.map(summarizeAssetFolder),
     assets: assets.map(summarizeAsset),
     internal_tags: internalTags.map(summarizeInternalTag),
+    optional_unavailable: [
+      ...(internalTagsResult.status === 'ok' ? [] : [{ name: 'internal_tags', reason: internalTagsResult.reason }])
+    ],
     presets: presets.map(summarizePreset),
     readiness: summarizeStoryblokReadiness({
       space: space.space,
@@ -189,7 +193,10 @@ export async function preflightStoryblokIntegration(manifest, { dryRun = false, 
     checks.push(await endpointPreflight(config, 'component_groups_read', `/spaces/${config.spaceId}/component_groups/?per_page=1&page=1`));
   }
   if (requirements.internal_tags) {
-    checks.push(await endpointPreflight(config, 'internal_tags_read', `/spaces/${config.spaceId}/internal_tags/?per_page=1&page=1`));
+    checks.push(await endpointPreflight(config, 'internal_tags_read', `/spaces/${config.spaceId}/internal_tags/?per_page=1&page=1`, {
+      required: false,
+      optional: true
+    }));
   }
   if (requirements.components) {
     checks.push(await endpointPreflight(config, 'components_read', `/spaces/${config.spaceId}/components/?per_page=1&page=1`));
@@ -311,7 +318,20 @@ export async function createStoryblokInternalTags(manifest, { dryRun = false, en
     }));
   }
 
-  const existingTags = await listStoryblokInternalTags(config);
+  const existingTagsResult = await optionalStoryblokItems(config, 'internal_tags', listStoryblokInternalTags);
+  if (existingTagsResult.status !== 'ok') {
+    return tags.map((tag) => ({
+      action: 'create_internal_tag',
+      dry_run: false,
+      status: 'skipped_optional',
+      name: tag.name,
+      object_type: tag.object_type,
+      reason: 'Storyblok internal tags are unavailable for this space, token, region, or plan.',
+      details: existingTagsResult.reason,
+      collision_policy: 'optional_metadata_only'
+    }));
+  }
+  const existingTags = existingTagsResult.items;
   for (const tag of tags) {
     const existing = existingTags.find((entry) => internalTagMatches(entry, tag));
     if (existing) {
@@ -327,12 +347,27 @@ export async function createStoryblokInternalTags(manifest, { dryRun = false, en
       continue;
     }
 
-    const response = await storyblokRequest(config, `/spaces/${config.spaceId}/internal_tags/`, {
-      method: 'POST',
-      body: {
-        internal_tag: tag
-      }
-    });
+    let response;
+    try {
+      response = await storyblokRequest(config, `/spaces/${config.spaceId}/internal_tags/`, {
+        method: 'POST',
+        body: {
+          internal_tag: tag
+        }
+      });
+    } catch (error) {
+      results.push({
+        action: 'create_internal_tag',
+        dry_run: false,
+        status: 'skipped_optional',
+        name: tag.name,
+        object_type: tag.object_type,
+        reason: 'Storyblok internal tag creation is optional and was skipped after the create call failed.',
+        details: error.message || String(error),
+        collision_policy: 'optional_metadata_only'
+      });
+      continue;
+    }
     const created = response.internal_tag || response;
     existingTags.push(created);
     results.push({
@@ -1044,15 +1079,18 @@ export async function reconcileStoryblokManifest(manifest, { env = process.env }
   }
 
   const remote = await loadRemoteStoryblokState(config);
+  const components = await hydratePlannedComponents(config, manifest, remote.components);
+  const stories = await hydratePlannedStories(config, manifest, remote.stories);
   const assetMap = createRemoteStoryAssetMap(manifest, remote.assets, remote.assetFolders);
+  const unavailableInternalTags = remote.optionalUnavailable.find((entry) => entry.name === 'internal_tags');
   const resources = [
     ...reconcileComponentGroups(manifest, remote.componentGroups),
-    ...reconcileInternalTags(manifest, remote.internalTags),
-    ...reconcileComponents(manifest, remote.components, remote.componentGroups),
+    ...reconcileInternalTags(manifest, remote.internalTags, unavailableInternalTags),
+    ...reconcileComponents(manifest, components, remote.componentGroups),
     ...reconcileAssetFolders(manifest, remote.assetFolders),
     ...reconcileAssets(manifest, remote.assets, remote.assetFolders),
-    ...reconcilePresets(manifest, remote.presets, remote.components, assetMap),
-    ...reconcileStories(manifest, remote.stories)
+    ...reconcilePresets(manifest, remote.presets, components, assetMap),
+    ...reconcileStories(manifest, stories)
   ];
   const summary = summarizeReconciliation(resources);
   return {
@@ -1261,6 +1299,11 @@ async function listStoryblokComponents(config, params = {}, options = {}) {
   return listPaginated(config, `/spaces/${config.spaceId}/components/`, 'components', params, options);
 }
 
+async function getStoryblokComponent(config, componentId) {
+  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/components/${componentId}`);
+  return response.component || response;
+}
+
 async function listStoryblokComponentGroups(config, params = {}, options = {}) {
   return listPaginated(config, `/spaces/${config.spaceId}/component_groups/`, 'component_groups', params, options);
 }
@@ -1279,6 +1322,11 @@ async function listStoryblokAssetFolders(config, params = {}, options = {}) {
 
 async function listStoryblokStories(config, params = {}, options = {}) {
   return listPaginated(config, `/spaces/${config.spaceId}/stories`, 'stories', params, options);
+}
+
+async function getStoryblokStory(config, storyId) {
+  const response = await storyblokRequest(config, `/spaces/${config.spaceId}/stories/${storyId}`);
+  return response.story || response;
 }
 
 async function listStoryblokAssets(config, params = {}, options = {}) {
@@ -1407,10 +1455,27 @@ async function optionalStoryblokCollection(config, name, listFn, summarizeFn, li
   }
 }
 
+async function optionalStoryblokItems(config, name, listFn, params = {}, options = {}) {
+  try {
+    return {
+      name,
+      status: 'ok',
+      items: await listFn(config, params, options)
+    };
+  } catch (error) {
+    return {
+      name,
+      status: 'unavailable',
+      items: [],
+      reason: error.message || String(error)
+    };
+  }
+}
+
 async function loadRemoteStoryblokState(config) {
   const [
     componentGroups,
-    internalTags,
+    internalTagsResult,
     components,
     assetFolders,
     assets,
@@ -1418,7 +1483,7 @@ async function loadRemoteStoryblokState(config) {
     stories
   ] = await Promise.all([
     listStoryblokComponentGroups(config),
-    listStoryblokInternalTags(config),
+    optionalStoryblokItems(config, 'internal_tags', listStoryblokInternalTags),
     listStoryblokComponents(config),
     listStoryblokAssetFolders(config),
     listStoryblokAssets(config),
@@ -1427,7 +1492,10 @@ async function loadRemoteStoryblokState(config) {
   ]);
   return {
     componentGroups,
-    internalTags,
+    internalTags: internalTagsResult.items,
+    optionalUnavailable: [
+      ...(internalTagsResult.status === 'ok' ? [] : [{ name: 'internal_tags', reason: internalTagsResult.reason }])
+    ],
     components,
     assetFolders,
     assets,
@@ -1447,8 +1515,15 @@ function reconcileComponentGroups(manifest, componentGroups) {
   });
 }
 
-function reconcileInternalTags(manifest, internalTags) {
+function reconcileInternalTags(manifest, internalTags, unavailable = null) {
   return plannedInternalTags(manifest).map((tag) => {
+    if (unavailable) {
+      return reconcileItem('storyblok_internal_tag', tag.name, 'present_unverified', {
+        object_type: tag.object_type,
+        optional: true,
+        reason: unavailable.reason
+      });
+    }
     const existing = internalTags.find((entry) => internalTagMatches(entry, tag));
     return existing
       ? reconcileItem('storyblok_internal_tag', tag.name, 'matching', { id: existing.id || null, object_type: tag.object_type })
@@ -1620,7 +1695,48 @@ function emptyReconcileSummary() {
 
 async function findStoryBySlug(config, slug) {
   const response = await storyblokRequest(config, `/spaces/${config.spaceId}/stories?by_slugs=${encodeURIComponent(slug)}&per_page=1`);
-  return ensureArray(response.stories).find((story) => story.full_slug === slug || story.slug === slug) || null;
+  const story = ensureArray(response.stories).find((entry) => entry.full_slug === slug || entry.slug === slug) || null;
+  if (!story) return null;
+  return hydrateStoryDetail(config, story);
+}
+
+async function hydratePlannedComponents(config, manifest, components) {
+  const names = new Set([
+    ...ensureArray(manifest.storyblok?.components_to_create).map((component) => component.technical_name || component.name),
+    ...ensureArray(manifest.storyblok?.components_to_duplicate).map((component) => component.technical_name || component.name || component.target_technical_name)
+  ].filter(Boolean));
+  return Promise.all(ensureArray(components).map(async (component) => {
+    if (!names.has(component.name)) return component;
+    if (Object.hasOwn(component, 'schema') && Object.hasOwn(component, 'is_root') && Object.hasOwn(component, 'is_nestable')) return component;
+    return hydrateComponentDetail(config, component);
+  }));
+}
+
+async function hydrateComponentDetail(config, component) {
+  if (!component?.id) return component;
+  const detail = await getStoryblokComponent(config, component.id);
+  return { ...component, ...detail };
+}
+
+async function hydratePlannedStories(config, manifest, stories) {
+  const slugs = new Set(ensureArray(manifest.storyblok?.stories_to_create)
+    .map((story) => normalizeStoryLinkKey(story.slug || story.full_slug))
+    .filter(Boolean));
+  return Promise.all(ensureArray(stories).map(async (story) => {
+    const slug = normalizeStoryLinkKey(story.full_slug || story.slug);
+    if (!slugs.has(slug)) return story;
+    return hydrateStoryDetail(config, story);
+  }));
+}
+
+async function hydrateStoryDetail(config, story) {
+  if (storyHasContent(story) || !story?.id) return story;
+  const detail = await getStoryblokStory(config, story.id);
+  return { ...story, ...detail };
+}
+
+function storyHasContent(story) {
+  return Boolean(story && Object.hasOwn(story, 'content') && story.content && typeof story.content === 'object');
 }
 
 async function listStoryFolders(config) {
@@ -2086,6 +2202,7 @@ async function deleteIntegrationComponents(config, manifest, { dryRun }) {
     ...ensureArray(manifest.storyblok?.components_to_create).map((component) => component.technical_name || component.name || component),
     ...ensureArray(manifest.storyblok?.components_to_duplicate).map((component) => component.technical_name || component.name || component)
   ]);
+  if (names.length === 0) return [];
   const results = [];
   if (dryRun) {
     return names.map((name) => ({
@@ -2131,7 +2248,19 @@ async function deleteIntegrationInternalTags(config, manifest, { dryRun }) {
     }));
   }
 
-  const existingTags = await listStoryblokInternalTags(config);
+  const existingTagsResult = await optionalStoryblokItems(config, 'internal_tags', listStoryblokInternalTags);
+  if (existingTagsResult.status !== 'ok') {
+    return tags.map((tag) => ({
+      action: 'delete_internal_tag',
+      dry_run: false,
+      status: 'skipped_optional',
+      name: tag.name,
+      object_type: tag.object_type,
+      reason: 'Storyblok internal tags are unavailable for this space, token, region, or plan.',
+      details: existingTagsResult.reason
+    }));
+  }
+  const existingTags = existingTagsResult.items;
   const results = [];
   for (const tag of tags) {
     const existing = existingTags.find((entry) => internalTagMatches(entry, tag));
@@ -2193,10 +2322,53 @@ async function deleteIntegrationComponentGroups(config, manifest, { dryRun }) {
 }
 
 function assertComponentMatches(existing, intended) {
-  const existingComparable = comparableComponent(existing);
-  const intendedComparable = comparableComponent(intended);
-  if (sha256Json(existingComparable) !== sha256Json(intendedComparable)) {
-    throw new Error(`Storyblok component drift detected for ${intended.name}; existing component does not match the manifest.`);
+  const existingComponent = existing?.component || existing || {};
+  const intendedComponent = intended?.component || intended || {};
+  const intendedName = intendedComponent.name || intendedComponent.technical_name;
+  const existingName = existingComponent.name || existingComponent.technical_name;
+  const mismatches = [];
+
+  if (existingName !== intendedName) {
+    mismatches.push(`name expected ${intendedName || 'unknown'} but found ${existingName || 'missing'}`);
+  }
+
+  const expectedDisplayName = intendedComponent.display_name || titleFromTechnicalName(intendedName);
+  const actualDisplayName = existingComponent.display_name || titleFromTechnicalName(existingName);
+  if (actualDisplayName !== expectedDisplayName) {
+    mismatches.push(`display_name expected ${expectedDisplayName || 'empty'} but found ${actualDisplayName || 'empty'}`);
+  }
+
+  if (Boolean(existingComponent.is_root) !== Boolean(intendedComponent.is_root)) {
+    mismatches.push(`is_root expected ${Boolean(intendedComponent.is_root)} but found ${Boolean(existingComponent.is_root)}`);
+  }
+  if (Boolean(existingComponent.is_nestable) !== Boolean(intendedComponent.is_nestable)) {
+    mismatches.push(`is_nestable expected ${Boolean(intendedComponent.is_nestable)} but found ${Boolean(existingComponent.is_nestable)}`);
+  }
+
+  const expectedPreviewField = intendedComponent.preview_field || 'headline';
+  const actualPreviewField = existingComponent.preview_field || expectedPreviewField;
+  if (actualPreviewField !== expectedPreviewField) {
+    mismatches.push(`preview_field expected ${expectedPreviewField} but found ${actualPreviewField}`);
+  }
+
+  if (intendedComponent.component_group_uuid && existingComponent.component_group_uuid &&
+    existingComponent.component_group_uuid !== intendedComponent.component_group_uuid) {
+    mismatches.push(`component_group_uuid expected ${intendedComponent.component_group_uuid} but found ${existingComponent.component_group_uuid}`);
+  }
+
+  const existingSchema = existingComponent.schema || {};
+  for (const [fieldName, intendedField] of Object.entries(intendedComponent.schema || {})) {
+    if (!Object.hasOwn(existingSchema, fieldName)) {
+      mismatches.push(`schema.${fieldName} is missing`);
+      continue;
+    }
+    const mismatch = findJsonContractMismatch(existingSchema[fieldName], intendedField, `schema.${fieldName}`);
+    if (mismatch) mismatches.push(mismatch);
+  }
+
+  if (mismatches.length > 0) {
+    const details = mismatches.slice(0, 4).join('; ');
+    throw new Error(`Storyblok component drift detected for ${intendedName}; ${details}.`);
   }
 }
 
@@ -2424,19 +2596,6 @@ function normalizeComponent(component, { componentGroupUuid = null } = {}) {
   return normalized;
 }
 
-function comparableComponent(component) {
-  const comparable = {
-    name: component.name || component.technical_name,
-    display_name: component.display_name || titleFromTechnicalName(component.name || component.technical_name),
-    is_root: Boolean(component.is_root),
-    is_nestable: Boolean(component.is_nestable),
-    schema: component.schema || {},
-    preview_field: component.preview_field || 'headline'
-  };
-  if (component.component_group_uuid) comparable.component_group_uuid = component.component_group_uuid;
-  return comparable;
-}
-
 function defaultSchemaFor(component) {
   const isRoot = component.component_type === 'content_type' || component.is_root === true;
   if (isRoot) {
@@ -2461,6 +2620,100 @@ function defaultSchemaFor(component) {
       description: 'Section body copy.'
     }
   };
+}
+
+function findJsonContractMismatch(existing, intended, pathName) {
+  if (intended === undefined) return null;
+  const normalizedExisting = existing === undefined ? implicitStoryblokValue(intended) : existing;
+
+  if (Array.isArray(intended)) {
+    if (!Array.isArray(normalizedExisting)) return `${pathName} expected an array`;
+    if (intended.every(isPrimitiveContractValue)) {
+      const existingValues = normalizedExisting.map(normalizePrimitiveContractValue).sort();
+      const intendedValues = intended.map(normalizePrimitiveContractValue).sort();
+      if (!sameJson(existingValues, intendedValues)) return `${pathName} expected ${stableJson(intendedValues)} but found ${stableJson(existingValues)}`;
+      return null;
+    }
+    if (normalizedExisting.length !== intended.length) {
+      return `${pathName} expected ${intended.length} item(s) but found ${normalizedExisting.length}`;
+    }
+    for (let index = 0; index < intended.length; index += 1) {
+      const mismatch = findJsonContractMismatch(normalizedExisting[index], intended[index], `${pathName}[${index}]`);
+      if (mismatch) return mismatch;
+    }
+    return null;
+  }
+
+  if (intended && typeof intended === 'object') {
+    if (!normalizedExisting || typeof normalizedExisting !== 'object' || Array.isArray(normalizedExisting)) {
+      return `${pathName} expected an object`;
+    }
+    for (const [key, value] of Object.entries(intended)) {
+      const existingValue = Object.hasOwn(normalizedExisting, key)
+        ? normalizedExisting[key]
+        : implicitStoryblokFieldValue(key, value);
+      const mismatch = findJsonContractMismatch(existingValue, value, `${pathName}.${key}`);
+      if (mismatch) return mismatch;
+    }
+    return null;
+  }
+
+  if (!primitiveContractValuesMatch(normalizedExisting, intended)) {
+    return `${pathName} expected ${stableJson(intended)} but found ${stableJson(normalizedExisting)}`;
+  }
+  return null;
+}
+
+function implicitStoryblokValue(intended) {
+  if (intended === false) return false;
+  if (intended === '') return '';
+  if (intended === null) return null;
+  if (Array.isArray(intended) && intended.length === 0) return [];
+  return undefined;
+}
+
+function implicitStoryblokFieldValue(key, intended) {
+  if (intended === false && [
+    'required',
+    'translatable',
+    'tooltip',
+    'restrict_components',
+    'use_uuid',
+    'exclude_empty_option'
+  ].includes(key)) return false;
+  if (intended === '' && [
+    'default_value',
+    'description',
+    'display_name',
+    'datasource_slug',
+    'external_datasource',
+    'folder_slug',
+    'source'
+  ].includes(key)) return '';
+  if (Array.isArray(intended) && intended.length === 0) return [];
+  return undefined;
+}
+
+function isPrimitiveContractValue(value) {
+  return value === null || ['string', 'number', 'boolean'].includes(typeof value);
+}
+
+function normalizePrimitiveContractValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'number') return String(Number(value));
+  if (typeof value === 'boolean') return value ? 'true' : 'false';
+  return String(value);
+}
+
+function primitiveContractValuesMatch(existing, intended) {
+  if (intended === null) return existing === null || existing === undefined || existing === '';
+  if (typeof intended === 'number') return Number(existing) === intended;
+  if (typeof intended === 'boolean') {
+    if (typeof existing === 'string') return existing.toLowerCase() === String(intended);
+    return Boolean(existing) === intended;
+  }
+  if (typeof intended === 'string') return String(existing ?? '') === intended;
+  return sameJson(existing, intended);
 }
 
 function storyblokRequirements(manifest) {
@@ -2493,11 +2746,12 @@ function storyblokRequirements(manifest) {
   };
 }
 
-function preflightCheck(name, passed, message, { required = true, details = null } = {}) {
+function preflightCheck(name, passed, message, { required = true, optional = false, details = null } = {}) {
   return {
     name,
-    status: passed ? 'passed' : 'failed',
+    status: passed ? 'passed' : required ? 'failed' : 'warning',
     required,
+    optional,
     message,
     details
   };
@@ -2506,15 +2760,15 @@ function preflightCheck(name, passed, message, { required = true, details = null
 function storyblokPermissionMatrix(requirements, checks, { dryRun = false } = {}) {
   const checksByName = new Map(ensureArray(checks).map((check) => [check.name, check]));
   const definitions = [
-    ['component_groups', 'component_groups_read', 'component_group_create'],
-    ['internal_tags', 'internal_tags_read', 'internal_tag_create'],
-    ['components', 'components_read', 'component_create'],
-    ['asset_folders', 'asset_folders_read', 'asset_folder_create'],
-    ['assets', 'assets_read', 'asset_upload'],
-    ['presets', 'presets_read', 'component_preset_create'],
-    ['stories', 'stories_read', 'draft_story_create']
+    ['component_groups', 'component_groups_read', 'component_group_create', false],
+    ['internal_tags', 'internal_tags_read', 'internal_tag_create', true],
+    ['components', 'components_read', 'component_create', false],
+    ['asset_folders', 'asset_folders_read', 'asset_folder_create', false],
+    ['assets', 'assets_read', 'asset_upload', false],
+    ['presets', 'presets_read', 'component_preset_create', false],
+    ['stories', 'stories_read', 'draft_story_create', false]
   ];
-  return Object.fromEntries(definitions.map(([requirement, readCheckName, createName]) => {
+  return Object.fromEntries(definitions.map(([requirement, readCheckName, createName, optional]) => {
     const planned = Boolean(requirements[requirement]);
     const readCheck = checksByName.get(readCheckName);
     const credentialsReady = Boolean(checksByName.get('management_token')?.status === 'passed' && checksByName.get('space_id')?.status === 'passed');
@@ -2526,6 +2780,8 @@ function storyblokPermissionMatrix(requirements, checks, { dryRun = false } = {}
       additive_create: planned
         ? dryRun
           ? 'not_checked_in_dry_run'
+          : optional && readCheck && readCheck.status !== 'passed'
+            ? 'optional_skipped_when_unavailable'
           : credentialsReady && readCheck?.status === 'passed'
             ? `${createName}_verified_during_create_call`
             : 'blocked_until_read_access_passes'
@@ -2534,12 +2790,13 @@ function storyblokPermissionMatrix(requirements, checks, { dryRun = false } = {}
   }));
 }
 
-async function endpointPreflight(config, name, endpoint) {
+async function endpointPreflight(config, name, endpoint, options = {}) {
   try {
     await storyblokRequest(config, endpoint);
-    return preflightCheck(name, true, `${name.replaceAll('_', ' ')} endpoint is readable.`);
+    return preflightCheck(name, true, `${name.replaceAll('_', ' ')} endpoint is readable.`, options);
   } catch (error) {
     return preflightCheck(name, false, `${name.replaceAll('_', ' ')} endpoint is not readable.`, {
+      ...options,
       details: error.message || String(error)
     });
   }

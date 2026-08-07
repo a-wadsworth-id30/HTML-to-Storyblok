@@ -134,6 +134,18 @@ test('createIntegrationPlan uses deterministic static output for auto without a 
   assert.ok(manifest.repository.files_to_create.includes('src/integrations/auto-static-v1/route-proposals/home/route.js'));
 });
 
+test('createIntegrationPlan blocks auto framework when an explicit repository cannot be inspected', async () => {
+  await assert.rejects(
+    createIntegrationPlan({
+      integrationId: 'auto-missing-repo-v1',
+      templatePath: 'templates/acme-campaign',
+      framework: 'auto',
+      repoPath: 'demo-sites/does-not-exist'
+    }),
+    /automatic framework planning failed/
+  );
+});
+
 async function captureStdout(callback) {
   const originalLog = console.log;
   let output = '';

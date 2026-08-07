@@ -8,7 +8,7 @@
   "scripts": {
     "build": "node ../scripts/build-check.mjs",
     "build:framework": "astro build",
-    "preview:framework": "astro preview --host 127.0.0.1 --port 4401"
+    "preview:framework": "node ../scripts/static-preview.mjs dist 4401 127.0.0.1"
   },
   "dependencies": {
     "@storyblok/astro": "^10.2.3",

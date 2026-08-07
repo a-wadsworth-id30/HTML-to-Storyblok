@@ -13,8 +13,10 @@ test('full demo-site runner lists framework validation targets', async () => {
 
   assert.equal(result.action, 'test_demo_sites_full');
   assert.ok(result.sites.some((site) => site.site === 'astro' && site.framework_build));
+  assert.ok(result.sites.some((site) => site.site === 'astro' && site.generated_integration_compile));
   assert.ok(result.sites.some((site) => site.site === 'next' && site.preview_url === 'http://127.0.0.1:4402/'));
   assert.ok(result.sites.some((site) => site.site === 'static' && !site.framework_build));
+  assert.ok(result.sites.some((site) => site.site === 'static' && !site.generated_integration_compile));
 });
 
 test('full demo-site runner keeps static validation dependency-free', async () => {

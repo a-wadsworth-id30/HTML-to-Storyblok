@@ -104,6 +104,7 @@ function addBaseRepositoryFiles(manifest, framework, hasTemplate) {
   const namespace = manifest.repository_namespace;
   manifest.repository.files_to_create = [
     `${namespace}/integration-manifest.json`,
+    `${namespace}/generated-file-hashes.json`,
     `${namespace}/index.js`,
     `${namespace}/components.js`,
     ...plannedRepositoryAdapterFilePaths(manifest),
@@ -142,12 +143,7 @@ async function resolvePlanFramework(framework, repoPath) {
       detected: inspection.framework?.name || 'Uncertain'
     };
   } catch (error) {
-    return {
-      requested,
-      framework: 'static',
-      source: 'fallback',
-      reason: `Repository inspection failed, so automatic framework planning fell back to static output: ${error.message || String(error)}`
-    };
+    throw new Error(`automatic framework planning failed because the repository could not be inspected: ${error.message || String(error)}`);
   }
 }
 

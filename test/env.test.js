@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { loadEnvironment, parseDotEnv } from '../src/env.js';
+import { ENV_TEMPLATE, initEnvFile, loadEnvironment, parseDotEnv } from '../src/env.js';
 
 test('parseDotEnv handles comments, exports, quotes, and inline comments', () => {
   const parsed = parseDotEnv(`
@@ -78,4 +78,51 @@ test('loadEnvironment uses non-secret Storyblok profile defaults when env files 
   assert.equal(result.env.STORYBLOK_REGION, 'us');
   assert.equal(result.env.STORYBLOK_SPACE_ID, 'profile-space');
   assert.deepEqual(result.files_loaded, []);
+});
+
+test('ENV_TEMPLATE includes all supported sensitive integration variables as placeholders', () => {
+  for (const name of [
+    'STORYBLOK_MANAGEMENT_TOKEN',
+    'STORYBLOK_OAUTH_TOKEN',
+    'STORYBLOK_PERSONAL_ACCESS_TOKEN',
+    'STORYBLOK_SPACE_ID',
+    'SB_SPACE_ID',
+    'STORYBLOK_PREVIEW_TOKEN',
+    'STORYBLOK_PUBLIC_TOKEN',
+    'STORYBLOK_DELIVERY_TOKEN',
+    'NETLIFY_AUTH_TOKEN',
+    'NETLIFY_TOKEN',
+    'NETLIFY_SITE_ID',
+    'GITHUB_TOKEN',
+    'GH_TOKEN',
+    'GITLAB_TOKEN',
+    'GITLAB_PRIVATE_TOKEN',
+    'GITLAB_BASE_URL'
+  ]) {
+    assert.match(ENV_TEMPLATE, new RegExp(`^${name}=`, 'm'));
+  }
+});
+
+test('initEnvFile writes a gitignored local scaffold without secret values', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'hts-env-init-'));
+
+  const result = await initEnvFile({ cwd: root });
+  const content = await readFile(path.join(root, '.env.local'), 'utf8');
+
+  assert.equal(result.relative_path, '.env.local');
+  assert.equal(result.secrets_written, false);
+  assert.equal(result.gitignored, true);
+  assert.equal(content, ENV_TEMPLATE);
+  assert.match(content, /^GITHUB_TOKEN=$/m);
+  assert.doesNotMatch(content, /your-token|secret-token|management-token|preview-token/i);
+});
+
+test('initEnvFile refuses to overwrite without force', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'hts-env-overwrite-'));
+  await initEnvFile({ cwd: root });
+
+  await assert.rejects(
+    initEnvFile({ cwd: root }),
+    /\.env\.local already exists; pass --force to overwrite it/
+  );
 });

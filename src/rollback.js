@@ -1,8 +1,8 @@
-import { readdir, rmdir, unlink } from 'node:fs/promises';
+import { readFile, readdir, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
 import { validatePlan } from './policy.js';
 import { deleteStoryblokIntegrationResources } from './storyblok.js';
-import { ensureArray, pathExists } from './utils.js';
+import { ensureArray, pathExists, sha256 } from './utils.js';
 
 export function createRollbackPreview(manifest, { repoPath = process.cwd() } = {}) {
   const validation = validatePlan(manifest);
@@ -42,6 +42,7 @@ export async function rollbackIntegration(manifest, {
   confirmIntegrationId,
   remote = false,
   confirmRemoteDelete = false,
+  allowModifiedGeneratedFiles = false,
   env = process.env
 } = {}) {
   if (confirmIntegrationId !== manifest.integration_id) {
@@ -57,6 +58,10 @@ export async function rollbackIntegration(manifest, {
   }
 
   const root = path.resolve(repoPath);
+  const drift = await verifyGeneratedFileHashes(manifest, root, preview.repository_files_to_remove);
+  if (drift.modified.length > 0 && !allowModifiedGeneratedFiles) {
+    throw new Error(`rollback refused because generated files were modified after creation: ${drift.modified.map((entry) => entry.path).join(', ')}. Review the files or rerun with --allow-modified-generated-files.`);
+  }
   const removed = [];
   const missing = [];
   for (const entry of preview.repository_files_to_remove) {
@@ -96,6 +101,7 @@ export async function rollbackIntegration(manifest, {
     integration_id: manifest.integration_id,
     repository_files_removed: removed,
     repository_files_missing: missing,
+    repository_file_hash_verification: drift,
     directories_pruned: prunedDirectories,
     remote_rollback: remoteRollback,
     remote_resources_not_removed: remote ? null : {
@@ -108,6 +114,61 @@ export async function rollbackIntegration(manifest, {
       reason: 'Pass --remote --confirm-remote-delete to delete integration-owned Storyblok draft resources.'
     }
   };
+}
+
+async function verifyGeneratedFileHashes(manifest, root, entries) {
+  const ledger = await readHashLedger(manifest, root);
+  if (!ledger) {
+    return {
+      status: 'unavailable',
+      ledger_path: `${manifest.repository_namespace}/generated-file-hashes.json`,
+      verified: [],
+      modified: [],
+      missing_hashes: entries.map((entry) => entry.path),
+      note: 'No generated hash ledger was found; legacy rollback path verification is namespace-only.'
+    };
+  }
+  const expected = new Map(ensureArray(ledger.files).map((entry) => [entry.path, entry]));
+  const verified = [];
+  const modified = [];
+  const missingHashes = [];
+  for (const entry of entries) {
+    if (entry.path.endsWith('/generated-file-hashes.json')) continue;
+    const hash = expected.get(entry.path);
+    if (!hash) {
+      missingHashes.push(entry.path);
+      continue;
+    }
+    const fullPath = path.join(root, entry.path);
+    if (!(await pathExists(fullPath))) continue;
+    const actual = sha256(await readFile(fullPath));
+    if (actual === hash.sha256) {
+      verified.push(entry.path);
+    } else {
+      modified.push({
+        path: entry.path,
+        expected_sha256: hash.sha256,
+        actual_sha256: actual
+      });
+    }
+  }
+  return {
+    status: modified.length > 0 ? 'failed' : 'passed',
+    ledger_path: `${manifest.repository_namespace}/generated-file-hashes.json`,
+    verified,
+    modified,
+    missing_hashes: missingHashes
+  };
+}
+
+async function readHashLedger(manifest, root) {
+  const ledgerPath = path.join(root, manifest.repository_namespace, 'generated-file-hashes.json');
+  try {
+    return JSON.parse(await readFile(ledgerPath, 'utf8'));
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw new Error(`rollback hash ledger is not valid: ${error.message || String(error)}`);
+  }
 }
 
 function pruneDirectoriesForFiles(manifest, repositoryFiles) {

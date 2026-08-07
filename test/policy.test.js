@@ -225,7 +225,7 @@ test('Storyblok presets must target integration-owned components', () => {
   assert.ok(result.violations.some((violation) => /preset content contains unnamespaced component/.test(violation.reason)));
 });
 
-test('generator produces isolated files inside repository namespace', () => {
+test('generator produces isolated files inside repository namespace', async () => {
   const manifest = createDefaultManifest({
     integrationId: 'acme-homepage-v1',
     storyblokPrefix: 'hts_acme_homepage_v1_',
@@ -236,7 +236,7 @@ test('generator produces isolated files inside repository namespace', () => {
     { technical_name: 'hts_acme_homepage_v1_hero', component_type: 'nestable' }
   );
 
-  const files = buildGeneratedFiles(manifest);
+  const files = await buildGeneratedFiles(manifest);
   assert.ok(files.length > 0);
   assert.ok(files.every((file) => file.path.startsWith('src/integrations/acme-homepage-v1/')));
   assert.ok(files.some((file) => file.path.endsWith('/components.js')));

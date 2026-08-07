@@ -1,7 +1,7 @@
 import { checkLiveAccess } from './access.js';
 import { CLI_BRANDING_LINES } from './branding.js';
 import { duplicateAll } from './duplicator.js';
-import { loadEnvironment } from './env.js';
+import { ENV_TEMPLATE, initEnvFile, loadEnvironment } from './env.js';
 import { ensureWorkDir, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { openDraftPullRequest } from './github.js';
@@ -51,10 +51,11 @@ export async function main(argv) {
     return;
   }
 
-  const { env } = await loadEnvironment({
+  const environment = await loadEnvironment({
     repoPath: args.repo ? String(args.repo) : null,
     env: process.env
   });
+  const { env } = environment;
 
   await recordEvidence(workDir, {
     type: 'command_started',
@@ -84,6 +85,27 @@ export async function main(argv) {
       console.log(renderShellCompletion(args.shell ? String(args.shell) : 'zsh'));
       result = { action: 'completion', shell: args.shell ? String(args.shell) : 'zsh' };
       printJson = false;
+    } else if (command === 'env') {
+      if (args.print) {
+        console.log(ENV_TEMPLATE.trimEnd());
+        result = { action: 'env_template', status: 'printed', secrets_written: false };
+        printJson = false;
+      } else if (args.init || args.path || args.force) {
+        result = await initEnvFile({
+          cwd: process.cwd(),
+          filePath: args.path ? String(args.path) : '.env.local',
+          force: Boolean(args.force)
+        });
+        await writeArtifact(workDir, 'env-init-result.json', result);
+      } else {
+        result = {
+          action: 'env_status',
+          status: 'recorded',
+          files_loaded: environment.files_loaded,
+          variables_loaded: environment.variables_loaded,
+          access: checkLiveAccess(env)
+        };
+      }
     } else if (command === 'inspect-template') {
       result = await inspectTemplate(requireOption(args, 'template'));
       await writeArtifact(workDir, 'template-inventory.json', result);
@@ -342,6 +364,7 @@ export async function main(argv) {
         confirmIntegrationId: args.confirm_integration_id ? String(args.confirm_integration_id) : undefined,
         remote: Boolean(args.remote),
         confirmRemoteDelete: Boolean(args.confirm_remote_delete),
+        allowModifiedGeneratedFiles: Boolean(args.allow_modified_generated_files),
         env
       });
       await writeArtifact(workDir, 'rollback-result.json', result);
@@ -495,6 +518,7 @@ function renderShellCompletion(shell = 'zsh') {
   const commands = [
     'dashboard',
     'settings',
+    'env',
     'doctor',
     'view-report',
     'completion',
@@ -563,6 +587,10 @@ function renderShellCompletion(shell = 'zsh') {
     '--config',
     '--profile',
     '--set',
+    '--init',
+    '--print',
+    '--path',
+    '--force',
     '--no-interactive',
     '--help'
   ];
@@ -597,6 +625,7 @@ Usage:
   html-to-storyblok
   html-to-storyblok dashboard
   html-to-storyblok settings [--show] [--set key=value]
+  html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
   html-to-storyblok doctor
   html-to-storyblok view-report
   html-to-storyblok completion [--shell zsh|bash|fish]
@@ -632,11 +661,11 @@ Usage:
   html-to-storyblok storyblok-presets --manifest <path> [--dry-run]
   html-to-storyblok create-draft-story --manifest <path> [--dry-run]
   html-to-storyblok storyblok-apply --manifest <path> [--dry-run]
-  html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+  html-to-storyblok apply --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--host-checks lint,typecheck,build] [--skip-host-checks] [--dry-run]
   html-to-storyblok open-pr --repo <path> --title <title> [--base main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
   html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [--manifest <path> --prepare-branch --commit --push] [--dry-run]
   html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
-  html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--dry-run]
+  html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--allow-modified-generated-files] [--dry-run]
   html-to-storyblok report [--view] [--html]
 
 Mutating commands support --dry-run and always validate the manifest immediately before execution.

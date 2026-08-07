@@ -9,6 +9,7 @@ Framework demos also expose opt-in full-build scripts:
 ```sh
 npm run test:demo-sites-full:list
 npm run test:demo-sites-full:install
+npm run test:demo-sites-generated
 ```
 
-The install variant runs `npm install`, each framework compiler build, and an HTTP smoke check against the framework preview server. It is not part of the default test suite because it downloads framework dependencies and takes longer than the dependency-light safety matrix.
+The install variant runs `npm install`, each framework compiler build, and an HTTP smoke check against the framework preview server. The generated variant also temporarily wires a generated route proposal into each framework demo and compiles the handoff before restoring the demo files. These are not part of the default test suite because they download framework dependencies and take longer than the dependency-light safety matrix.

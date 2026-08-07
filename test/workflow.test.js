@@ -32,6 +32,52 @@ test('applyManifest preflights Storyblok credentials before writing local files'
   );
 });
 
+test('applyManifest refuses failing host baseline checks before writing generated files', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-host-baseline-repo-'));
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-host-baseline-work-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  manifest.storyblok.component_groups_to_create = [];
+  manifest.storyblok.internal_tags_to_create = [];
+  manifest.storyblok.components_to_create = [];
+  manifest.storyblok.components_to_duplicate = [];
+  manifest.storyblok.asset_folders_to_create = [];
+  manifest.storyblok.assets_to_create = [];
+  manifest.storyblok.presets_to_create = [];
+  manifest.storyblok.stories_to_create = [];
+
+  await writeFile(path.join(repoPath, 'package.json'), JSON.stringify({
+    type: 'module',
+    scripts: {
+      build: 'node -e "process.exit(17)"'
+    }
+  }, null, 2));
+
+  await assert.rejects(
+    applyManifest(manifest, {
+      repo: repoPath,
+      template: 'test/fixtures/basic-template',
+      framework: 'static',
+      env: {}
+    }, workDir),
+    /host repository checks failed before generated files were written: build/
+  );
+
+  await stat(path.join(workDir, 'apply-step-01-baseline-host-checks.json'));
+  await assert.rejects(
+    stat(path.join(workDir, 'apply-step-02-duplicate.json')),
+    /ENOENT/
+  );
+  await assert.rejects(
+    stat(path.join(repoPath, 'src/integrations/acme-homepage-v1/template.html')),
+    /ENOENT/
+  );
+});
+
 test('applyManifest writes completed step artifacts before a later remote failure', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-partial-repo-'));
   const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-partial-work-'));
@@ -132,9 +178,11 @@ test('applyManifest writes completed step artifacts before a later remote failur
       }, workDir),
       /asset folder unavailable/
     );
-    await stat(path.join(workDir, 'apply-step-06-storyblok-components.json'));
+    await stat(path.join(workDir, 'apply-step-01-baseline-host-checks.json'));
+    await stat(path.join(workDir, 'apply-step-05-host-checks.json'));
+    await stat(path.join(workDir, 'apply-step-08-storyblok-components.json'));
     await assert.rejects(
-      stat(path.join(workDir, 'apply-step-07-storyblok-asset-folders.json')),
+      stat(path.join(workDir, 'apply-step-09-storyblok-asset-folders.json')),
       /ENOENT/
     );
   } finally {

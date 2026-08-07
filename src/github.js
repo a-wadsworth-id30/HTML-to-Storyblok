@@ -22,7 +22,7 @@ export async function openDraftPullRequest({
   dryRun = false,
   env = process.env
 } = {}) {
-  const remote = owner && repo ? { owner, repo } : await inferGitHubRemote(repoPath);
+  const remote = owner && repo ? { owner, repo } : await inferGitHubRemote(repoPath, remoteName);
   const prepared = prepareBranch || commit || push
     ? await prepareReviewBranch({
       repoPath,
@@ -45,6 +45,7 @@ export async function openDraftPullRequest({
     draft: true,
     maintainer_can_modify: true
   };
+  const manualUrl = githubPullRequestUrl(remote, base, currentBranch);
 
   if (dryRun) {
     return {
@@ -52,12 +53,15 @@ export async function openDraftPullRequest({
       dry_run: true,
       repository: `${remote.owner}/${remote.repo}`,
       review_branch: prepared,
+      url: manualUrl,
       payload
     };
   }
 
   const token = envValue(['GITHUB_TOKEN', 'GH_TOKEN'], env);
-  if (!token) throw new Error('Set GITHUB_TOKEN or GH_TOKEN to open a pull request through the GitHub API.');
+  if (!token) {
+    throw new Error(`Set GITHUB_TOKEN or GH_TOKEN to open a pull request through the GitHub API. Manual PR URL: ${manualUrl}`);
+  }
   const response = await fetch(`https://api.github.com/repos/${remote.owner}/${remote.repo}/pulls`, {
     method: 'POST',
     headers: {
@@ -84,12 +88,66 @@ export async function openDraftPullRequest({
   };
 }
 
-async function inferGitHubRemote(repoPath) {
-  const { stdout } = await execFileAsync('git', ['config', '--get', 'remote.origin.url'], { cwd: repoPath });
+export async function inferGitHubRemote(repoPath, remoteName = 'origin') {
+  const { stdout } = await execFileAsync('git', ['config', '--get', `remote.${remoteName}.url`], { cwd: repoPath });
   const remote = stdout.trim();
-  const ssh = remote.match(/github(?:-[\w-]+)?[:/]([^/]+)\/(.+?)(?:\.git)?$/);
-  const https = remote.match(/github\.com\/([^/]+)\/(.+?)(?:\.git)?$/);
-  const match = ssh || https;
-  if (!match) throw new Error(`could not infer GitHub owner/repo from remote: ${remote}`);
-  return { owner: match[1], repo: match[2] };
+  const parsed = parseGitHubRemote(remote);
+  if (!parsed) throw new Error(`could not infer GitHub owner/repo from remote: ${remote}`);
+  return parsed;
+}
+
+export function parseGitHubRemote(remote) {
+  const value = String(remote || '').trim();
+  if (!value) return null;
+
+  const url = parseRemoteUrl(value);
+  const scp = url ? null : value.match(/^(?:[^@/\s]+@)?([^:/\s]+):(.+)$/);
+  const host = url?.host || scp?.[1];
+  const pathname = url?.pathname || scp?.[2];
+
+  if (!host || !pathname || !isGitHubHost(host)) return null;
+
+  const parts = pathname
+    .replace(/^\/+/, '')
+    .replace(/\.git$/i, '')
+    .split('/')
+    .filter(Boolean);
+
+  if (parts.length !== 2) return null;
+  return {
+    owner: decodeURIComponent(parts[0]),
+    repo: decodeURIComponent(parts[1])
+  };
+}
+
+function parseRemoteUrl(value) {
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) return null;
+  try {
+    const parsed = new URL(value);
+    return {
+      host: parsed.hostname,
+      pathname: parsed.pathname
+    };
+  } catch {
+    return null;
+  }
+}
+
+function isGitHubHost(host) {
+  const value = String(host || '').toLowerCase();
+  return (
+    value === 'github.com' ||
+    value === 'github' ||
+    value.startsWith('github.') ||
+    value.startsWith('github-') ||
+    value.includes('.github.')
+  );
+}
+
+function githubPullRequestUrl(remote, base, head) {
+  const owner = encodeURIComponent(remote.owner);
+  const repo = encodeURIComponent(remote.repo);
+  const baseRef = encodeURIComponent(base);
+  const headRef = encodeURIComponent(head);
+  return `https://github.com/${owner}/${repo}/compare/${baseRef}...${headRef}?expand=1`;
 }

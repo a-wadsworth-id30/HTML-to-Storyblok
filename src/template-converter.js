@@ -428,7 +428,7 @@ function routeForTemplatePage(page) {
   const slug = normalized.join('/') || 'home';
   return {
     slug,
-    path: `/${slug === 'home' ? '' : slug}`.replace(/\/$/, '') || '/home',
+    path: slug === 'home' ? '/' : `/${slug}`,
     source_page: source,
     primary: path.basename(source).toLowerCase() === 'index.html'
   };
@@ -459,13 +459,24 @@ function kebabCase(value) {
 }
 
 function replaceHtmlAssetRefs(html, assetCopies, sourcePage, assetPrefix) {
-  let output = html;
+  const replacements = new Map();
   for (const asset of assetCopies) {
     for (const original of asset.original_refs.filter((entry) => entry.output_base === '.' && entry.source_file === sourcePage)) {
-      output = output.split(original.reference).join(`${assetPrefix}/${asset.asset_path}`);
+      replacements.set(original.reference, `${assetPrefix}/${asset.asset_path}`);
     }
   }
-  return output;
+  if (replacements.size === 0) return html;
+  return rewriteHtmlAttributes(html, (attribute) => {
+    if (attribute.value === null) return attribute;
+    const lower = attribute.name.toLowerCase();
+    if (['src', 'href', 'poster'].includes(lower) && replacements.has(attribute.value)) {
+      return { ...attribute, value: replacements.get(attribute.value) };
+    }
+    if (lower === 'srcset') {
+      return { ...attribute, value: rewriteSrcsetAssetRefs(attribute.value, replacements) };
+    }
+    return attribute;
+  });
 }
 
 function uniqueRefs(values) {
@@ -482,10 +493,11 @@ function sanitizeHtml(html) {
     };
   });
   const removedScripts = scripts.length;
-  const inlineHandlerPattern = /\son[a-z][\w:-]*\s*=\s*(?:"[^"]*"|'[^']*'|[^\s"'=<>`]+)/gi;
-  const removedInlineHandlers = [...html.matchAll(inlineHandlerPattern)].length;
   const withoutScripts = html.replace(/<script\b[\s\S]*?<\/script>/gi, '');
-  const withoutHandlers = withoutScripts.replace(inlineHandlerPattern, '');
+  const removedInlineHandlers = countInlineHandlerAttributes(withoutScripts);
+  const withoutHandlers = rewriteHtmlAttributes(withoutScripts, (attribute) => (
+    /^on[a-z]/i.test(attribute.name) ? null : attribute
+  ));
   const bodyMatch = withoutHandlers.match(/<body\b[^>]*>([\s\S]*?)<\/body>/i);
   return {
     bodyHtml: (bodyMatch ? bodyMatch[1] : withoutHandlers).trim(),
@@ -497,20 +509,26 @@ function sanitizeHtml(html) {
 
 function namespaceHtml(html, integrationId) {
   const prefix = `hts-${integrationId}`;
-  let output = html
-    .replace(/\bid=(['"])([^'"]+)\1/gi, (_match, quote, value) => `id=${quote}${prefix}-${value}${quote}`)
-    .replace(/\b(for|list|form|aria-labelledby|aria-describedby|aria-controls|aria-owns|aria-flowto)=(['"])([^'"]+)\2/gi, (_match, name, quote, value) => (
-      `${name}=${quote}${namespaceIdReferenceList(value, prefix)}${quote}`
-    ))
-    .replace(/\b(href|xlink:href)=(['"])#([^'"]+)\2/gi, (_match, name, quote, value) => (
-      `${name}=${quote}#${namespaceIdReference(value, prefix)}${quote}`
-    ))
-    .replace(/\bclass=(['"])([^'"]+)\1/gi, (_match, quote, value) => {
-      const classes = value.split(/\s+/).filter(Boolean).map((className) => (
+  let output = rewriteHtmlAttributes(html, (attribute) => {
+    if (attribute.value === null) return attribute;
+    const lower = attribute.name.toLowerCase();
+    if (lower === 'id') {
+      return { ...attribute, value: namespaceIdReference(attribute.value, prefix) };
+    }
+    if (['for', 'list', 'form', 'aria-labelledby', 'aria-describedby', 'aria-controls', 'aria-owns', 'aria-flowto'].includes(lower)) {
+      return { ...attribute, value: namespaceIdReferenceList(attribute.value, prefix) };
+    }
+    if ((lower === 'href' || lower === 'xlink:href') && attribute.value.startsWith('#')) {
+      return { ...attribute, value: `#${namespaceIdReference(attribute.value.slice(1), prefix)}` };
+    }
+    if (lower === 'class') {
+      const classes = attribute.value.split(/\s+/).filter(Boolean).map((className) => (
         className.startsWith(`${prefix}-`) ? className : `${prefix}-${className}`
       ));
-      return `class=${quote}${classes.join(' ')}${quote}`;
-    });
+      return { ...attribute, value: classes.join(' ') };
+    }
+    return attribute;
+  });
   output = markFirst(output, /<h1\b([^>]*)>/i, (_match, attributes) => (
     /\bdata-hts-field=/.test(attributes) ? `<h1${attributes}>` : `<h1${attributes} data-hts-field="headline">`
   ));
@@ -538,6 +556,51 @@ function normalizeFramework(value) {
 
 function markFirst(value, pattern, replacement) {
   return value.replace(pattern, replacement);
+}
+
+function rewriteHtmlAttributes(html, visitor) {
+  return html.replace(/<([a-zA-Z][\w:-]*)([^<>]*?)(\/?)>/g, (match, tagName, rawAttributes = '', selfClosing = '') => {
+    if (match.startsWith('</')) return match;
+    const attributes = tokenizeAttributes(rawAttributes);
+    const rewritten = attributes
+      .map((attribute) => visitor(attribute, tagName))
+      .filter(Boolean)
+      .map(serializeHtmlAttribute)
+      .join('');
+    return `<${tagName}${rewritten}${selfClosing ? ' /' : ''}>`;
+  });
+}
+
+function serializeHtmlAttribute(attribute) {
+  if (attribute.value === null) return ` ${attribute.name}`;
+  return ` ${attribute.name}="${escapeHtmlAttribute(attribute.value)}"`;
+}
+
+function escapeHtmlAttribute(value) {
+  return String(value)
+    .replaceAll('&', '&amp;')
+    .replaceAll('"', '&quot;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;');
+}
+
+function countInlineHandlerAttributes(html) {
+  let count = 0;
+  rewriteHtmlAttributes(html, (attribute) => {
+    if (/^on[a-z]/i.test(attribute.name)) count += 1;
+    return attribute;
+  });
+  return count;
+}
+
+function rewriteSrcsetAssetRefs(value, replacements) {
+  return String(value).split(',').map((candidate) => {
+    const trimmed = candidate.trim();
+    if (!trimmed) return candidate;
+    const parts = trimmed.split(/\s+/);
+    if (!replacements.has(parts[0])) return candidate;
+    return [replacements.get(parts[0]), ...parts.slice(1)].join(' ');
+  }).join(', ');
 }
 
 function toJsx(html) {

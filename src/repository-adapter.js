@@ -117,21 +117,21 @@ function frameworkEntrypoints(manifest, framework, { hasPreview = true } = {}) {
     return {
       root_preview: `${namespace}/TemplatePage.astro`,
       storyblok_renderer: `${namespace}/components.js`,
-      import_example: `import TemplatePage from './${namespace}/TemplatePage.astro';`
+      import_example: `import RouteProposal from '<relative-path-to>/${namespace}/route-proposals/home/page.astro';`
     };
   }
   if (framework === 'react' || framework === 'next') {
     return {
       root_preview: `${namespace}/TemplatePage.jsx`,
       storyblok_renderer: `${namespace}/components.js`,
-      import_example: `import { HtsTemplatePage } from './${namespace}/TemplatePage.jsx';`
+      import_example: `import RouteProposal from '<relative-path-to>/${namespace}/route-proposals/home/page.jsx';`
     };
   }
   if (framework === 'vue' || framework === 'nuxt') {
     return {
       root_preview: `${namespace}/TemplatePage.vue`,
       storyblok_renderer: `${namespace}/components.js`,
-      import_example: `import HtsTemplatePage from './${namespace}/TemplatePage.vue';`
+      import_example: `import RouteProposal from '<relative-path-to>/${namespace}/route-proposals/home/Page.vue';`
     };
   }
   return {
@@ -397,30 +397,32 @@ function frameworkGuide(plan) {
 No template preview component was generated because this manifest was created without a template source. Use \`${plan.entrypoints.storyblok_renderer}\` only after you add a reviewed host renderer for \`${plan.root_component}\`.
 `;
   }
+  const primaryRoute = plan.routes.find((route) => route.slug === 'home') || plan.routes[0];
   if (plan.framework === 'astro') {
     return `## Astro Wiring
 
-Import the generated preview component into a reviewed Astro page or Storyblok renderer:
+Import the reviewed route proposal from the host route you create. Adjust the relative path from the host file to the integration namespace:
 
 \`\`\`astro
 ---
-import TemplatePage from './${plan.repository_namespace}/TemplatePage.astro';
+import ImportedRoute from '../integrations/${plan.integration_id}/route-proposals/${primaryRoute?.slug || 'home'}/page.astro';
+const { story = null } = Astro.props;
 ---
 
-<TemplatePage blok={story.content} />
+<ImportedRoute story={story} />
 \`\`\`
 `;
   }
   if (plan.framework === 'react' || plan.framework === 'next') {
     return `## ${plan.framework === 'next' ? 'Next.js' : 'React'} Wiring
 
-Import the generated preview component into a reviewed route or Storyblok renderer:
+Import the reviewed route proposal from the host route you create. Adjust the relative path from the host file to the integration namespace:
 
 \`\`\`jsx
-import { HtsTemplatePage } from './${plan.repository_namespace}/TemplatePage.jsx';
+import ImportedRoute from '../integrations/${plan.integration_id}/route-proposals/${primaryRoute?.slug || 'home'}/page.jsx';
 
 export default function ImportedTemplatePage({ story }) {
-  return <HtsTemplatePage blok={story.content} />;
+  return <ImportedRoute story={story} />;
 }
 \`\`\`
 `;
@@ -428,15 +430,15 @@ export default function ImportedTemplatePage({ story }) {
   if (plan.framework === 'vue' || plan.framework === 'nuxt') {
     return `## ${plan.framework === 'nuxt' ? 'Nuxt' : 'Vue'} Wiring
 
-Import the generated preview component into a reviewed page or Storyblok renderer:
+Import the reviewed route proposal from the host route you create. Adjust the relative path from the host file to the integration namespace:
 
 \`\`\`vue
 <script setup>
-import HtsTemplatePage from './${plan.repository_namespace}/TemplatePage.vue';
+import ImportedRoute from '../src/integrations/${plan.integration_id}/route-proposals/${primaryRoute?.slug || 'home'}/Page.vue';
 </script>
 
 <template>
-  <HtsTemplatePage :blok="story.content" />
+  <ImportedRoute :story="story" />
 </template>
 \`\`\`
 `;

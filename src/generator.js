@@ -1,8 +1,8 @@
 import path from 'node:path';
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { copyConvertedAssets, convertTemplate } from './template-converter.js';
 import { buildRepositoryAdapterFiles } from './repository-adapter.js';
-import { ensureArray, pathExists, writeJson, writeText } from './utils.js';
+import { ensureArray, pathExists, sha256, writeJson, writeText } from './utils.js';
 
 export async function generateIntegration(manifest, { repoPath = process.cwd(), templatePath, framework = 'auto', dryRun = false } = {}) {
   const root = path.resolve(repoPath);
@@ -11,7 +11,7 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
   const generationFramework = resolveGenerationFramework(manifest, framework);
 
   const conversion = await convertTemplate({ templatePath, repoPath: root, manifest, framework: generationFramework });
-  const files = buildGeneratedFiles(manifest, { conversion });
+  const files = await buildGeneratedFiles(manifest, { conversion });
   const unplanned = files
     .map((file) => file.path)
     .filter((filePath) => !ensureArray(manifest.repository?.files_to_create).includes(filePath));
@@ -72,7 +72,7 @@ function resolveGenerationFramework(manifest, framework) {
   return planned === 'auto' ? 'static' : planned;
 }
 
-export function buildGeneratedFiles(manifest, { conversion = null } = {}) {
+export async function buildGeneratedFiles(manifest, { conversion = null } = {}) {
   const namespace = manifest.repository_namespace;
   const integrationId = manifest.integration_id;
   const cssClass = integrationId.replaceAll('-', '-');
@@ -108,7 +108,39 @@ export function buildGeneratedFiles(manifest, { conversion = null } = {}) {
     conversion,
     framework: manifest.template?.framework || 'static'
   }));
+  files.splice(1, 0, {
+    path: `${namespace}/generated-file-hashes.json`,
+    json: true,
+    content: await buildGeneratedFileHashLedger(manifest, files, ensureArray(conversion?.asset_copies))
+  });
   return files;
+}
+
+async function buildGeneratedFileHashLedger(manifest, files, assets) {
+  return {
+    action: 'generated_file_hashes',
+    integration_id: manifest.integration_id,
+    repository_namespace: manifest.repository_namespace,
+    algorithm: 'sha256',
+    files: [
+      ...files.map((file) => ({
+        path: file.path,
+        kind: file.json ? 'json' : 'text',
+        sha256: sha256(serializedFileContent(file))
+      })),
+      ...await Promise.all(assets.map(async (asset) => ({
+        path: asset.target_path,
+        source_path: asset.source_path,
+        kind: 'asset',
+        sha256: sha256(await readFile(asset.source_path))
+      })))
+    ],
+    note: 'Rollback verifies these hashes before deleting generated repository files.'
+  };
+}
+
+function serializedFileContent(file) {
+  return file.json ? `${JSON.stringify(file.content, null, 2)}\n` : file.content;
 }
 
 function renderIndex(componentNames) {

@@ -119,10 +119,12 @@ test('apply dry-run executes the import pipeline without copying template assets
     ]);
   });
   const result = JSON.parse(output);
+  const duplicateStep = result.steps.find((step) => step.action === 'duplicate');
+  const localValidationStep = result.steps.find((step) => step.action === 'local_validation');
 
   assert.equal(result.dry_run, true);
-  assert.deepEqual(result.steps[0].repository_assets, []);
-  assert.equal(result.steps[2].results.status, 'skipped');
+  assert.deepEqual(duplicateStep.repository_assets, []);
+  assert.equal(localValidationStep.results.status, 'skipped');
 });
 
 async function captureStdout(callback) {

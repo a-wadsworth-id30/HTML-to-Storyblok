@@ -1004,6 +1004,31 @@ test('createStoryblokInternalTags creates missing namespaced tags', async () => 
   restoreFetch();
 });
 
+test('createStoryblokInternalTags skips optional tags when the endpoint is unavailable', async () => {
+  originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    if (String(url).includes('/internal_tags/') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ message: 'Forbidden' }, { ok: false, status: 403 });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await createStoryblokInternalTags({
+    storyblok: {
+      internal_tags_to_create: [
+        { name: 'hts_acme_homepage_v1_components', object_type: 'component' }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result[0].status, 'skipped_optional');
+  assert.match(result[0].reason, /internal tags are unavailable/);
+  assert.equal(calls.length, 1);
+  restoreFetch();
+});
+
 test('createStoryblokPresets creates component presets with hydrated asset fields', async () => {
   const calls = mockFetch((url, options = {}) => {
     if (url.includes('/presets/') && (options.method || 'GET') === 'GET') {
@@ -1158,6 +1183,92 @@ test('preflightStoryblokIntegration performs non-mutating Storyblok readiness ch
   assert.equal(result.permission_matrix.components.read, 'passed');
   assert.match(result.permission_matrix.components.additive_create, /verified_during_create_call/);
   assert.ok(calls.every((call) => (call.options.method || 'GET') === 'GET'));
+  restoreFetch();
+});
+
+test('preflightStoryblokIntegration treats unavailable internal tags as optional', async () => {
+  originalFetch = global.fetch;
+  const calls = [];
+  global.fetch = async (url, options = {}) => {
+    calls.push({ url: String(url), options });
+    assert.equal(options.method || 'GET', 'GET');
+    if (String(url).endsWith('/spaces/12345')) return jsonResponse({ space: { id: 12345, name: 'Demo' } });
+    if (String(url).includes('/internal_tags/')) return jsonResponse({ message: 'Forbidden' }, { ok: false, status: 403 });
+    if (String(url).includes('/components/')) return jsonResponse({ components: [] });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await preflightStoryblokIntegration({
+    storyblok: {
+      internal_tags_to_create: [{ name: 'hts_acme_homepage_v1_components', object_type: 'component' }],
+      components_to_create: [{ technical_name: 'hts_acme_homepage_v1_hero' }]
+    }
+  }, { env: storyblokEnv() });
+
+  const internalTagsCheck = result.checks.find((check) => check.name === 'internal_tags_read');
+  assert.equal(result.status, 'passed');
+  assert.equal(internalTagsCheck.status, 'warning');
+  assert.equal(internalTagsCheck.required, false);
+  assert.equal(internalTagsCheck.optional, true);
+  assert.equal(result.permission_matrix.internal_tags.additive_create, 'optional_skipped_when_unavailable');
+  assert.equal(result.permission_matrix.components.additive_create, 'component_create_verified_during_create_call');
+  assert.ok(calls.every((call) => (call.options.method || 'GET') === 'GET'));
+  restoreFetch();
+});
+
+test('inspectStoryblokSpace continues when internal tags are unavailable', async () => {
+  originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    assert.equal(options.method || 'GET', 'GET');
+    const href = String(url);
+    if (href.endsWith('/spaces/12345')) return jsonResponse({ space: { id: 12345, name: 'Demo' } });
+    if (href.includes('/components/')) return jsonResponse({ components: [] });
+    if (href.includes('/component_groups/')) return jsonResponse({ component_groups: [] });
+    if (href.includes('/stories')) return jsonResponse({ stories: [] });
+    if (href.includes('/asset_folders/')) return jsonResponse({ asset_folders: [] });
+    if (href.includes('/assets')) return jsonResponse({ assets: [] });
+    if (href.includes('/internal_tags/')) return jsonResponse({ message: 'Forbidden' }, { ok: false, status: 403 });
+    if (href.includes('/presets/')) return jsonResponse({ presets: [] });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await inspectStoryblokSpace({ env: storyblokEnv() });
+
+  assert.equal(result.status, 'ok');
+  assert.deepEqual(result.internal_tags, []);
+  assert.equal(result.optional_unavailable[0].name, 'internal_tags');
+  assert.equal(result.readiness.core_counts.internal_tags, 0);
+  restoreFetch();
+});
+
+test('reconcileStoryblokManifest treats unavailable internal tags as present unverified', async () => {
+  originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    assert.equal(options.method || 'GET', 'GET');
+    const href = String(url);
+    if (href.includes('/component_groups/')) return jsonResponse({ component_groups: [] });
+    if (href.includes('/internal_tags/')) return jsonResponse({ message: 'Not Found' }, { ok: false, status: 404 });
+    if (href.includes('/components/')) return jsonResponse({ components: [] });
+    if (href.includes('/asset_folders/')) return jsonResponse({ asset_folders: [] });
+    if (href.includes('/assets')) return jsonResponse({ assets: [] });
+    if (href.includes('/presets/')) return jsonResponse({ presets: [] });
+    if (href.includes('/stories')) return jsonResponse({ stories: [] });
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await reconcileStoryblokManifest({
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      internal_tags_to_create: [
+        { name: 'hts_acme_homepage_v1_components', object_type: 'component' }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.resources[0].resource_type, 'storyblok_internal_tag');
+  assert.equal(result.resources[0].status, 'present_unverified');
+  assert.equal(result.resources[0].optional, true);
   restoreFetch();
 });
 
@@ -1318,6 +1429,148 @@ test('reconcileStoryblokManifest classifies matching Storyblok resources', async
   assert.equal(result.status, 'passed');
   assert.equal(result.summary.missing, 0);
   assert.ok(result.resources.every((entry) => entry.status === 'matching'));
+  restoreFetch();
+});
+
+test('reconcileStoryblokManifest hydrates component summaries and ignores Storyblok schema metadata', async () => {
+  const calls = mockFetch((url) => {
+    if (url.includes('/component_groups/')) {
+      return { component_groups: [{ id: 55, uuid: 'component-folder-uuid', name: 'acme-homepage-v1', parent_id: 0 }] };
+    }
+    if (url.includes('/internal_tags/')) return { internal_tags: [] };
+    if (url.includes('/components/57')) {
+      return {
+        component: {
+          id: 57,
+          name: 'hts_acme_homepage_v1_hero',
+          display_name: 'Hero',
+          is_root: false,
+          is_nestable: true,
+          component_group_uuid: 'component-folder-uuid',
+          preview_field: 'headline',
+          schema: {
+            headline: {
+              id: 101,
+              pos: 0,
+              type: 'text',
+              translatable: true,
+              description: 'Section headline',
+              required: false
+            },
+            cards: {
+              id: 102,
+              pos: 1,
+              type: 'bloks',
+              restrict_components: true,
+              component_whitelist: ['hts_acme_homepage_v1_feature_item'],
+              maximum: 3
+            }
+          }
+        }
+      };
+    }
+    if (url.includes('/components/')) {
+      return {
+        components: [
+          {
+            id: 57,
+            name: 'hts_acme_homepage_v1_hero'
+          }
+        ]
+      };
+    }
+    if (url.includes('/asset_folders/')) return { asset_folders: [] };
+    if (url.includes('/assets?')) return { assets: [] };
+    if (url.includes('/presets/')) return { presets: [] };
+    if (url.includes('/stories')) return { stories: [] };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await reconcileStoryblokManifest({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      components_to_create: [{
+        technical_name: 'hts_acme_homepage_v1_hero',
+        display_name: 'Hero',
+        component_type: 'nestable',
+        component_group_path: 'acme-homepage-v1',
+        preview_field: 'headline',
+        schema: {
+          headline: {
+            type: 'text',
+            translatable: true,
+            description: 'Section headline'
+          },
+          cards: {
+            type: 'bloks',
+            restrict_components: true,
+            component_whitelist: ['hts_acme_homepage_v1_feature_item'],
+            maximum: 3
+          }
+        }
+      }]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.summary.drifted, 0);
+  assert.equal(calls.filter((call) => call.url.includes('/components/57')).length, 1);
+  restoreFetch();
+});
+
+test('verifyStoryblokManagementState hydrates story summaries before root component checks', async () => {
+  const calls = mockFetch((url) => {
+    if (url.includes('/component_groups/')) return { component_groups: [] };
+    if (url.includes('/internal_tags/')) return { internal_tags: [] };
+    if (url.includes('/components/')) return { components: [] };
+    if (url.includes('/asset_folders/')) return { asset_folders: [] };
+    if (url.includes('/assets?')) return { assets: [] };
+    if (url.includes('/presets/')) return { presets: [] };
+    if (url.includes('/stories/99')) {
+      return {
+        story: {
+          id: 99,
+          uuid: 'story-uuid',
+          slug: 'home',
+          full_slug: 'acme-homepage-v1/home',
+          published_at: null,
+          content: {
+            component: 'hts_acme_homepage_v1_template_page',
+            body: [
+              { component: 'hts_acme_homepage_v1_hero' }
+            ]
+          }
+        }
+      };
+    }
+    if (url.includes('/stories?by_slugs=') || url.includes('/stories?')) {
+      return {
+        stories: [
+          {
+            id: 99,
+            uuid: 'story-uuid',
+            slug: 'home',
+            full_slug: 'acme-homepage-v1/home',
+            published_at: null
+          }
+        ]
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await verifyStoryblokManagementState({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [{ slug: 'acme-homepage-v1/home' }]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.summary.failed_story_checks, 0);
+  assert.equal(calls.filter((call) => call.url.includes('/stories/99')).length, 2);
   restoreFetch();
 });
 
@@ -1749,6 +2002,35 @@ test('deleteStoryblokIntegrationResources deletes namespaced presets, tags, and 
   assert.equal(result.component_groups[0].status, 'deleted');
   assert.ok(calls.some((call) => call.url.endsWith('/presets/66') && call.options.method === 'DELETE'));
   assert.ok(calls.some((call) => call.url.endsWith('/component_groups/55') && call.options.method === 'DELETE'));
+  restoreFetch();
+});
+
+test('deleteStoryblokIntegrationResources skips optional internal tags when unavailable', async () => {
+  originalFetch = global.fetch;
+  global.fetch = async (url, options = {}) => {
+    const href = String(url);
+    if (href.includes('/internal_tags/') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({ message: 'Forbidden' }, { ok: false, status: 403 });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await deleteStoryblokIntegrationResources({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      internal_tags_to_create: [
+        { name: 'hts_acme_homepage_v1_components', object_type: 'component' }
+      ]
+    }
+  }, {
+    env: storyblokEnv(),
+    confirmIntegrationId: 'acme-homepage-v1',
+    confirmRemoteDelete: true
+  });
+
+  assert.equal(result.internal_tags[0].status, 'skipped_optional');
+  assert.match(result.internal_tags[0].reason, /internal tags are unavailable/);
   restoreFetch();
 });
 

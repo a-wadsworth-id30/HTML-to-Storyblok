@@ -286,9 +286,11 @@ async function checkForbiddenCoupling(manifest, root, checks) {
     for (const [name, pattern] of FORBIDDEN_PATTERNS) {
       if (pattern.test(content)) violations.push(name);
     }
-    for (const importPath of extractImports(content)) {
-      if (isForbiddenImport(importPath, namespace, file)) {
-        violations.push(`runtime import outside integration namespace: ${importPath}`);
+    if (!file.endsWith('.md')) {
+      for (const importPath of extractImports(content)) {
+        if (isForbiddenImport(importPath, namespace, file)) {
+          violations.push(`runtime import outside integration namespace: ${importPath}`);
+        }
       }
     }
     addCheck(

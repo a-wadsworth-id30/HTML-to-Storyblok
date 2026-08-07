@@ -28,5 +28,14 @@ jobs:
       - name: Syntax check
         run: npm run check
 
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Security audit
+        run: npm run security:audit
+
       - name: Test
         run: npm test

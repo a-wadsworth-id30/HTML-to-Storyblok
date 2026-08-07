@@ -1,6 +1,9 @@
 import { spawn } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { generateIntegration } from '../src/generator.js';
+import { createIntegrationPlan } from '../src/planner.js';
+import { preflightRepositoryIntegration, validateIntegration } from '../src/validator.js';
 
 const DEMO_ROOT = path.join(process.cwd(), 'demo-sites');
 const DEFAULT_SITES = ['static', 'astro', 'next', 'nuxt', 'vue', 'react'];
@@ -9,6 +12,7 @@ const selectedSites = args.site ? String(args.site).split(',').map((item) => ite
 const install = Boolean(args.install);
 const smoke = Boolean(args.smoke);
 const requireFramework = Boolean(args.require_framework || args.requireFramework);
+const generatedIntegration = Boolean(args.generated_integration || args.generatedIntegration || args.generated);
 const listOnly = Boolean(args.list);
 
 const summaries = [];
@@ -20,50 +24,64 @@ for (const site of selectedSites) {
     summaries.push({
       site,
       framework_build: Boolean(packageJson.scripts?.['build:framework']),
+      generated_integration_compile: Boolean(packageJson.scripts?.['build:framework'] && site !== 'static'),
       preview: Boolean(packageJson.scripts?.['preview:framework']),
       preview_url: packageJson.demoPreviewUrl || null
     });
     continue;
   }
 
-  await runStep(site, sitePath, 'npm run build', ['npm', 'run', 'build']);
+  const generated = generatedIntegration && site !== 'static'
+    ? await prepareGeneratedIntegration(site, sitePath, packageJson)
+    : null;
 
-  if (!packageJson.scripts?.['build:framework']) {
-    summaries.push({ site, status: 'lightweight_only', framework: 'unavailable' });
-    continue;
-  }
+  try {
+    await runStep(site, sitePath, 'npm run build', ['npm', 'run', 'build']);
 
-  if (install) {
-    await runStep(site, sitePath, 'npm install', ['npm', 'install']);
-  }
-
-  if (!(await pathExists(path.join(sitePath, 'node_modules')))) {
-    const summary = {
-      site,
-      status: requireFramework ? 'failed' : 'skipped',
-      framework: 'skipped_missing_node_modules',
-      reason: 'Run with --install to install framework dependencies before the full build.'
-    };
-    summaries.push(summary);
-    if (requireFramework) {
-      throw new Error(`${site}: node_modules missing; run with --install or omit --require-framework`);
+    if (!packageJson.scripts?.['build:framework']) {
+      summaries.push({ site, status: 'lightweight_only', framework: 'unavailable', generated_integration: generated?.status || 'not_requested' });
+      continue;
     }
-    continue;
+
+    if (install) {
+      await runStep(site, sitePath, 'npm install', ['npm', 'install']);
+    }
+
+    if (!(await pathExists(path.join(sitePath, 'node_modules')))) {
+      const summary = {
+        site,
+        status: requireFramework ? 'failed' : 'skipped',
+        framework: 'skipped_missing_node_modules',
+        generated_integration: generated?.status || 'not_requested',
+        reason: 'Run with --install to install framework dependencies before the full build.'
+      };
+      summaries.push(summary);
+      if (requireFramework) {
+        throw new Error(`${site}: node_modules missing; run with --install or omit --require-framework`);
+      }
+      continue;
+    }
+
+    await runStep(site, sitePath, 'npm run build:framework', ['npm', 'run', 'build:framework'], frameworkEnv(site));
+
+    let smokeResult = 'not_requested';
+    if (smoke && packageJson.scripts?.['preview:framework'] && packageJson.demoPreviewUrl) {
+      smokeResult = await smokePreview(site, sitePath, packageJson.demoPreviewUrl);
+    }
+
+    summaries.push({
+      site,
+      status: 'passed',
+      framework: 'built',
+      generated_integration: generated?.status || 'not_requested',
+      generated_host_file: generated?.host_file || null,
+      smoke: smokeResult
+    });
+  } finally {
+    if (generated && !args.keep_generated) {
+      await cleanupGeneratedIntegration(sitePath, generated);
+    }
   }
-
-  await runStep(site, sitePath, 'npm run build:framework', ['npm', 'run', 'build:framework'], frameworkEnv(site));
-
-  let smokeResult = 'not_requested';
-  if (smoke && packageJson.scripts?.['preview:framework'] && packageJson.demoPreviewUrl) {
-    smokeResult = await smokePreview(site, sitePath, packageJson.demoPreviewUrl);
-  }
-
-  summaries.push({
-    site,
-    status: 'passed',
-    framework: 'built',
-    smoke: smokeResult
-  });
 }
 
 console.log(JSON.stringify({
@@ -94,6 +112,154 @@ function parseArgs(argv) {
 
 async function readPackageJson(sitePath) {
   return JSON.parse(await readFile(path.join(sitePath, 'package.json'), 'utf8'));
+}
+
+async function prepareGeneratedIntegration(site, sitePath, packageJson) {
+  if (!packageJson.scripts?.['build:framework']) {
+    return { status: 'skipped_no_framework_build' };
+  }
+  const integrationId = `demo-${site}-generated-compile-v1`;
+  let manifest = null;
+  let host = null;
+  try {
+    manifest = await createIntegrationPlan({
+      integrationId,
+      templatePath: 'templates/acme-campaign',
+      repoPath: sitePath,
+      framework: site
+    });
+    const preflight = await preflightRepositoryIntegration(manifest, { repoPath: sitePath });
+    if (preflight.status === 'failed') {
+      throw new Error(`${site}: generated integration preflight failed: ${preflight.checks.filter((check) => check.status === 'failed').map((check) => check.message).join('; ')}`);
+    }
+    await generateIntegration(manifest, {
+      repoPath: sitePath,
+      templatePath: 'templates/acme-campaign',
+      framework: site
+    });
+    const validation = await validateIntegration(manifest, { repoPath: sitePath });
+    if (validation.status === 'failed') {
+      throw new Error(`${site}: generated integration validation failed: ${validation.checks.filter((check) => check.status === 'failed').map((check) => check.message).join('; ')}`);
+    }
+    host = await writeGeneratedHostRoute(site, sitePath, integrationId);
+    return {
+      status: 'wired_for_framework_compile',
+      integration_id: integrationId,
+      namespace: manifest.repository_namespace,
+      host_file: host.path,
+      host_original: host.original
+    };
+  } catch (error) {
+    await cleanupGeneratedIntegration(sitePath, {
+      namespace: manifest?.repository_namespace,
+      host_file: host?.path,
+      host_original: host?.original
+    });
+    throw error;
+  }
+}
+
+async function writeGeneratedHostRoute(site, sitePath, integrationId) {
+  const host = generatedHostRoute(site, integrationId);
+  const fullPath = path.join(sitePath, host.path);
+  const original = await readOptional(fullPath);
+  await mkdir(path.dirname(fullPath), { recursive: true });
+  await writeFile(fullPath, host.content);
+  return {
+    path: host.path,
+    original
+  };
+}
+
+function generatedHostRoute(site, integrationId) {
+  if (site === 'astro') {
+    return {
+      path: 'src/pages/__hts-generated-smoke.astro',
+      content: `---
+import ImportedRoute from '../integrations/${integrationId}/route-proposals/home/page.astro';
+const story = { content: { headline: 'Generated integration compile smoke' } };
+---
+
+<ImportedRoute story={story} />
+`
+    };
+  }
+  if (site === 'next') {
+    return {
+      path: 'src/app/__hts-generated-smoke/page.jsx',
+      content: `import ImportedRoute from '../../integrations/${integrationId}/route-proposals/home/page.jsx';
+
+export default function GeneratedIntegrationSmokePage() {
+  return <ImportedRoute story={{ content: { headline: 'Generated integration compile smoke' } }} />;
+}
+`
+    };
+  }
+  if (site === 'nuxt') {
+    return {
+      path: 'pages/__hts-generated-smoke.vue',
+      content: `<script setup>
+import ImportedRoute from '../src/integrations/${integrationId}/route-proposals/home/Page.vue';
+
+const story = { content: { headline: 'Generated integration compile smoke' } };
+</script>
+
+<template>
+  <ImportedRoute :story="story" />
+</template>
+`
+    };
+  }
+  if (site === 'vue') {
+    return {
+      path: 'src/App.vue',
+      content: `<script setup>
+import ImportedRoute from './integrations/${integrationId}/route-proposals/home/Page.vue';
+
+const story = { content: { headline: 'Generated integration compile smoke' } };
+</script>
+
+<template>
+  <ImportedRoute :story="story" />
+</template>
+`
+    };
+  }
+  if (site === 'react') {
+    return {
+      path: 'src/App.jsx',
+      content: `import ImportedRoute from './integrations/${integrationId}/route-proposals/home/page.jsx';
+
+export function App() {
+  return <ImportedRoute story={{ content: { headline: 'Generated integration compile smoke' } }} />;
+}
+`
+    };
+  }
+  throw new Error(`${site}: generated integration compile is not supported for this demo site`);
+}
+
+async function cleanupGeneratedIntegration(sitePath, generated) {
+  if (generated.host_file) {
+    const hostPath = path.join(sitePath, generated.host_file);
+    if (generated.host_original === null) {
+      await rm(hostPath, { force: true });
+    } else {
+      await writeFile(hostPath, generated.host_original);
+    }
+  }
+  if (generated.namespace) {
+    await rm(path.join(sitePath, generated.namespace), { recursive: true, force: true });
+  }
+}
+
+async function readOptional(filePath) {
+  try {
+    return await readFile(filePath, 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') return null;
+    throw error;
+  }
 }
 
 async function pathExists(targetPath) {

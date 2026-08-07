@@ -49,6 +49,26 @@ test('validateIntegration fails when a generated file imports an existing presen
   assert.ok(result.checks.some((check) => check.name.endsWith('components.js') && check.status === 'failed'));
 });
 
+test('validateIntegration ignores Markdown guide import examples for runtime coupling', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-validate-guide-import-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-guide-v1',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'astro'
+  });
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'astro'
+  });
+  const guidePath = path.join(repoPath, 'src/integrations/acme-guide-v1/INTEGRATION_GUIDE.md');
+  await writeFile(guidePath, "```js\nimport ImportedRoute from '../integrations/acme-guide-v1/route-proposals/home/page.astro';\n```\n");
+
+  const result = await validateIntegration(manifest, { repoPath });
+
+  assert.equal(result.status, 'passed');
+});
+
 test('validateIntegration checks duplicated component targets for forbidden coupling', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-validate-duplicate-fail-'));
   const manifest = await createIntegrationPlan({
