@@ -59,6 +59,57 @@ test('generate converts template HTML into isolated framework files', async () =
   assert.equal(adapterPlan.entrypoints.root_preview, 'src/integrations/acme-homepage-v1/TemplatePage.astro');
 });
 
+test('generate reuses matching generated files during resume', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-resume-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  const result = await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+
+  assert.ok(result.reusable_files.includes('src/integrations/acme-homepage-v1/template.html'));
+  assert.ok(result.reusable_assets.includes('src/integrations/acme-homepage-v1/assets/hero.svg'));
+  assert.deepEqual(result.drifted_collisions, []);
+});
+
+test('generate refuses drifted generated files during resume', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-resume-drift-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await writeFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/template.html'), 'changed generated file\n');
+
+  await assert.rejects(
+    () => generateIntegration(manifest, {
+      repoPath,
+      templatePath: 'test/fixtures/basic-template',
+      framework: 'static'
+    }),
+    /refusing to overwrite drifted generated files/
+  );
+});
+
 test('generate converts complex HTML attributes into React-safe JSX', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-react-repo-'));
   const templatePath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-react-template-'));

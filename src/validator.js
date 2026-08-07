@@ -5,7 +5,7 @@ import { promisify } from 'node:util';
 import { analyzeCss } from './analyzer.js';
 import { inspectRepository } from './inspectors.js';
 import { validatePlan } from './policy.js';
-import { ensureArray, pathExists, unique } from './utils.js';
+import { ensureArray, pathExists, readJson, sha256, unique } from './utils.js';
 
 const execFileAsync = promisify(execFile);
 const TEXT_EXTENSIONS = new Set(['.js', '.jsx', '.ts', '.tsx', '.vue', '.astro', '.css', '.scss', '.sass', '.less', '.html', '.json', '.md']);
@@ -92,14 +92,26 @@ export async function preflightRepositoryIntegration(manifest, { repoPath = proc
   for (const target of targets) {
     if (await pathExists(path.join(root, target))) collisions.push(target);
   }
+  const reusable = blockingCollisions
+    ? await classifyReusableGeneratedTargets(manifest, root, collisions)
+    : { reusable: [], blocking: collisions, reason: null };
   addCheck(
     checks,
     'planned_targets_available',
-    collisions.length === 0 || !blockingCollisions,
-    collisions.length === 0 ? 'All planned repository targets are available.' : 'Planned repository targets already exist.',
-    collisions,
+    collisions.length === 0 || !blockingCollisions || reusable.blocking.length === 0,
+    plannedTargetsMessage(collisions, reusable, blockingCollisions),
+    blockingCollisions ? reusable.blocking : collisions,
     collisions.length > 0 && !blockingCollisions ? 'warning' : undefined
   );
+  if (reusable.reusable.length > 0) {
+    addCheck(
+      checks,
+      'generated_targets_reusable',
+      true,
+      'Existing generated integration targets match the hash ledger and can be reused during resume.',
+      reusable.reusable
+    );
+  }
 
   const missingSources = [];
   for (const source of plannedRepositorySources(manifest)) {
@@ -123,6 +135,8 @@ export async function preflightRepositoryIntegration(manifest, { repoPath = proc
     integration_id: manifest.integration_id,
     planned_targets: targets.length,
     collisions,
+    reusable_targets: reusable.reusable,
+    blocking_collisions: blockingCollisions ? reusable.blocking : collisions,
     missing_sources: missingSources,
     checks,
     failed_checks: failed.length,
@@ -130,6 +144,58 @@ export async function preflightRepositoryIntegration(manifest, { repoPath = proc
       ? 'Preflight is read-only. Existing planned targets are reported as warnings during dry run.'
       : 'Preflight is read-only. It refuses real apply when planned files would overwrite the existing site or unrelated worktree changes are present.'
   };
+}
+
+async function classifyReusableGeneratedTargets(manifest, root, collisions) {
+  if (collisions.length === 0) return { reusable: [], blocking: [], reason: null };
+  const namespace = manifest.repository_namespace;
+  const ledgerPath = namespace ? `${namespace}/generated-file-hashes.json` : null;
+  if (!namespace || !ledgerPath || !(await pathExists(path.join(root, ledgerPath)))) {
+    return { reusable: [], blocking: collisions, reason: 'generated hash ledger is missing' };
+  }
+
+  let ledger;
+  try {
+    ledger = await readJson(path.join(root, ledgerPath));
+  } catch (error) {
+    return { reusable: [], blocking: collisions, reason: `generated hash ledger is unreadable: ${error.message || String(error)}` };
+  }
+  if (ledger.integration_id !== manifest.integration_id || ledger.repository_namespace !== namespace || ledger.algorithm !== 'sha256') {
+    return { reusable: [], blocking: collisions, reason: 'generated hash ledger does not match this integration' };
+  }
+
+  const hashByPath = new Map(ensureArray(ledger.files).map((entry) => [entry.path, entry.sha256]));
+  const reusable = [];
+  const blocking = [];
+  for (const target of collisions) {
+    if (!String(target).startsWith(`${namespace}/`)) {
+      blocking.push(target);
+      continue;
+    }
+    if (target === ledgerPath) {
+      reusable.push(target);
+      continue;
+    }
+    const expectedHash = hashByPath.get(target);
+    if (!expectedHash) {
+      blocking.push(target);
+      continue;
+    }
+    const actualHash = sha256(await readFile(path.join(root, target)));
+    if (actualHash === expectedHash) {
+      reusable.push(target);
+    } else {
+      blocking.push(target);
+    }
+  }
+  return { reusable, blocking, reason: blocking.length > 0 ? 'one or more existing generated targets drifted from the hash ledger' : null };
+}
+
+function plannedTargetsMessage(collisions, reusable, blockingCollisions) {
+  if (collisions.length === 0) return 'All planned repository targets are available.';
+  if (!blockingCollisions) return 'Planned repository targets already exist.';
+  if (reusable.blocking.length === 0) return 'Existing planned targets are generated integration files verified by the hash ledger.';
+  return reusable.reason || 'Planned repository targets already exist.';
 }
 
 export async function runRepositoryScript({ repoPath = process.cwd(), script = 'build', dryRun = false } = {}) {

@@ -19,20 +19,42 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     throw new Error(`generated files are missing from manifest.repository.files_to_create: ${unplanned.join(', ')}`);
   }
   const collisions = [];
+  const reusableFiles = [];
+  const reusableAssets = [];
+  const drifted = [];
   for (const file of files) {
     const absolute = path.join(root, file.path);
-    if (await pathExists(absolute)) collisions.push(file.path);
+    if (await pathExists(absolute)) {
+      collisions.push(file.path);
+      const currentHash = sha256(await readFile(absolute));
+      const intendedHash = sha256(serializedFileContent(file));
+      if (currentHash === intendedHash) {
+        reusableFiles.push(file.path);
+      } else {
+        drifted.push(file.path);
+      }
+    }
   }
   for (const asset of ensureArray(conversion?.asset_copies)) {
     const absolute = path.join(root, asset.target_path);
-    if (await pathExists(absolute)) collisions.push(asset.target_path);
+    if (await pathExists(absolute)) {
+      collisions.push(asset.target_path);
+      const currentHash = sha256(await readFile(absolute));
+      const intendedHash = sha256(await readFile(asset.source_path));
+      if (currentHash === intendedHash) {
+        reusableAssets.push(asset.target_path);
+      } else {
+        drifted.push(asset.target_path);
+      }
+    }
   }
-  if (collisions.length > 0 && !dryRun) {
-    throw new Error(`refusing to overwrite existing generated files: ${collisions.join(', ')}`);
+  if (drifted.length > 0 && !dryRun) {
+    throw new Error(`refusing to overwrite drifted generated files: ${drifted.join(', ')}`);
   }
 
   if (!dryRun) {
     for (const file of files) {
+      if (reusableFiles.includes(file.path)) continue;
       const absolute = path.join(root, file.path);
       if (file.json) {
         await writeJson(absolute, file.content);
@@ -42,7 +64,9 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     }
     await mkdir(path.join(root, namespace, 'assets'), { recursive: true });
     if (conversion) {
-      await copyConvertedAssets(conversion.asset_copies, root, { dryRun });
+      const assetsToCopy = ensureArray(conversion.asset_copies)
+        .filter((asset) => !reusableAssets.includes(asset.target_path));
+      await copyConvertedAssets(assetsToCopy, root, { dryRun });
     }
   }
 
@@ -60,8 +84,13 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     excluded_external_scripts: conversion?.excluded_external_scripts || [],
     isolated_scripts: conversion?.isolated_scripts || [],
     note: dryRun && collisions.length > 0
-      ? 'Dry run only. Existing generated files are reported as collisions; real apply will refuse to overwrite them.'
-      : 'Generated files are isolated. Existing registries and routes are not modified.'
+      ? 'Dry run only. Existing generated files are reported as collisions; real apply reuses matching generated output and refuses drifted files.'
+      : reusableFiles.length > 0 || reusableAssets.length > 0
+        ? 'Existing generated files matched the intended output and were reused. Existing registries and routes are not modified.'
+        : 'Generated files are isolated. Existing registries and routes are not modified.',
+    reusable_files: reusableFiles,
+    reusable_assets: reusableAssets,
+    drifted_collisions: drifted
   };
 }
 

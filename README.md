@@ -638,7 +638,7 @@ html-to-storyblok apply \
 
 It does not modify existing registries, routes, Storyblok components, Storyblok stories, assets, dependencies, or Netlify configuration.
 
-During real and dry-run apply, completed stages are written as incremental artifacts in `.tmp/html-to-storyblok/` before the final result file. `apply-step-00-repository-preflight.json` is written before local generation and records planned repository targets, collisions, duplicate-source availability, and worktree safety checks. If a later remote operation fails, the completed step files remain available for review, resume decisions, and rollback planning.
+During real and dry-run apply, completed stages are written as incremental artifacts in `.tmp/html-to-storyblok/` before the final result file. `apply-step-00-repository-preflight.json` is written before local generation and records planned repository targets, collisions, duplicate-source availability, and worktree safety checks. If a later remote operation fails, the completed step files remain available for review, resume decisions, and rollback planning. When retrying an integration after local files were already generated, repository preflight can reuse existing targets only when they are inside the integration namespace and match `generated-file-hashes.json`; drifted or unrelated files still block apply.
 
 ## Individual operation commands
 

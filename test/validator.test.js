@@ -201,6 +201,50 @@ test('preflightRepositoryIntegration reports collisions as warnings during dry r
   assert.ok(preflight.checks.some((check) => check.name === 'planned_targets_available' && check.status === 'warning'));
 });
 
+test('preflightRepositoryIntegration reuses generated targets that match the hash ledger', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-preflight-resume-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+
+  const preflight = await preflightRepositoryIntegration(manifest, { repoPath });
+
+  assert.equal(preflight.status, 'passed');
+  assert.equal(preflight.blocking_collisions.length, 0);
+  assert.ok(preflight.reusable_targets.includes('src/integrations/acme-homepage-v1/template.html'));
+  assert.ok(preflight.checks.some((check) => check.name === 'generated_targets_reusable' && check.status === 'passed'));
+});
+
+test('preflightRepositoryIntegration blocks drifted generated targets during resume', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-preflight-resume-drift-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await writeFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/template.html'), 'changed generated file\n');
+
+  const preflight = await preflightRepositoryIntegration(manifest, { repoPath });
+
+  assert.equal(preflight.status, 'failed');
+  assert.deepEqual(preflight.blocking_collisions, ['src/integrations/acme-homepage-v1/template.html']);
+  assert.ok(preflight.checks.some((check) => check.name === 'planned_targets_available' && check.status === 'failed'));
+});
+
 test('preflightRepositoryIntegration refuses missing duplicate sources before writes', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-preflight-missing-source-'));
   const manifest = await createIntegrationPlan({

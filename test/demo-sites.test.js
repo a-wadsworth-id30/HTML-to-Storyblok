@@ -113,8 +113,15 @@ test('demo site matrix accepts isolated repository integration without changing 
     await writeFile(guardPath, before);
 
     const secondPreflight = await preflightRepositoryIntegration(manifest, { repoPath });
-    assert.equal(secondPreflight.status, 'failed', demo.name);
-    assert.ok(secondPreflight.collisions.some((target) => target.startsWith(`src/integrations/${integrationId}/`)), demo.name);
+    assert.equal(secondPreflight.status, 'passed', demo.name);
+    assert.ok(secondPreflight.reusable_targets.some((target) => target.startsWith(`src/integrations/${integrationId}/`)), demo.name);
+
+    const generatedTemplate = path.join(repoPath, `src/integrations/${integrationId}/template-html.js`);
+    const generatedTemplateBefore = await readFile(generatedTemplate, 'utf8');
+    await writeFile(generatedTemplate, `${generatedTemplateBefore}\n<!-- generated drift -->\n`);
+    const driftedPreflight = await preflightRepositoryIntegration(manifest, { repoPath });
+    assert.equal(driftedPreflight.status, 'failed', demo.name);
+    assert.ok(driftedPreflight.blocking_collisions.includes(`src/integrations/${integrationId}/template-html.js`), demo.name);
   }
 });
 
