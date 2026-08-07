@@ -162,6 +162,18 @@ async function summarizeArtifact(artifact) {
     if (name === 'storyblok-content-validation.json' || name.endsWith('storyblok-content-validation.json') || name.endsWith('-content-validation.json')) {
       return summarizeStoryblokContentValidation(data, artifact);
     }
+    if (name === 'storyblok-reconcile.json') {
+      return summarizeStoryblokReconcile(data, artifact);
+    }
+    if (name === 'storyblok-management-verification.json' || name.endsWith('management-verification.json')) {
+      return summarizeStoryblokManagementVerification(data, artifact);
+    }
+    if (name === 'storyblok-audit.json') {
+      return summarizeStoryblokAudit(data, artifact);
+    }
+    if (name === 'storyblok-activity-evidence.json' || name.endsWith('activity-evidence.json')) {
+      return summarizeStoryblokActivityEvidence(data, artifact);
+    }
     if (name === 'storyblok-apply-result.json' || name === 'apply-result.json') {
       return summarizeStoryblokApplyResult(data, artifact, name);
     }
@@ -223,6 +235,58 @@ function summarizeStoryblokContentValidation(data, artifact) {
     assets: data.summary?.assets || 0,
     story_links: data.summary?.story_links || 0,
     unresolved_generated_story_links: data.summary?.unresolved_generated_story_links || 0
+  };
+}
+
+function summarizeStoryblokReconcile(data, artifact) {
+  return {
+    type: 'storyblok_reconcile',
+    artifact,
+    status: data.status || 'recorded',
+    total: data.summary?.total || 0,
+    matching: data.summary?.matching || 0,
+    missing: data.summary?.missing || 0,
+    drifted: data.summary?.drifted || 0,
+    blocked: data.summary?.blocked || 0
+  };
+}
+
+function summarizeStoryblokManagementVerification(data, artifact) {
+  return {
+    type: 'storyblok_management_verification',
+    artifact,
+    status: data.status || 'recorded',
+    resources: data.summary?.resources || 0,
+    matching: data.summary?.matching || 0,
+    missing: data.summary?.missing || 0,
+    drifted: data.summary?.drifted || 0,
+    blocked: data.summary?.blocked || 0,
+    failed_story_checks: data.summary?.failed_story_checks || 0,
+    unresolved_generated_story_links: data.summary?.unresolved_generated_story_links || 0,
+    unresolved_asset_fields: data.summary?.unresolved_asset_fields || 0
+  };
+}
+
+function summarizeStoryblokAudit(data, artifact) {
+  const audit = data.audit || {};
+  return {
+    type: 'storyblok_audit',
+    artifact,
+    status: audit.status || data.status || 'recorded',
+    unavailable_collections: ensureArray(audit.unavailable).length,
+    core_counts: data.readiness?.core_counts || null,
+    governance: data.readiness?.governance || null,
+    automation: data.readiness?.automation || null
+  };
+}
+
+function summarizeStoryblokActivityEvidence(data, artifact) {
+  return {
+    type: 'storyblok_activity_evidence',
+    artifact,
+    status: data.status || 'recorded',
+    total: data.summary?.total || 0,
+    related: data.summary?.related || 0
   };
 }
 

@@ -1314,7 +1314,7 @@ async function createResumeModel(workDir, manifest) {
   const failed = [...evidence].reverse().find((entry) => entry.type === 'command_failed');
   const latestApply = applyResult || storyblokApplyResult || null;
   const completedSteps = count(latestApply?.steps);
-  const plannedSteps = latestApply?.action === 'apply_manifest' ? 11 : latestApply?.action === 'apply_storyblok_only' ? 8 : 0;
+  const plannedSteps = latestApply?.action === 'apply_manifest' ? 13 : latestApply?.action === 'apply_storyblok_only' ? 10 : 0;
   const validationStatus = planValidation ? planValidation.valid ? 'Passed' : 'Failed' : manifest.validation?.valid ? 'Passed' : 'Not run';
   const contentStatus = storyblokContentValidation?.status || latestStoryblokContentStep(latestApply)?.status || 'Not run';
   const failedStep = failed?.message || failedStepFromApply(latestApply);

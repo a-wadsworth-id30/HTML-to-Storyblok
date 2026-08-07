@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, deleteStoryblokIntegrationResources, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent } from '../src/storyblok.js';
+import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, deleteStoryblokIntegrationResources, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from '../src/storyblok.js';
 
 test('createStoryblokComponents treats matching existing components as idempotent', async () => {
   const calls = mockFetch((url, options = {}) => {
@@ -1154,7 +1154,47 @@ test('preflightStoryblokIntegration performs non-mutating Storyblok readiness ch
 
   assert.equal(result.status, 'passed');
   assert.equal(result.capabilities.content_api, 'not_configured');
+  assert.equal(result.permission_matrix.components.read, 'passed');
+  assert.match(result.permission_matrix.components.additive_create, /verified_during_create_call/);
   assert.ok(calls.every((call) => (call.options.method || 'GET') === 'GET'));
+  restoreFetch();
+});
+
+test('inspectStoryblokSpace audit reads optional Storyblok management collections', async () => {
+  mockFetch((url) => {
+    if (url.endsWith('/spaces/12345')) return { space: { id: 12345, name: 'Demo' } };
+    if (url.includes('/component_groups/')) return { component_groups: [] };
+    if (url.includes('/internal_tags/')) return { internal_tags: [] };
+    if (url.includes('/presets/')) return { presets: [] };
+    if (url.includes('/components/')) return { components: [] };
+    if (url.includes('/stories?')) return { stories: [] };
+    if (url.includes('/asset_folders/')) return { asset_folders: [] };
+    if (url.includes('/assets?')) return { assets: [] };
+    if (url.includes('/workflows')) return { workflows: [{ id: 1, name: 'Editorial' }] };
+    if (url.includes('/workflow_stages/')) return { workflow_stages: [{ id: 2, name: 'Review', workflow_id: 1 }] };
+    if (url.includes('/releases')) return { releases: [{ id: 3, name: 'Import review' }] };
+    if (url.includes('/webhook_endpoints/')) return { webhook_endpoints: [{ id: 4, endpoint: 'https://hooks.example/run?token=secret' }] };
+    if (url.includes('/datasources/')) return { datasources: [{ id: 5, name: 'Services' }] };
+    if (url.includes('/datasource_entries/')) return { datasource_entries: [{ id: 6, name: 'Starter', value: 'starter', datasource_id: 5 }] };
+    if (url.includes('/collaborators/')) return { collaborators: [{ id: 7, role: 'admin' }] };
+    if (url.includes('/space_roles/')) return { space_roles: [{ id: 8, name: 'Editor' }] };
+    if (url.includes('/activities')) return { activities: [{ id: 9, action: 'created' }] };
+    if (url.includes('/tasks/')) return { tasks: [{ id: 10, name: 'Review import' }] };
+    if (url.includes('/tags')) return { tags: [{ id: 11, name: 'campaign' }] };
+    if (url.includes('/branches/')) return { branches: [{ id: 12, name: 'main' }] };
+    if (url.includes('/approvals/')) return { approvals: [{ id: 13, status: 'pending' }] };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await inspectStoryblokSpace({
+    env: storyblokEnv(),
+    audit: true
+  });
+
+  assert.equal(result.audit.status, 'ok');
+  assert.equal(result.audit.collections.workflows.count, 1);
+  assert.equal(result.audit.collections.webhook_endpoints.items[0].endpoint, 'https://hooks.example/run?token=%5BREDACTED%5D');
+  assert.equal(result.readiness.automation.webhook_impact_review_recommended, true);
   restoreFetch();
 });
 
@@ -1201,6 +1241,156 @@ test('inspectStoryblokSpace caps remote list scans by default', async () => {
   assert.equal(result.internal_tags.length, 1);
   assert.equal(result.presets.length, 1);
   assert.equal(calls.filter((call) => call.url.includes('page=2')).length, 0);
+  restoreFetch();
+});
+
+test('reconcileStoryblokManifest classifies matching Storyblok resources', async () => {
+  mockFetch((url) => {
+    if (url.includes('/component_groups/')) {
+      return { component_groups: [{ id: 55, uuid: 'component-folder-uuid', name: 'acme-homepage-v1', parent_id: 0 }] };
+    }
+    if (url.includes('/internal_tags/')) {
+      return { internal_tags: [{ id: 56, name: 'hts_acme_homepage_v1_components', object_type: 'component' }] };
+    }
+    if (url.includes('/components/')) {
+      return {
+        components: [
+          {
+            id: 57,
+            name: 'hts_acme_homepage_v1_hero',
+            display_name: 'Hero',
+            is_root: false,
+            is_nestable: true,
+            component_group_uuid: 'component-folder-uuid',
+            preview_field: 'headline',
+            schema: { headline: { type: 'text' } }
+          }
+        ]
+      };
+    }
+    if (url.includes('/asset_folders/')) {
+      return { asset_folders: [{ id: 77, name: 'acme-homepage-v1', parent_id: 0 }] };
+    }
+    if (url.includes('/assets?')) {
+      return { assets: [{ id: 88, filename: 'https://a.storyblok.com/f/space/acme-homepage-v1/hero.svg', short_filename: 'hero.svg', asset_folder_id: 77 }] };
+    }
+    if (url.includes('/presets/')) {
+      return { presets: [] };
+    }
+    if (url.includes('/stories')) {
+      return {
+        stories: [
+          {
+            id: 99,
+            uuid: 'story-uuid',
+            slug: 'home',
+            full_slug: 'acme-homepage-v1/home',
+            published_at: null,
+            content: { component: 'hts_acme_homepage_v1_hero' }
+          }
+        ]
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await reconcileStoryblokManifest({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      component_groups_to_create: [{ path: 'acme-homepage-v1', name: 'acme-homepage-v1' }],
+      internal_tags_to_create: [{ name: 'hts_acme_homepage_v1_components', object_type: 'component' }],
+      components_to_create: [{
+        technical_name: 'hts_acme_homepage_v1_hero',
+        display_name: 'Hero',
+        component_type: 'nestable',
+        component_group_path: 'acme-homepage-v1',
+        preview_field: 'headline',
+        schema: { headline: { type: 'text' } }
+      }],
+      asset_folders_to_create: [{ path: 'acme-homepage-v1', name: 'acme-homepage-v1' }],
+      assets_to_create: [{ filename: 'acme-homepage-v1/hero.svg', asset_folder_path: 'acme-homepage-v1' }],
+      stories_to_create: [{ slug: 'acme-homepage-v1/home' }]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.summary.missing, 0);
+  assert.ok(result.resources.every((entry) => entry.status === 'matching'));
+  restoreFetch();
+});
+
+test('verifyStoryblokManagementState detects unresolved generated links and local asset fields', async () => {
+  mockFetch((url) => {
+    const story = {
+      id: 99,
+      uuid: 'story-uuid',
+      slug: 'home',
+      full_slug: 'acme-homepage-v1/home',
+      published_at: null,
+      content: {
+        component: 'hts_acme_homepage_v1_template_page',
+        body: [
+          {
+            component: 'hts_acme_homepage_v1_hero',
+            cta_link: { linktype: 'story', cached_url: 'acme-homepage-v1/home' },
+            image: { id: null, filename: './assets/hero.svg', fieldtype: 'asset' }
+          }
+        ]
+      }
+    };
+    if (url.includes('/component_groups/')) return { component_groups: [] };
+    if (url.includes('/internal_tags/')) return { internal_tags: [] };
+    if (url.includes('/components/')) {
+      return { components: [{ id: 57, name: 'hts_acme_homepage_v1_template_page', is_root: true, schema: {}, preview_field: 'headline' }] };
+    }
+    if (url.includes('/asset_folders/')) return { asset_folders: [] };
+    if (url.includes('/assets?')) return { assets: [] };
+    if (url.includes('/presets/')) return { presets: [] };
+    if (url.includes('/stories?by_slugs=')) return { stories: [story] };
+    if (url.includes('/stories')) return { stories: [story] };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await verifyStoryblokManagementState({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      components_to_create: [{ technical_name: 'hts_acme_homepage_v1_template_page', component_type: 'content_type', schema: {} }],
+      stories_to_create: [{ slug: 'acme-homepage-v1/home' }]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result.status, 'failed');
+  assert.equal(result.summary.unresolved_generated_story_links, 1);
+  assert.equal(result.summary.unresolved_asset_fields, 1);
+  restoreFetch();
+});
+
+test('collectStoryblokActivityEvidence filters activity evidence to the integration', async () => {
+  mockFetch((url) => {
+    if (url.includes('/activities')) {
+      return {
+        activities: [
+          { id: 1, action: 'created', item_type: 'story', item_id: 99, created_at: '2026-08-07T10:00:00.000Z', description: 'created acme-homepage-v1/home' },
+          { id: 2, action: 'updated', item_type: 'story', item_id: 100, created_at: '2026-08-07T10:00:00.000Z', description: 'updated unrelated' }
+        ]
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await collectStoryblokActivityEvidence({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [{ slug: 'acme-homepage-v1/home' }]
+    }
+  }, { env: storyblokEnv(), since: '2026-08-07T09:00:00.000Z' });
+
+  assert.equal(result.status, 'recorded');
+  assert.equal(result.summary.related, 1);
+  assert.equal(result.activities[0].id, 1);
   restoreFetch();
 });
 

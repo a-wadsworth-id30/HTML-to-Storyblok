@@ -12,7 +12,7 @@ import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlif
 import { validatePlan } from './policy.js';
 import { createReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
-import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent } from './storyblok.js';
+import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
 import { diffIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 import { applyManifest, applyStoryblokOnly, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
@@ -94,8 +94,11 @@ export async function main(argv) {
       result = await inspectNetlify(requireOption(args, 'repo'));
       await writeArtifact(workDir, 'netlify-inspection.json', result);
     } else if (command === 'inspect-storyblok') {
-      result = args.remote ? await inspectStoryblokSpace({ env, full: Boolean(args.full) }) : inspectStoryblokEnvironment(env);
+      result = args.remote ? await inspectStoryblokSpace({ env, full: Boolean(args.full), audit: Boolean(args.audit) }) : inspectStoryblokEnvironment(env);
       await writeArtifact(workDir, 'storyblok-access.json', result);
+    } else if (command === 'storyblok-audit') {
+      result = await inspectStoryblokSpace({ env, full: Boolean(args.full), audit: true });
+      await writeArtifact(workDir, 'storyblok-audit.json', result);
     } else if (command === 'inspect-storyblok-content') {
       result = await inspectStoryblokContentStory({
         slug: requireOption(args, 'slug'),
@@ -173,6 +176,25 @@ export async function main(argv) {
       });
       await writeArtifact(workDir, 'storyblok-content-validation.json', result);
       if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'storyblok-reconcile') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await reconcileStoryblokManifest(manifest, { env });
+      await writeArtifact(workDir, 'storyblok-reconcile.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'storyblok-verify') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await verifyStoryblokManagementState(manifest, { dryRun: Boolean(args.dry_run), env });
+      await writeArtifact(workDir, 'storyblok-management-verification.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'storyblok-activities') {
+      const manifest = args.manifest ? await readAndValidateManifest(args, workDir) : {};
+      result = await collectStoryblokActivityEvidence(manifest, {
+        dryRun: Boolean(args.dry_run),
+        env,
+        since: args.since ? String(args.since) : null,
+        limit: args.limit ? Number(args.limit) : 50
+      });
+      await writeArtifact(workDir, 'storyblok-activity-evidence.json', result);
     } else if (command === 'diff') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await diffIntegration(manifest, {
@@ -355,6 +377,7 @@ function renderShellCompletion(shell = 'zsh') {
     'inspect-template',
     'inspect-repository',
     'inspect-storyblok',
+    'storyblok-audit',
     'inspect-storyblok-content',
     'inspect-netlify',
     'check-access',
@@ -364,6 +387,9 @@ function renderShellCompletion(shell = 'zsh') {
     'validate-plan',
     'storyblok-preflight',
     'validate-storyblok',
+    'storyblok-reconcile',
+    'storyblok-verify',
+    'storyblok-activities',
     'diff',
     'validate',
     'build',
@@ -393,6 +419,9 @@ function renderShellCompletion(shell = 'zsh') {
     '--dry-run',
     '--remote',
     '--full',
+    '--audit',
+    '--since',
+    '--limit',
     '--version',
     '--config',
     '--profile',
@@ -436,7 +465,8 @@ Usage:
   html-to-storyblok completion [--shell zsh|bash|fish]
   html-to-storyblok inspect-template --template <path>
   html-to-storyblok inspect-repository --repo <path>
-  html-to-storyblok inspect-storyblok [--remote] [--full]
+  html-to-storyblok inspect-storyblok [--remote] [--full] [--audit]
+  html-to-storyblok storyblok-audit [--full]
   html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|published]
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
@@ -446,6 +476,9 @@ Usage:
   html-to-storyblok validate-plan --manifest <path>
   html-to-storyblok storyblok-preflight --manifest <path> [--dry-run]
   html-to-storyblok validate-storyblok --manifest <path> [--version draft|published] [--dry-run]
+  html-to-storyblok storyblok-reconcile --manifest <path>
+  html-to-storyblok storyblok-verify --manifest <path> [--dry-run]
+  html-to-storyblok storyblok-activities [--manifest <path>] [--since <iso-date>] [--limit 50]
   html-to-storyblok diff --manifest <path> --repo <path>
   html-to-storyblok validate --manifest <path> --repo <path>
   html-to-storyblok build --repo <path> [--script build] [--dry-run]
