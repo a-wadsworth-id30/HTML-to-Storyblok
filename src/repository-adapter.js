@@ -12,21 +12,33 @@ export function buildRepositoryAdapterFiles(manifest, { conversion = null, frame
     {
       path: `${manifest.repository_namespace}/INTEGRATION_GUIDE.md`,
       content: renderRepositoryIntegrationGuide(plan)
-    }
+    },
+    ...buildRouteProposalFiles(plan)
   ];
 }
 
 export function plannedRepositoryAdapterFilePaths(manifest) {
-  return [
+  const framework = normalizeFramework(manifest.template?.framework || 'static');
+  const files = [
     `${manifest.repository_namespace}/adapter-plan.json`,
     `${manifest.repository_namespace}/INTEGRATION_GUIDE.md`
   ];
+  if (manifest.template?.source_path) {
+    const slugs = storyRouteSlugs(manifest, ensureArray(manifest.storyblok?.stories_to_create));
+    files.push(
+      `${manifest.repository_namespace}/route-proposals/manifest.json`,
+      `${manifest.repository_namespace}/route-proposals/README.md`,
+      ...slugs.map((slug) => routeProposalPath(manifest.repository_namespace, slug, framework))
+    );
+  }
+  return files;
 }
 
 export function buildRepositoryAdapterPlan(manifest, { conversion = null, framework = 'static' } = {}) {
   const normalizedFramework = normalizeFramework(conversion?.framework || framework || manifest.template?.framework || 'static');
-  const routes = adapterRoutes(manifest, conversion, normalizedFramework);
   const hasPreview = Boolean(conversion);
+  const hasRoutePreviews = Boolean(conversion?.files?.some((file) => file.path === `${manifest.repository_namespace}/routes/manifest.json`));
+  const routes = adapterRoutes(manifest, conversion, normalizedFramework, { hasRoutePreviews });
   return {
     action: 'repository_adapter_plan',
     integration_id: manifest.integration_id,
@@ -38,6 +50,7 @@ export function buildRepositoryAdapterPlan(manifest, { conversion = null, framew
     host_registries_modified: false,
     root_component: rootComponent(manifest),
     entrypoints: frameworkEntrypoints(manifest, normalizedFramework, { hasPreview }),
+    route_proposals: routeProposalSummary(manifest, routes, normalizedFramework, { hasPreview: hasRoutePreviews }),
     routes,
     validation: {
       required_before_route_wiring: [
@@ -53,9 +66,8 @@ export function buildRepositoryAdapterPlan(manifest, { conversion = null, framew
   };
 }
 
-function adapterRoutes(manifest, conversion, framework) {
+function adapterRoutes(manifest, conversion, framework, { hasRoutePreviews = false } = {}) {
   const routeMap = new Map(ensureArray(conversion?.routes).map((route) => [route.slug, route]));
-  const hasRoutePreviews = routeMap.size > 0;
   const stories = ensureArray(manifest.storyblok?.stories_to_create);
   const slugs = routeMap.size > 0
     ? [...routeMap.keys()]
@@ -71,6 +83,8 @@ function adapterRoutes(manifest, conversion, framework) {
       source_page: route.source_page || story?.source_page || null,
       preview_file: hasRoutePreviews ? routePreviewPath(manifest.repository_namespace, slug, framework) : null,
       template_html_module: hasRoutePreviews ? `${manifest.repository_namespace}/routes/${slug}/template-html.js` : null,
+      route_proposal_file: hasRoutePreviews ? routeProposalPath(manifest.repository_namespace, slug, framework) : null,
+      suggested_host_files: suggestedHostFiles(slug, framework),
       registration_policy: 'manual_review_required'
     };
   });
@@ -140,6 +154,202 @@ function routePreviewPath(namespace, slug, framework) {
   return `${namespace}/routes/${slug}/template.html`;
 }
 
+function routeProposalPath(namespace, slug, framework) {
+  if (framework === 'astro') return `${namespace}/route-proposals/${slug}/page.astro`;
+  if (framework === 'react' || framework === 'next') return `${namespace}/route-proposals/${slug}/page.jsx`;
+  if (framework === 'vue' || framework === 'nuxt') return `${namespace}/route-proposals/${slug}/Page.vue`;
+  return `${namespace}/route-proposals/${slug}/route.js`;
+}
+
+function routeProposalSummary(manifest, routes, framework, { hasPreview }) {
+  const namespace = manifest.repository_namespace;
+  if (!hasPreview) {
+    return {
+      generated: false,
+      reason: 'No template preview files were generated for this manifest.',
+      host_routes_modified: false
+    };
+  }
+  return {
+    generated: true,
+    manifest_file: `${namespace}/route-proposals/manifest.json`,
+    readme_file: `${namespace}/route-proposals/README.md`,
+    host_routes_modified: false,
+    routes: routes.map((route) => ({
+      slug: route.slug,
+      suggested_site_path: route.suggested_site_path,
+      storyblok_slug: route.storyblok_slug,
+      proposal_file: route.route_proposal_file,
+      preview_file: route.preview_file,
+      suggested_host_files: suggestedHostFiles(route.slug, framework),
+      registration_policy: route.registration_policy
+    }))
+  };
+}
+
+function buildRouteProposalFiles(plan) {
+  if (!plan.route_proposals?.generated) return [];
+  return [
+    {
+      path: plan.route_proposals.manifest_file,
+      json: true,
+      content: {
+        action: 'repository_route_proposals',
+        integration_id: plan.integration_id,
+        storyblok_prefix: plan.storyblok_prefix,
+        repository_namespace: plan.repository_namespace,
+        framework: plan.framework,
+        additive_only: true,
+        host_routes_modified: false,
+        routes: plan.route_proposals.routes
+      }
+    },
+    {
+      path: plan.route_proposals.readme_file,
+      content: renderRouteProposalReadme(plan)
+    },
+    ...plan.routes
+      .filter((route) => route.route_proposal_file)
+      .map((route) => ({
+        path: route.route_proposal_file,
+        content: renderRouteProposalFile(plan, route)
+      }))
+  ];
+}
+
+function renderRouteProposalReadme(plan) {
+  return `# ${plan.integration_id} Route Proposals
+
+Generated by HTML-to-Storyblok.
+
+These files are not registered with the host router. They are isolated wrappers around generated route previews so a developer can wire an imported route from a reviewed host route without reaching into raw template files.
+
+- Policy: additive-only
+- Host routes modified: no
+- Host registries modified: no
+- Manifest: \`${plan.route_proposals.manifest_file}\`
+
+## Proposed Routes
+
+${plan.route_proposals.routes.map((route) => `- \`${route.suggested_site_path}\` -> \`${route.storyblok_slug}\` -> \`${route.proposal_file}\``).join('\n')}
+
+Run repository install, lint, typecheck, build, and browser smoke checks before copying any proposal into a host route.
+`;
+}
+
+function renderRouteProposalFile(plan, route) {
+  if (plan.framework === 'astro') return renderAstroRouteProposal(plan, route);
+  if (plan.framework === 'react' || plan.framework === 'next') return renderReactRouteProposal(plan, route);
+  if (plan.framework === 'vue' || plan.framework === 'nuxt') return renderVueRouteProposal(plan, route);
+  return renderStaticRouteProposal(plan, route);
+}
+
+function renderStaticRouteProposal(plan, route) {
+  const importPath = proposalImportPath(route.slug, 'routes', route.slug, 'template-html.js');
+  return `import { renderTemplateHtml } from '${importPath}';
+
+export const htsRouteProposal = Object.freeze(${JSON.stringify(routeProposalMetadata(plan, route), null, 2)});
+
+export function renderHtsRouteProposal({ story = null, blok = null } = {}) {
+  return renderTemplateHtml(blok || story?.content || {});
+}
+`;
+}
+
+function renderAstroRouteProposal(plan, route) {
+  const importPath = proposalImportPath(route.slug, 'routes', route.slug, 'TemplatePage.astro');
+  return `---
+import RoutePreview from '${importPath}';
+
+const htsRouteProposal = Object.freeze(${JSON.stringify(routeProposalMetadata(plan, route), null, 2)});
+const { story = null, blok = story?.content || {} } = Astro.props;
+---
+
+<RoutePreview blok={blok} data-route-proposal={htsRouteProposal.route_slug} />
+`;
+}
+
+function renderReactRouteProposal(plan, route) {
+  const importPath = proposalImportPath(route.slug, 'routes', route.slug, 'TemplatePage.jsx');
+  const previewComponent = `HtsTemplatePage${pascalCase(route.slug)}`;
+  const proposalComponent = `HtsRouteProposal${pascalCase(route.slug)}`;
+  return `import { ${previewComponent} } from '${importPath}';
+
+export const htsRouteProposal = Object.freeze(${JSON.stringify(routeProposalMetadata(plan, route), null, 2)});
+
+export function ${proposalComponent}({ story = null, blok = null }) {
+  return <${previewComponent} blok={blok || story?.content || {}} />;
+}
+
+export default ${proposalComponent};
+`;
+}
+
+function renderVueRouteProposal(plan, route) {
+  const importPath = proposalImportPath(route.slug, 'routes', route.slug, 'TemplatePage.vue');
+  return `<script>
+export const htsRouteProposal = Object.freeze(${JSON.stringify(routeProposalMetadata(plan, route), null, 2)});
+</script>
+
+<script setup>
+import { computed } from 'vue';
+import RoutePreview from '${importPath}';
+
+const props = defineProps({
+  story: {
+    type: Object,
+    default: null
+  },
+  blok: {
+    type: Object,
+    default: null
+  }
+});
+
+const resolvedBlok = computed(() => props.blok || props.story?.content || {});
+</script>
+
+<template>
+  <RoutePreview :blok="resolvedBlok" />
+</template>
+`;
+}
+
+function routeProposalMetadata(plan, route) {
+  return {
+    integration_id: plan.integration_id,
+    storyblok_prefix: plan.storyblok_prefix,
+    route_slug: route.slug,
+    suggested_site_path: route.suggested_site_path,
+    storyblok_slug: route.storyblok_slug,
+    preview_file: route.preview_file,
+    registration_policy: route.registration_policy,
+    host_routes_modified: false
+  };
+}
+
+function proposalImportPath(slug, ...targetParts) {
+  const depth = String(slug || 'home').split('/').filter(Boolean).length + 1;
+  return `${'../'.repeat(depth)}${targetParts.join('/')}`.replace(/\/{2,}/g, '/');
+}
+
+function suggestedHostFiles(slug, framework) {
+  const route = slug === 'home' ? 'index' : slug;
+  if (framework === 'astro') return [`src/pages/${route}.astro`];
+  if (framework === 'next') return [`src/app/${slug === 'home' ? '' : `${slug}/`}page.jsx`.replace(/\/{2,}/g, '/')];
+  if (framework === 'nuxt') return [`pages/${route}.vue`];
+  if (framework === 'vue' || framework === 'react') return ['review the host router configuration'];
+  return [`${route}.html`];
+}
+
+function pascalCase(value) {
+  return String(value)
+    .split(/[^a-zA-Z0-9]+/)
+    .filter(Boolean)
+    .map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join('');
+}
+
 function renderRepositoryIntegrationGuide(plan) {
   return `# ${plan.integration_id} Repository Integration Guide
 
@@ -166,6 +376,13 @@ ${frameworkGuide(plan)}
 ## Imported Routes
 
 ${plan.routes.map((route) => `- \`${route.suggested_site_path}\` -> Storyblok \`${route.storyblok_slug}\`${route.preview_file ? ` -> preview \`${route.preview_file}\`` : ''}`).join('\n')}
+
+${plan.route_proposals?.generated ? `## Route Proposal Wrappers
+
+Route proposal wrappers are generated under \`${plan.repository_namespace}/route-proposals/\`. They are review-only adapters that import the generated route previews and accept either \`story\` or \`blok\` props. The CLI has not copied them into host route folders.
+
+${plan.route_proposals.routes.map((route) => `- \`${route.proposal_file}\` for \`${route.suggested_site_path}\` (${route.suggested_host_files.join(', ')})`).join('\n')}
+` : ''}
 
 ## Required Checks Before Wiring
 

@@ -100,6 +100,8 @@ test('createIntegrationPlan creates one namespaced draft story per template rout
   assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/routes/home/template.html'));
   assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/routes/about/template.html'));
   assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/routes/services/template.html'));
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/route-proposals/manifest.json'));
+  assert.ok(manifest.repository.files_to_create.includes('src/integrations/acme-campaign-v1/route-proposals/home/route.js'));
 });
 
 async function captureStdout(callback) {

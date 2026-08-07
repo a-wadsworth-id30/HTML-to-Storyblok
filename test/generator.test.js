@@ -136,6 +136,8 @@ test('generate writes isolated route previews for every template page without to
   assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/services/template.html'));
   assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/gallery/template.html'));
   assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/contact/template.html'));
+  assert.ok(result.files.includes('src/integrations/acme-campaign-v1/route-proposals/manifest.json'));
+  assert.ok(result.files.includes('src/integrations/acme-campaign-v1/route-proposals/home/route.js'));
 
   const routeManifest = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/routes/manifest.json'), 'utf8'));
   assert.deepEqual(routeManifest.routes.map((route) => route.slug), ['home', 'about', 'contact', 'gallery', 'services']);
@@ -150,10 +152,21 @@ test('generate writes isolated route previews for every template page without to
   assert.equal(adapterPlan.framework, 'static');
   assert.deepEqual(adapterPlan.routes.map((route) => route.suggested_site_path), ['/', '/about', '/contact', '/gallery', '/services']);
   assert.equal(adapterPlan.routes[0].storyblok_slug, 'acme-campaign-v1/home');
+  assert.equal(adapterPlan.routes[0].route_proposal_file, 'src/integrations/acme-campaign-v1/route-proposals/home/route.js');
+  assert.equal(adapterPlan.route_proposals.host_routes_modified, false);
+
+  const proposalManifest = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/route-proposals/manifest.json'), 'utf8'));
+  assert.equal(proposalManifest.additive_only, true);
+  assert.equal(proposalManifest.routes[0].proposal_file, 'src/integrations/acme-campaign-v1/route-proposals/home/route.js');
+
+  const homeProposal = await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/route-proposals/home/route.js'), 'utf8');
+  assert.match(homeProposal, /renderHtsRouteProposal/);
+  assert.match(homeProposal, /'\.\.\/\.\.\/routes\/home\/template-html\.js'/);
 
   const guide = await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/INTEGRATION_GUIDE.md'), 'utf8');
   assert.match(guide, /Host routes modified: no/);
   assert.match(guide, /Imported Routes/);
+  assert.match(guide, /Route Proposal Wrappers/);
 });
 
 test('generate writes schema-only adapter without preview paths', async () => {

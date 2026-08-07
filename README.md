@@ -643,9 +643,14 @@ src/integrations/<integration-id>/
     about/
       TemplatePage.* | template.html
       template-html.js
+  route-proposals/
+    manifest.json
+    README.md
+    home/
+      page.astro | page.jsx | Page.vue | route.js
 ```
 
-Route preview files use route-relative local asset paths, so a preview under `routes/home/` resolves copied template assets from the generated integration folder instead of relying on the root preview path. The generated `adapter-plan.json` and `INTEGRATION_GUIDE.md` provide framework-specific import examples, route-to-story mappings, and required checks before wiring the import into a real route. These files are not registered with the host application's router. They are isolated preview/import targets that an existing site can review or wire manually after validation.
+Route preview files use route-relative local asset paths, so a preview under `routes/home/` resolves copied template assets from the generated integration folder instead of relying on the root preview path. The generated `adapter-plan.json`, `INTEGRATION_GUIDE.md`, and `route-proposals/` files provide framework-specific import examples, route-to-story mappings, review-only route wrapper modules, suggested host-route file names, and required checks before wiring the import into a real route. These files are not registered with the host application's router. They are isolated preview/import targets that an existing site can review or wire manually after validation.
 
 Supported framework output modes are:
 
@@ -1117,7 +1122,7 @@ html-to-storyblok report
 Implemented:
 
 - Interactive wizard with the ID30 startup banner, session-only credential prompts, credential test screen, Storyblok-only test mode, resume dashboard, import history, one-step Storyblok execution, recovery menu, apply preview diff, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
-- Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, multi-route isolated repository previews, and local JavaScript isolation.
+- Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, multi-route isolated repository previews, review-only route proposal wrappers, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
@@ -1125,7 +1130,7 @@ Implemented:
 - Paginated Storyblok Management API reads for component folders, components, stories, asset folders, assets, internal tags, presets, workflows, workflow stages, releases, webhook endpoints, datasources, datasource entries, collaborators, space roles, activities, tasks, tags, branches, and approvals, with bounded remote inspection, retry/backoff, timeouts, optional request pacing, optional-collection failure tolerance, and webhook URL redaction.
 - Storyblok preflight checks with a permission matrix, Content API draft story validation, Management API reconcile/verification, generated-link and asset-field checks, and filtered Storyblok activity evidence without exposing tokens.
 - Netlify deploy-preview lookup, build contract verification, deploy-state polling, deploy log page references, and optional redacted Netlify CLI log snapshots.
-- Local validation and diffing for generated files, adapter plans, duplicated component files, dependency copies, and assets, plus repository collision/worktree preflight checks, apply preflight artifacts, incremental apply step artifacts, rollback previews, confirmed local rollback for integration-owned files and route-preview directories, and confirmed remote Storyblok rollback for integration-owned draft resources.
+- Local validation and diffing for generated files, adapter plans, route proposal wrappers, duplicated component files, dependency copies, and assets, plus repository collision/worktree preflight checks, apply preflight artifacts, incremental apply step artifacts, rollback previews, confirmed local rollback for integration-owned files and route-preview directories, and confirmed remote Storyblok rollback for integration-owned draft resources.
 - Strict Storyblok safety validation for draft story location, namespaced story content components, and exact integration-owned asset reuse.
 - GitHub draft pull-request and GitLab draft merge-request creation through their APIs, with optional branch preparation, scoped staging, commit, and push orchestration.
 - Automated CLI acceptance coverage for the safe local workflow from planning through repository preflight, dry-run apply, real local generation, validation, report generation, rollback preview, and confirmed local rollback, plus a local static/Astro/Next/Nuxt/Vue/React demo-site matrix with Git safety checks, mocked Storyblok API coverage, and an opt-in live Storyblok sandbox test.
@@ -1134,7 +1139,7 @@ Implemented:
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
-- Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, and repository conversion now writes isolated preview files for every route under `src/integrations/<integration-id>/routes/`, plus an adapter plan and guide for manual host wiring. These route previews are deliberately not registered with the host site router automatically.
+- Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, and repository conversion now writes isolated preview files for every route under `src/integrations/<integration-id>/routes/`, plus an adapter plan, guide, and `route-proposals/` wrappers for manual host wiring. These route previews and proposal wrappers are deliberately not registered with the host site router automatically.
 - The default demo-site build checks validate generated integration shape, framework-specific preview files, route manifests, and existing-file safety without installing full Astro/Next/Nuxt/Vue/React dependency trees. The opt-in full demo runner can install and build the framework demos with preview smoke checks, but before wiring an import into a real client route, run that client repository's own install, typecheck, lint, build, and browser checks.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Optional Storyblok audit collections such as approvals, branches, workflow stages, or activities may be unavailable depending on the Storyblok plan, space features, token scope, and region. The audit records unavailable collections instead of treating them as a failed import.

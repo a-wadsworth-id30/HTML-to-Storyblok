@@ -24,8 +24,12 @@ async function validateGeneratedIntegrations(root, packageJson) {
     await access(path.join(integrationRoot, 'routes/manifest.json'));
     const routeManifest = JSON.parse(await readFile(path.join(integrationRoot, 'routes/manifest.json'), 'utf8'));
     const adapterPlan = JSON.parse(await readFile(path.join(integrationRoot, 'adapter-plan.json'), 'utf8'));
+    const proposalManifest = JSON.parse(await readFile(path.join(integrationRoot, 'route-proposals/manifest.json'), 'utf8'));
     if (adapterPlan.host_routes_modified !== false || adapterPlan.host_registries_modified !== false) {
       throw new Error(`adapter plan must remain additive-only for ${entry.name}`);
+    }
+    if (proposalManifest.host_routes_modified !== false || proposalManifest.additive_only !== true) {
+      throw new Error(`route proposals must remain additive-only for ${entry.name}`);
     }
     for (const route of routeManifest.routes || []) {
       const preview = route.files?.preview;
@@ -35,6 +39,11 @@ async function validateGeneratedIntegrations(root, packageJson) {
       if (!adapterRoute || adapterRoute.preview_file !== preview) {
         throw new Error(`adapter route mapping missing or mismatched for ${route.slug}`);
       }
+      const proposalRoute = (proposalManifest.routes || []).find((item) => item.slug === route.slug);
+      if (!adapterRoute.route_proposal_file || !proposalRoute || proposalRoute.proposal_file !== adapterRoute.route_proposal_file) {
+        throw new Error(`route proposal mapping missing or mismatched for ${route.slug}`);
+      }
+      await access(path.join(root, adapterRoute.route_proposal_file));
     }
     const content = await readFile(path.join(integrationRoot, expected), 'utf8');
     if (expected.endsWith('.jsx') && !/export function HtsTemplatePage/.test(content)) {

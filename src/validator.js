@@ -227,9 +227,20 @@ async function checkRepositoryAdapterPlan(manifest, root, checks) {
     const routeFailures = ensureArray(adapter.routes).filter((route) => (
       (route.preview_file && !isInsideNamespace(route.preview_file, manifest.repository_namespace)) ||
       (route.template_html_module && !isInsideNamespace(route.template_html_module, manifest.repository_namespace)) ||
+      (route.route_proposal_file && !isInsideNamespace(route.route_proposal_file, manifest.repository_namespace)) ||
       !String(route.storyblok_slug || '').startsWith(`${manifest.integration_id}/`) ||
       route.registration_policy !== 'manual_review_required'
     ));
+    const routeProposalFailures = [
+      adapter.route_proposals?.manifest_file && !isInsideNamespace(adapter.route_proposals.manifest_file, manifest.repository_namespace) ? 'route proposal manifest must stay inside the integration namespace' : null,
+      adapter.route_proposals?.readme_file && !isInsideNamespace(adapter.route_proposals.readme_file, manifest.repository_namespace) ? 'route proposal README must stay inside the integration namespace' : null,
+      adapter.route_proposals?.host_routes_modified === true ? 'route proposals must not mark host routes as modified' : null,
+      ...ensureArray(adapter.route_proposals?.routes).map((route) => (
+        route.proposal_file && !isInsideNamespace(route.proposal_file, manifest.repository_namespace)
+          ? `route proposal must stay inside the integration namespace: ${route.proposal_file}`
+          : null
+      ))
+    ].filter(Boolean);
     const violations = [
       adapter.integration_id === manifest.integration_id ? null : 'integration_id does not match manifest',
       adapter.storyblok_prefix === manifest.storyblok_prefix ? null : 'storyblok_prefix does not match manifest',
@@ -240,7 +251,8 @@ async function checkRepositoryAdapterPlan(manifest, root, checks) {
       String(adapter.root_component || '').startsWith(manifest.storyblok_prefix) ? null : 'root_component must be namespaced',
       adapter.entrypoints?.root_preview && !isInsideNamespace(adapter.entrypoints.root_preview, manifest.repository_namespace) ? 'root_preview must stay inside the integration namespace' : null,
       adapter.entrypoints?.storyblok_renderer && !isInsideNamespace(adapter.entrypoints.storyblok_renderer, manifest.repository_namespace) ? 'storyblok_renderer must stay inside the integration namespace' : null,
-      routeFailures.length === 0 ? null : `route mappings failed additive-only validation: ${routeFailures.map((route) => route.slug || route.preview_file).join(', ')}`
+      routeFailures.length === 0 ? null : `route mappings failed additive-only validation: ${routeFailures.map((route) => route.slug || route.preview_file).join(', ')}`,
+      routeProposalFailures.length === 0 ? null : `route proposals failed additive-only validation: ${routeProposalFailures.join(', ')}`
     ].filter(Boolean);
     addCheck(
       checks,

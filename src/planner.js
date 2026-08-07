@@ -78,6 +78,11 @@ export async function createIntegrationPlan({
     ];
   }
 
+  manifest.repository.files_to_create = unique([
+    ...manifest.repository.files_to_create,
+    ...plannedRepositoryAdapterFilePaths(manifest)
+  ]);
+
   if (inferDuplicates) {
     await applyInferredDuplicationCandidates(manifest, {
       repoPath: repoPath || process.cwd(),
