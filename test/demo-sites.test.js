@@ -1,13 +1,17 @@
 import assert from 'node:assert/strict';
-import { cp, mkdtemp, readFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
 import { generateIntegration } from '../src/generator.js';
 import { inspectRepository } from '../src/inspectors.js';
 import { createIntegrationPlan } from '../src/planner.js';
 import { createRollbackPreview } from '../src/rollback.js';
 import { preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from '../src/validator.js';
+
+const execFileAsync = promisify(execFile);
 
 const DEMO_CASES = [
   {
@@ -41,14 +45,14 @@ const DEMO_CASES = [
   {
     name: 'vue',
     framework: 'vue',
-    detected: 'Vite',
+    detected: 'Vue',
     guardFile: 'src/App.vue',
     previewFile: 'TemplatePage.vue'
   },
   {
     name: 'react',
     framework: 'react',
-    detected: 'Vite',
+    detected: 'React',
     guardFile: 'src/App.jsx',
     previewFile: 'TemplatePage.jsx'
   }
@@ -60,6 +64,7 @@ test('demo site matrix accepts isolated repository integration without changing 
 
   for (const demo of DEMO_CASES) {
     const repoPath = path.join(root, 'demo-sites', demo.name);
+    await initializeGitRepo(repoPath);
     const guardPath = path.join(repoPath, demo.guardFile);
     const before = await readFile(guardPath, 'utf8');
     const integrationId = `demo-${demo.name}-import-v1`;
@@ -83,6 +88,8 @@ test('demo site matrix accepts isolated repository integration without changing 
     });
     assert.ok(generated.files.includes(`src/integrations/${integrationId}/${demo.previewFile}`), demo.name);
     assert.ok(generated.files.includes(`src/integrations/${integrationId}/routes/about/${demo.previewFile}`), demo.name);
+    const homeRoute = await readFile(path.join(repoPath, `src/integrations/${integrationId}/routes/home/${demo.previewFile}`), 'utf8');
+    assert.match(homeRoute, /\.\.\/\.\.\/assets\/assets\/logo\.svg/, demo.name);
 
     const validation = await validateIntegration(manifest, { repoPath });
     assert.equal(validation.status, 'passed', demo.name);
@@ -96,9 +103,29 @@ test('demo site matrix accepts isolated repository integration without changing 
     const after = await readFile(guardPath, 'utf8');
     assert.equal(after, before, demo.name);
 
+    await writeFile(guardPath, `${before}\n<!-- unrelated local edit -->\n`);
+    const dirtyValidation = await validateIntegration(manifest, { repoPath });
+    assert.equal(dirtyValidation.status, 'failed', demo.name);
+    assert.ok(dirtyValidation.checks.some((check) => check.name === 'git_status' && check.status === 'failed'), demo.name);
+    await writeFile(guardPath, before);
+
     const secondPreflight = await preflightRepositoryIntegration(manifest, { repoPath });
     assert.equal(secondPreflight.status, 'failed', demo.name);
     assert.ok(secondPreflight.collisions.some((target) => target.startsWith(`src/integrations/${integrationId}/`)), demo.name);
   }
 });
 
+async function initializeGitRepo(repoPath) {
+  await execFileAsync('git', ['init'], { cwd: repoPath });
+  await execFileAsync('git', ['add', '.'], { cwd: repoPath });
+  await execFileAsync('git', ['commit', '-m', 'Initial demo site'], {
+    cwd: repoPath,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 'HTML-to-Storyblok Tests',
+      GIT_AUTHOR_EMAIL: 'tests@example.com',
+      GIT_COMMITTER_NAME: 'HTML-to-Storyblok Tests',
+      GIT_COMMITTER_EMAIL: 'tests@example.com'
+    }
+  });
+}

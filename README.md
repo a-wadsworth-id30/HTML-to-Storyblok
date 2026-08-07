@@ -296,7 +296,7 @@ demo-sites/vue
 demo-sites/react
 ```
 
-These demo sites are intentionally dependency-light. They look like their target framework, expose a local `npm run build` check, and are used by automated tests to verify that generated files stay inside `src/integrations/<integration-id>` while existing app files remain unchanged.
+These demo sites are intentionally dependency-light. They look like their target framework, expose a local `npm run build` check, and are used by automated tests to verify framework detection, isolated route-preview generation, route-relative asset references, Git worktree safety, and that generated files stay inside `src/integrations/<integration-id>` while existing app files remain unchanged.
 
 ### 3. Check Storyblok access
 
@@ -552,7 +552,7 @@ html-to-storyblok repository-preflight \
   --repo ../client-site
 ```
 
-This refuses planned file or asset collisions and unrelated Git worktree changes before local generation runs.
+For real apply this refuses planned file or asset collisions and unrelated Git worktree changes before local generation runs. During apply dry-runs, existing planned targets are reported as warnings so the preview can still complete without writing files.
 
 ### 8. Generate a report
 
@@ -595,7 +595,7 @@ html-to-storyblok apply \
 
 `apply` performs these additive operations in order:
 
-- run a non-mutating repository preflight that refuses planned file/asset collisions and unrelated worktree changes
+- run a non-mutating repository preflight that refuses planned file/asset collisions and unrelated worktree changes during real apply, while reporting those collisions as warnings during dry-run preview
 - run a non-mutating Storyblok preflight when Storyblok operations are planned
 - duplicate approved frontend and Storyblok components into the integration namespace
 - convert supplied template HTML/CSS/assets into isolated framework files and route previews
@@ -613,7 +613,7 @@ html-to-storyblok apply \
 
 It does not modify existing registries, routes, Storyblok components, Storyblok stories, assets, dependencies, or Netlify configuration.
 
-During real and dry-run apply, completed stages are written as incremental artifacts in `.tmp/html-to-storyblok/` before the final result file. `apply-step-00-repository-preflight.json` is written before local generation and records planned repository targets, collisions, and worktree safety checks. If a later remote operation fails, the completed step files remain available for review, resume decisions, and rollback planning.
+During real and dry-run apply, completed stages are written as incremental artifacts in `.tmp/html-to-storyblok/` before the final result file. `apply-step-00-repository-preflight.json` is written before local generation and records planned repository targets, collisions, duplicate-source availability, and worktree safety checks. If a later remote operation fails, the completed step files remain available for review, resume decisions, and rollback planning.
 
 ## Individual operation commands
 
@@ -643,7 +643,7 @@ src/integrations/<integration-id>/
       template-html.js
 ```
 
-These files are not registered with the host application's router. They are isolated preview/import targets that an existing site can review or wire manually after validation.
+Route preview files use route-relative local asset paths, so a preview under `routes/home/` resolves copied template assets from the generated integration folder instead of relying on the root preview path. These files are not registered with the host application's router. They are isolated preview/import targets that an existing site can review or wire manually after validation.
 
 Supported framework output modes are:
 
@@ -1126,13 +1126,14 @@ Implemented:
 - Local validation and diffing for generated files, duplicated component files, dependency copies, and assets, plus repository collision/worktree preflight checks, apply preflight artifacts, incremental apply step artifacts, rollback previews, confirmed local rollback for integration-owned files, and confirmed remote Storyblok rollback for integration-owned draft resources.
 - Strict Storyblok safety validation for draft story location, namespaced story content components, and exact integration-owned asset reuse.
 - GitHub draft pull-request and GitLab draft merge-request creation through their APIs, with optional branch preparation, scoped staging, commit, and push orchestration.
-- Automated CLI acceptance coverage for the safe local workflow from planning through repository preflight, dry-run apply, real local generation, validation, report generation, rollback preview, and confirmed local rollback, plus a local static/Astro/Next/Nuxt/Vue/React demo-site matrix, mocked Storyblok API coverage, and an opt-in live Storyblok sandbox test.
+- Automated CLI acceptance coverage for the safe local workflow from planning through repository preflight, dry-run apply, real local generation, validation, report generation, rollback preview, and confirmed local rollback, plus a local static/Astro/Next/Nuxt/Vue/React demo-site matrix with Git safety checks, mocked Storyblok API coverage, and an opt-in live Storyblok sandbox test.
 
 ## Remaining limitations
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
 - Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, and repository conversion now writes isolated preview files for every route under `src/integrations/<integration-id>/routes/`. These route previews are deliberately not registered with the host site router automatically.
+- The demo-site build checks validate generated integration shape, framework-specific preview files, route manifests, and existing-file safety without installing full Astro/Next/Nuxt/Vue/React dependency trees. Before wiring an import into a real client route, run that client repository's real install, typecheck, lint, build, and browser checks.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Optional Storyblok audit collections such as approvals, branches, workflow stages, or activities may be unavailable depending on the Storyblok plan, space features, token scope, and region. The audit records unavailable collections instead of treating them as a failed import.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials from the shell environment, `.env` / `.env.local`, or the interactive session; use `html-to-storyblok check-access` to verify readiness.

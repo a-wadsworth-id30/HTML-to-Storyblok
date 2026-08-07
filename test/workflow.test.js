@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -176,6 +176,32 @@ test('applyManifest refuses repository collisions before writing generated files
     stat(path.join(workDir, 'apply-step-00-storyblok-preflight.json')),
     /ENOENT/
   );
+});
+
+test('applyManifest dry run reports repository collisions without blocking preview', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-dry-run-collision-'));
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-dry-run-collision-work-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await mkdir(path.join(repoPath, 'src/integrations/acme-homepage-v1'), { recursive: true });
+  await writeFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/template.html'), 'existing file\n');
+
+  const result = await applyManifest(manifest, {
+    repo: repoPath,
+    template: 'test/fixtures/basic-template',
+    framework: 'static',
+    dry_run: true,
+    env: {}
+  }, workDir);
+
+  assert.equal(result.dry_run, true);
+  const preflight = JSON.parse(await readFile(path.join(workDir, 'apply-step-00-repository-preflight.json'), 'utf8'));
+  assert.equal(preflight.status, 'passed');
+  assert.ok(preflight.checks.some((check) => check.name === 'planned_targets_available' && check.status === 'warning'));
 });
 
 function jsonResponse(body, { ok = true, status = 200 } = {}) {

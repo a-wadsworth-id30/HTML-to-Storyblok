@@ -47,11 +47,14 @@ export async function convertTemplate({
   ]);
 
   const routeConversions = sanitizedPages.map((entry) => {
-    const assetPrefix = entry.route.primary ? './assets' : `${routeImportPrefix(entry.route.slug)}/assets`;
-    const convertedHtml = replaceHtmlAssetRefs(entry.sanitized.bodyHtml, assetCopies, entry.source_path, assetPrefix);
+    const routeAssetPrefix = `${routeImportPrefix(entry.route.slug)}/assets`;
+    const convertedHtml = replaceHtmlAssetRefs(entry.sanitized.bodyHtml, assetCopies, entry.source_path, routeAssetPrefix);
     return {
       ...entry.route,
       source_page: entry.source_page,
+      root_html: entry.route.primary
+        ? namespaceHtml(replaceHtmlAssetRefs(entry.sanitized.bodyHtml, assetCopies, entry.source_path, './assets'), manifest.integration_id)
+        : null,
       html: namespaceHtml(convertedHtml, manifest.integration_id)
     };
   });
@@ -61,7 +64,7 @@ export async function convertTemplate({
   return {
     framework: frameworkName,
     source_page: primaryRoute?.source_page || null,
-    routes: routeConversions.map(({ html, ...route }) => route),
+    routes: routeConversions.map(({ html, root_html: _rootHtml, ...route }) => route),
     removed_scripts: sanitizedPages.reduce((total, entry) => total + entry.sanitized.removedScripts, 0),
     removed_inline_handlers: sanitizedPages.reduce((total, entry) => total + entry.sanitized.removedInlineHandlers, 0),
     excluded_external_scripts: uniqueRefs(sanitizedPages.flatMap((entry) => (
@@ -72,7 +75,7 @@ export async function convertTemplate({
     files: buildTemplateFiles({
       manifest,
       framework: frameworkName,
-      html: primaryRoute?.html || '',
+      html: primaryRoute?.root_html || primaryRoute?.html || '',
       css: styleConversion.css,
       behaviour: scriptConversion.module,
       routes: shouldGenerateRoutePreviewFiles(manifest) ? routeConversions : []

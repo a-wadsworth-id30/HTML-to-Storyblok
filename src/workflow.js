@@ -64,7 +64,7 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   assertApplyPreflight(manifest, { dryRun, env });
 
   await progress({ label: 'Checking Repository Safety', current: 0, total: 14 });
-  const repositoryPreflight = await preflightRepositoryIntegration(manifest, { repoPath });
+  const repositoryPreflight = await preflightRepositoryIntegration(manifest, { repoPath, mode: dryRun ? 'dry-run' : 'apply' });
   await writeArtifact(workDir, 'apply-step-00-repository-preflight.json', repositoryPreflight);
   assertRepositoryPreflightPassed(repositoryPreflight);
   await progress({ label: 'Checking Storyblok Access', current: 0, total: 14, detail: storyblokDetail });

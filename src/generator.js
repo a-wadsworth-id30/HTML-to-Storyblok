@@ -25,7 +25,7 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     const absolute = path.join(root, asset.target_path);
     if (await pathExists(absolute)) collisions.push(asset.target_path);
   }
-  if (collisions.length > 0) {
+  if (collisions.length > 0 && !dryRun) {
     throw new Error(`refusing to overwrite existing generated files: ${collisions.join(', ')}`);
   }
 
@@ -50,13 +50,16 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     repository_path: root,
     framework: conversion?.framework || 'generic',
     source_page: conversion?.source_page || null,
+    collisions,
     files: files.map((file) => file.path),
     assets: conversion?.asset_copies?.map((asset) => asset.target_path) || [],
     removed_scripts: conversion?.removed_scripts || 0,
     removed_inline_handlers: conversion?.removed_inline_handlers || 0,
     excluded_external_scripts: conversion?.excluded_external_scripts || [],
     isolated_scripts: conversion?.isolated_scripts || [],
-    note: 'Generated files are isolated. Existing registries and routes are not modified.'
+    note: dryRun && collisions.length > 0
+      ? 'Dry run only. Existing generated files are reported as collisions; real apply will refuse to overwrite them.'
+      : 'Generated files are isolated. Existing registries and routes are not modified.'
   };
 }
 

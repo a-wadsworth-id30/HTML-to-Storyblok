@@ -140,6 +140,44 @@ test('preflightRepositoryIntegration refuses planned target collisions', async (
   assert.ok(preflight.checks.some((check) => check.name === 'planned_targets_available' && check.status === 'failed'));
 });
 
+test('preflightRepositoryIntegration reports collisions as warnings during dry run', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-preflight-dry-run-collision-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  await mkdir(path.join(repoPath, 'src/integrations/acme-homepage-v1'), { recursive: true });
+  await writeFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/template.html'), 'existing file\n');
+
+  const preflight = await preflightRepositoryIntegration(manifest, { repoPath, mode: 'dry-run' });
+
+  assert.equal(preflight.status, 'passed');
+  assert.ok(preflight.collisions.includes('src/integrations/acme-homepage-v1/template.html'));
+  assert.ok(preflight.checks.some((check) => check.name === 'planned_targets_available' && check.status === 'warning'));
+});
+
+test('preflightRepositoryIntegration refuses missing duplicate sources before writes', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-preflight-missing-source-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  manifest.repository.components_to_duplicate.push({
+    source_path: 'src/components/MissingHero.jsx',
+    target_path: 'src/integrations/acme-homepage-v1/components/HtsMissingHero.jsx'
+  });
+
+  const preflight = await preflightRepositoryIntegration(manifest, { repoPath });
+
+  assert.equal(preflight.status, 'failed');
+  assert.deepEqual(preflight.missing_sources, ['src/components/MissingHero.jsx']);
+  assert.ok(preflight.checks.some((check) => check.name === 'duplicate_sources_available' && check.status === 'failed'));
+});
+
 test('runRepositoryScript supports dry-run build command discovery', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-build-'));
   await mkdir(repoPath, { recursive: true });

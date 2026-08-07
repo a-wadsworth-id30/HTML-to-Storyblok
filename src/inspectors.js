@@ -338,6 +338,8 @@ function detectFramework(dependencies, files) {
   if (dependencies.nuxt || files.some((file) => file.startsWith('nuxt.config.'))) return { name: 'Nuxt', package: 'nuxt' };
   if (dependencies.next || files.some((file) => file.startsWith('next.config.'))) return { name: 'Next.js', package: 'next' };
   if (dependencies['@sveltejs/kit'] || files.some((file) => file.startsWith('svelte.config.'))) return { name: 'SvelteKit', package: '@sveltejs/kit' };
+  if (dependencies.vite && dependencies.vue) return { name: 'Vue', package: 'vue' };
+  if (dependencies.vite && dependencies.react) return { name: 'React', package: 'react' };
   if (dependencies.vite || files.some((file) => file.startsWith('vite.config.'))) return { name: 'Vite', package: 'vite' };
   return { name: 'Uncertain', package: null };
 }

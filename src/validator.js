@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { analyzeCss } from './analyzer.js';
@@ -78,12 +78,13 @@ export async function diffIntegration(manifest, { repoPath = process.cwd() } = {
   };
 }
 
-export async function preflightRepositoryIntegration(manifest, { repoPath = process.cwd() } = {}) {
+export async function preflightRepositoryIntegration(manifest, { repoPath = process.cwd(), mode = 'apply' } = {}) {
   const root = path.resolve(repoPath);
   const checks = [];
   const plan = validatePlan(manifest);
   addCheck(checks, 'manifest_policy', plan.valid, plan.valid ? 'Manifest satisfies additive-only policy.' : 'Manifest failed additive-only policy.', plan.violations);
   addCheck(checks, 'repository_exists', await pathExists(root), 'Repository path exists.');
+  const blockingCollisions = mode !== 'dry-run';
 
   const targets = plannedRepositoryTargets(manifest);
   const collisions = [];
@@ -93,9 +94,22 @@ export async function preflightRepositoryIntegration(manifest, { repoPath = proc
   addCheck(
     checks,
     'planned_targets_available',
-    collisions.length === 0,
+    collisions.length === 0 || !blockingCollisions,
     collisions.length === 0 ? 'All planned repository targets are available.' : 'Planned repository targets already exist.',
-    collisions
+    collisions,
+    collisions.length > 0 && !blockingCollisions ? 'warning' : undefined
+  );
+
+  const missingSources = [];
+  for (const source of plannedRepositorySources(manifest)) {
+    if (!(await pathExists(path.join(root, source)))) missingSources.push(source);
+  }
+  addCheck(
+    checks,
+    'duplicate_sources_available',
+    missingSources.length === 0,
+    missingSources.length === 0 ? 'All planned duplicate sources are available.' : 'Planned duplicate sources are missing.',
+    missingSources
   );
 
   await checkGitStatus(manifest, root, checks);
@@ -103,13 +117,17 @@ export async function preflightRepositoryIntegration(manifest, { repoPath = proc
   return {
     action: 'repository_preflight',
     status: failed.length === 0 ? 'passed' : 'failed',
+    mode,
     repository_path: root,
     integration_id: manifest.integration_id,
     planned_targets: targets.length,
     collisions,
+    missing_sources: missingSources,
     checks,
     failed_checks: failed.length,
-    note: 'Preflight is read-only. It refuses real apply when planned files would overwrite the existing site or unrelated worktree changes are present.'
+    note: mode === 'dry-run'
+      ? 'Preflight is read-only. Existing planned targets are reported as warnings during dry run.'
+      : 'Preflight is read-only. It refuses real apply when planned files would overwrite the existing site or unrelated worktree changes are present.'
   };
 }
 
@@ -265,6 +283,15 @@ function plannedRepositoryTargets(manifest) {
   ]);
 }
 
+function plannedRepositorySources(manifest) {
+  return unique([
+    ...ensureArray(manifest.repository?.components_to_duplicate).map((entry) => entry.source_path || entry.source),
+    ...ensureArray(manifest.repository?.assets_to_create)
+      .filter((asset) => asset.source_path && asset.source_type !== 'template')
+      .map((asset) => asset.source_path)
+  ]);
+}
+
 async function checkGitStatus(manifest, root, checks) {
   const gitDir = path.join(root, '.git');
   if (!(await pathExists(gitDir))) {
@@ -274,10 +301,14 @@ async function checkGitStatus(manifest, root, checks) {
   try {
     const { stdout } = await execFileAsync('git', ['status', '--short'], { cwd: root });
     const changed = stdout.split('\n').map((line) => line.trim()).filter(Boolean);
-    const outsideNamespace = changed.filter((line) => {
-      const file = line.slice(3).replace(/^"|"$/g, '');
-      return file && !file.startsWith(`${manifest.repository_namespace}/`) && !file.startsWith(`public/integrations/${manifest.integration_id}/`);
-    });
+    const outsideNamespace = [];
+    for (const line of changed) {
+      const file = gitStatusPath(line);
+      if (!file) continue;
+      if (isIntegrationOwnedGitPath(file, manifest)) continue;
+      if (line.startsWith('??') && await untrackedDirectoryContainsOnlyIntegrationPaths(root, file, manifest)) continue;
+      outsideNamespace.push(line);
+    }
     addCheck(
       checks,
       'git_status',
@@ -288,6 +319,53 @@ async function checkGitStatus(manifest, root, checks) {
   } catch (error) {
     addCheck(checks, 'git_status', false, 'Unable to inspect git status.', error.message);
   }
+}
+
+function gitStatusPath(line) {
+  const raw = line.slice(3).replace(/^"|"$/g, '');
+  const renameIndex = raw.lastIndexOf(' -> ');
+  return renameIndex === -1 ? normalizeGitPath(raw) : normalizeGitPath(raw.slice(renameIndex + 4));
+}
+
+function normalizeGitPath(file) {
+  return String(file || '').replaceAll('\\', '/').replace(/^\/+/, '').replace(/\/+$/, '');
+}
+
+function isIntegrationOwnedGitPath(file, manifest) {
+  const normalized = normalizeGitPath(file);
+  return isSameOrChildPath(normalized, manifest.repository_namespace)
+    || isSameOrChildPath(normalized, `public/integrations/${manifest.integration_id}`);
+}
+
+function isSameOrChildPath(file, parent) {
+  const normalizedParent = normalizeGitPath(parent);
+  return file === normalizedParent || file.startsWith(`${normalizedParent}/`);
+}
+
+async function untrackedDirectoryContainsOnlyIntegrationPaths(root, file, manifest) {
+  const normalized = normalizeGitPath(file);
+  try {
+    const fileStat = await stat(path.join(root, normalized));
+    if (!fileStat.isDirectory()) return false;
+    const children = await recursiveDirectoryFiles(root, normalized);
+    return children.length > 0 && children.every((child) => isIntegrationOwnedGitPath(child, manifest));
+  } catch {
+    return false;
+  }
+}
+
+async function recursiveDirectoryFiles(root, dir) {
+  const entries = await readdir(path.join(root, dir), { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const child = `${dir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      files.push(...await recursiveDirectoryFiles(root, child));
+    } else {
+      files.push(child);
+    }
+  }
+  return files;
 }
 
 async function existingTextFiles(root, files) {
@@ -321,10 +399,10 @@ function isForbiddenImport(importPath, namespace, fromFile = '') {
   return !importPath.includes(namespace);
 }
 
-function addCheck(checks, name, passed, message, details = null) {
+function addCheck(checks, name, passed, message, details = null, statusOverride = null) {
   checks.push({
     name,
-    status: passed ? 'passed' : 'failed',
+    status: statusOverride || (passed ? 'passed' : 'failed'),
     message,
     details
   });

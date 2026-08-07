@@ -19,7 +19,8 @@ export async function duplicateFrontendComponents(manifest, { repoPath = process
     const source = path.join(root, sourceRel);
     const target = path.join(root, targetRel);
     if (!(await pathExists(source))) throw new Error(`source component does not exist: ${sourceRel}`);
-    if (await pathExists(target)) throw new Error(`refusing to overwrite duplicate target: ${targetRel}`);
+    const targetExists = await pathExists(target);
+    if (targetExists && !dryRun) throw new Error(`refusing to overwrite duplicate target: ${targetRel}`);
     const content = await readFile(source, 'utf8');
     const rewritten = rewriteDuplicate(content, manifest, entry);
     if (!dryRun) {
@@ -31,6 +32,7 @@ export async function duplicateFrontendComponents(manifest, { repoPath = process
       source_path: sourceRel,
       target_path: targetRel,
       source_hash: sha256(content),
+      target_exists: targetExists,
       runtime_dependency_retained: false
     });
   }
@@ -51,7 +53,8 @@ export async function duplicateRepositoryAssets(manifest, { repoPath = process.c
     const source = path.join(root, entry.source_path);
     const target = path.join(root, entry.target_path);
     if (!(await pathExists(source))) throw new Error(`source asset does not exist: ${entry.source_path}`);
-    if (await pathExists(target)) throw new Error(`refusing to overwrite asset target: ${entry.target_path}`);
+    const targetExists = await pathExists(target);
+    if (targetExists && !dryRun) throw new Error(`refusing to overwrite asset target: ${entry.target_path}`);
     if (!dryRun) {
       await mkdir(path.dirname(target), { recursive: true });
       await copyFile(source, target);
@@ -61,6 +64,7 @@ export async function duplicateRepositoryAssets(manifest, { repoPath = process.c
       dry_run: dryRun,
       source_path: entry.source_path,
       target_path: entry.target_path,
+      target_exists: targetExists,
       runtime_dependency_retained: false
     });
   }
