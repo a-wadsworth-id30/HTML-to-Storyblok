@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Contact LaunchPad</title>
+    <meta name="description" content="Contact route for testing LaunchPad SaaS form extraction.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/home" data-hts-field="brand_name">
+        <img src="./assets/logo.svg" alt="LaunchPad logo">
+        LaunchPad
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <a href="/about">About</a>
+        <a href="/services">Services</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/contact" data-hts-field="nav_contact_link">Contact us</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">Contact us</p>
+        <h1 data-hts-field="contact_headline">Build your first launch workflow.</h1>
+        <p class="lede" data-hts-field="contact_intro">
+          Use this page to test form labels, select options, required fields, textarea extraction, and external form warnings.
+        </p>
+      </section>
+
+      <section class="contact-layout">
+        <div class="contact-card">
+          <h2>What we will map</h2>
+          <ul>
+            <li>Current launch process and review owners</li>
+            <li>Reusable launch plans, asset folders, and approval lanes</li>
+            <li>Reporting needs, integrations, and draft content governance</li>
+          </ul>
+        </div>
+        <form action="https://forms.example.com/launchpad-saas" method="post">
+          <label>
+            Work email
+            <input type="email" name="email" placeholder="you@example.com" required data-hts-field="lead_email">
+          </label>
+          <label>
+            Team size
+            <select name="team_size" data-hts-field="team_size">
+              <option value="small">1 to 10</option>
+              <option value="mid">11 to 50</option>
+              <option value="enterprise">51 plus</option>
+            </select>
+          </label>
+          <label>
+            Launch challenge
+            <textarea name="message" placeholder="Tell us what slows launches down." data-hts-field="contact_message"></textarea>
+          </label>
+          <label class="checkbox">
+            <input type="checkbox" name="updates" checked data-hts-field="accept_updates">
+            Send launch operations notes
+          </label>
+          <button type="submit">Request walkthrough</button>
+        </form>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>LaunchPad Operations. Contact route.</p>
+    </footer>
+    <script src="./behaviour.js"></script>
+  </body>
+</html>

@@ -1,0 +1,61 @@
+{
+  "components": {
+    "hero": {
+      "display_name": "SaaS Hero",
+      "preview_field": "product_code",
+      "fields": {
+        "product_code": {
+          "type": "text",
+          "description": "Internal product code used by launch operations teams."
+        },
+        "launch_stage": {
+          "type": "option",
+          "options": ["brief", "review", "approved", "launched"],
+          "description": "Current launch stage for this imported page."
+        },
+        "supporting_cards": {
+          "type": "bloks",
+          "component_whitelist": ["feature_item"],
+          "maximum": 3,
+          "description": "Optional SaaS proof points shown beneath the hero."
+        }
+      },
+      "draft": {
+        "product_code": "launchpad-saas-v1",
+        "launch_stage": "review",
+        "supporting_cards": [
+          {
+            "component": "feature_item",
+            "headline": "Approval lanes"
+          },
+          {
+            "component": "feature_item",
+            "headline": "Evidence logs"
+          }
+        ]
+      }
+    },
+    "form": {
+      "fields": {
+        "crm_segment": {
+          "type": "option",
+          "options": ["team", "scale", "enterprise"],
+          "description": "CRM segment inferred from the launch operations enquiry."
+        },
+        "team_size": {
+          "type": "option",
+          "options": ["small", "mid", "enterprise"],
+          "description": "Requested team size from the contact form."
+        }
+      },
+      "draft": {
+        "crm_segment": "scale",
+        "team_size": "mid"
+      }
+    }
+  },
+  "draft_story": {
+    "name": "LaunchPad SaaS Import Preview",
+    "headline": "LaunchPad SaaS Preview"
+  }
+}

@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>LaunchPad Gallery</title>
+    <meta name="description" content="Gallery route for testing LaunchPad asset upload and draft image fields.">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="brand" href="/home" data-hts-field="brand_name">
+        <img src="./assets/logo.svg" alt="LaunchPad logo">
+        LaunchPad
+      </a>
+      <nav class="primary-nav" aria-label="Primary">
+        <a href="/about">About</a>
+        <a href="/services">Services</a>
+        <a href="/gallery">Gallery</a>
+        <a href="/contact" data-hts-field="nav_contact_link">Contact us</a>
+      </nav>
+    </header>
+
+    <main>
+      <section class="page-hero">
+        <p class="eyebrow">Gallery</p>
+        <h1 data-hts-field="gallery_headline">Visual assets ready for draft Storyblok fields.</h1>
+        <p class="lede" data-hts-field="gallery_intro">
+          This route tests asset upload, repeated image blocks, captions, alt text, and deduplication across routes.
+        </p>
+      </section>
+
+      <section class="gallery-grid">
+        <figure>
+          <img src="./assets/dashboard.svg" alt="LaunchPad dashboard" data-hts-field="gallery_hero_image">
+          <figcaption>Readiness dashboard</figcaption>
+        </figure>
+        <figure>
+          <img src="./assets/card-workflow.svg" alt="Workflow card illustration">
+          <figcaption>Workflow card illustration</figcaption>
+        </figure>
+        <figure>
+          <img src="./assets/team-mira.svg" alt="Mira Chen profile illustration">
+          <figcaption>Launch director profile</figcaption>
+        </figure>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <p>LaunchPad Operations. Gallery route.</p>
+    </footer>
+    <script src="./behaviour.js"></script>
+  </body>
+</html>

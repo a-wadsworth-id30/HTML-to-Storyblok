@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" role="img" aria-label="Mira Chen profile illustration">
+  <rect width="180" height="180" rx="32" fill="#e0f2fe"/>
+  <circle cx="90" cy="68" r="34" fill="#1e3a8a"/>
+  <circle cx="90" cy="74" r="28" fill="#f8d7bd"/>
+  <path d="M50 152c8-30 25-45 40-45s32 15 40 45z" fill="#1d4ed8"/>
+  <path d="M62 64c8-26 48-34 66 0-15-4-46-4-66 0z" fill="#0f172a"/>
+  <circle cx="78" cy="76" r="3" fill="#0f172a"/>
+  <circle cx="102" cy="76" r="3" fill="#0f172a"/>
+  <path d="M80 92c8 6 16 6 24 0" fill="none" stroke="#0f172a" stroke-width="4" stroke-linecap="round"/>
+</svg>

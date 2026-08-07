@@ -204,9 +204,26 @@ templates/acme-campaign/
   assets/
 ```
 
+Additional bundled fixture:
+
+```text
+templates/launchpad-saas/
+  index.html
+  about.html
+  services.html
+  gallery.html
+  contact.html
+  styles.css
+  behaviour.js
+  schema-overrides.json
+  assets/
+```
+
 Keep the template source unchanged so discovery can compare the original files with generated integration output later.
 
 This repository includes `templates/acme-campaign/` as a smoke-test fixture. It contains a realistic five-route static template for home, about, services, gallery, and contact pages using this project as the example subject matter. It includes local assets, local CSS, local JavaScript, repeated image references, form fields, explicit `data-hts-field` hints, and additive schema overrides. It also includes external form and analytics references so inspection/reporting can surface the expected review warnings.
+
+This repository also includes `templates/launchpad-saas/` as a second smoke-test fixture. It models a SaaS launch-operations product and uses the same five-route shape with different content, assets, metrics, pricing cards, workflow cards, form fields, explicit `data-hts-field` hints, and schema overrides. Use it when you need to validate a second import on the same Storyblok space or demo site with a different integration ID, namespace, components, assets, and draft story folder.
 
 If you want to preview a raw static template in the browser before running inspection, start a simple server from the project root:
 
@@ -218,6 +235,7 @@ Then open:
 
 ```text
 http://127.0.0.1:8080/templates/acme-campaign/
+http://127.0.0.1:8080/templates/launchpad-saas/
 ```
 
 ## Working directory

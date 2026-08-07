@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 480" role="img" aria-label="LaunchPad dashboard">
+  <rect width="720" height="480" rx="28" fill="#fff"/>
+  <rect x="36" y="36" width="648" height="408" rx="22" fill="#eff6ff"/>
+  <rect x="72" y="78" width="176" height="324" rx="18" fill="#1e3a8a"/>
+  <rect x="286" y="78" width="326" height="70" rx="16" fill="#fff"/>
+  <rect x="286" y="176" width="138" height="150" rx="16" fill="#fff"/>
+  <rect x="450" y="176" width="162" height="150" rx="16" fill="#fff"/>
+  <rect x="286" y="354" width="326" height="48" rx="16" fill="#fff"/>
+  <circle cx="122" cy="124" r="24" fill="#93c5fd"/>
+  <rect x="110" y="180" width="92" height="12" rx="6" fill="#bfdbfe"/>
+  <rect x="110" y="214" width="108" height="12" rx="6" fill="#bfdbfe"/>
+  <rect x="110" y="248" width="74" height="12" rx="6" fill="#bfdbfe"/>
+  <path d="M318 276h70m-70-38h46m164 38h48m-48-38h34" stroke="#1d4ed8" stroke-width="14" stroke-linecap="round"/>
+  <path d="M326 112h240" stroke="#0f766e" stroke-width="14" stroke-linecap="round"/>
+  <path d="M326 378h180" stroke="#64748b" stroke-width="12" stroke-linecap="round"/>
+</svg>
