@@ -26,6 +26,7 @@ export function createTerminal({
   const style = (name, value) => color ? `${ANSI[name]}${value}${ANSI.reset}` : value;
   const write = (value = '') => output.write(String(value));
   const line = (value = '') => write(`${value}\n`);
+  const progressStarts = new Map();
   const terminal = {
     input,
     output,
@@ -61,14 +62,17 @@ export function createTerminal({
       }
       line('');
     },
-    progress(label, current, total) {
+    progress(label, current, total, detail = '') {
       const safeTotal = Math.max(Number(total) || 0, 1);
       const safeCurrent = Math.min(Math.max(Number(current) || 0, 0), safeTotal);
       const width = 10;
       const filled = Math.round((safeCurrent / safeTotal) * width);
       const bar = `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`;
       const percent = Math.round((safeCurrent / safeTotal) * 100);
-      line(`${label}\n${style('cyan', bar)} ${safeCurrent} / ${safeTotal} ${percent}%`);
+      if (!progressStarts.has(label) || safeCurrent === 0) progressStarts.set(label, Date.now());
+      const elapsed = ((Date.now() - progressStarts.get(label)) / 1000).toFixed(1);
+      line(`${label}${detail ? ` ${style('dim', detail)}` : ''}\n${style('cyan', bar)} ${safeCurrent} / ${safeTotal} ${percent}% ${style('dim', `${elapsed}s`)}`);
+      if (safeCurrent >= safeTotal) progressStarts.delete(label);
     },
     async task(label, callback) {
       if (!interactive) {

@@ -79,6 +79,7 @@ What would you like to do?
   Review Storyblok
   Review Repository
   Review Template
+  Test Credentials
   Generate Report
   Settings
   Exit
@@ -88,11 +89,15 @@ Navigation supports arrow keys, `Enter`, `Esc`, `q`, `Tab`, and `Ctrl+C`. The wi
 
 The create flow guides you through choosing a template from `templates/`, choosing a nearby repository, reviewing repository/Storyblok/template summaries, confirming the integration ID, previewing the derived prefix and namespace, validating the plan, running a dry run, optionally applying the real integration, and writing `.tmp/html-to-storyblok/report.md`.
 
+Dry runs now include a human-readable apply preview diff covering repository files, assets, Storyblok components, asset folders, draft stories, and generated Storyblok link resolution. Long-running progress output includes percentages and elapsed time.
+
 After a completed interactive action, the CLI shows a success checkpoint with the latest plan/local validation status, then stays open on a `Next` menu. From there you can return to the main menu, run a validation check, view the latest report, or exit intentionally.
+
+If an interactive action fails, the wizard stays open and shows a recovery menu. From there you can retry the failed action, validate the current state, view the latest report, show a rollback preview, return to the main menu, or exit intentionally.
 
 When you only want to test the Storyblok side before a client repository is available, choose `Test Storyblok Only` from the home screen, or choose `Skip Repository - Storyblok only test` when the create flow asks for a repository. This path still inspects the template, derives the same namespaced component schema, validates the additive-only plan, dry-runs all Storyblok operations, and can optionally run the real Storyblok apply. It does not generate repository files, inspect a repository, change routes, or require `--repo`.
 
-If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI offers to resume the previous integration or start a new one.
+If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI offers to resume the previous integration or start a new one. The resume screen shows the integration ID, latest status, completed apply steps, validation state, failed step if any, and the recommended next action. From the continue workflow you can also review or edit generated Storyblok links, review or edit generated schema field types and labels, preview apply changes, and show rollback targets before applying.
 
 For CI/CD or scripted usage, pass `--no-interactive` and use the command reference below. The no-command `--no-interactive` path prints help instead of launching a prompt.
 
@@ -112,13 +117,24 @@ html-to-storyblok settings --show
 html-to-storyblok settings --set templates_folder=templates
 html-to-storyblok settings --set default_repository=../client-site
 html-to-storyblok settings --set color_mode=never
+html-to-storyblok settings --profile client-site --set default_repository=../client-site
+html-to-storyblok settings --profile client-site
 ```
 
-Settings are stored in `~/.html-to-storyblok/config.json`. Secrets are never stored in the config file.
+Settings are stored in `~/.html-to-storyblok/config.json`. Secrets are never stored in the config file. Named profiles can store non-secret defaults for a project, including repository path, templates folder, Storyblok region, preferred framework, output folder, color mode, and verbose logging. `html-to-storyblok settings --profile <name>` activates a profile, and `--profile <name> --set key=value` creates or updates profile-specific defaults.
+
+Generate shell completions:
+
+```sh
+html-to-storyblok completion --shell zsh
+html-to-storyblok completion --shell bash
+html-to-storyblok completion --shell fish
+```
 
 Credential handling:
 
 - Interactive mode asks for missing Storyblok credentials when inspection or real apply needs them.
+- `Test Credentials` in the home screen checks Management API readiness, manifest preflight, and Content API draft validation when the relevant credentials are available.
 - Tokens entered in the wizard are kept in memory for that CLI run only.
 - The Preview API token prompt is optional; press `Enter` to skip it when you only need Management API component, asset, and draft-story testing.
 - Scriptable commands read credentials from shell environment variables and local `.env` / `.env.local` files.
@@ -142,6 +158,8 @@ html-to-storyblok report --view
 ```
 
 The report viewer exposes summary, validation, evidence, generated files, warnings, and failures without requiring users to inspect JSON manually.
+
+The report viewer also includes Storyblok, assets, links, and rollback-target sections so you can inspect created/reused resources, unresolved generated story links, and cleanup scope without opening JSON artifacts directly.
 
 ## Where to put templates
 
@@ -883,9 +901,10 @@ Remote rollback deletes only manifest-owned namespaced components, unpublished d
 ```sh
 html-to-storyblok
 html-to-storyblok dashboard
-html-to-storyblok settings [--show] [--set key=value]
+html-to-storyblok settings [--show] [--set key=value] [--profile <name>]
 html-to-storyblok doctor
 html-to-storyblok view-report
+html-to-storyblok completion [--shell zsh|bash|fish]
 html-to-storyblok inspect-template --template <path>
 html-to-storyblok inspect-repository --repo <path>
 html-to-storyblok inspect-storyblok [--remote] [--full]
@@ -967,7 +986,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, Storyblok-only test mode, dashboard, settings, doctor checks, report viewer with skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, credential test screen, Storyblok-only test mode, resume dashboard, recovery menu, apply preview diff, link and field mapping editors, dashboard, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/rollback drilldowns, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.

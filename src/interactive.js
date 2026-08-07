@@ -2,16 +2,17 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { checkLiveAccess } from './access.js';
 import { CLI_BRANDING_LINES } from './branding.js';
-import { DEFAULT_CONFIG, loadConfig, parseSettingAssignment, saveConfig, updateConfigValue } from './config.js';
+import { DEFAULT_CONFIG, loadConfig, parseSettingAssignment, profileNames, saveConfig, updateConfigValue, updateProfileValue } from './config.js';
 import { discoverRepositories, discoverTemplates, isRepository } from './discovery.js';
 import { createDoctorReport } from './doctor.js';
 import { loadEnvironment } from './env.js';
-import { DEFAULT_WORK_DIR, ensureWorkDir, writeArtifact } from './evidence.js';
+import { DEFAULT_WORK_DIR, ensureWorkDir, readEvidence, writeArtifact } from './evidence.js';
 import { inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { createIntegrationPlan } from './planner.js';
 import { storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
 import { createReport, writeMarkdownReport } from './reporter.js';
-import { inspectStoryblokSpace } from './storyblok.js';
+import { createRollbackPreview } from './rollback.js';
+import { inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, validateStoryblokDraftContent } from './storyblok.js';
 import { confirm, createTerminal, promptInput, promptSecret, selectOption } from './terminal-ui.js';
 import { pathExists, readJson } from './utils.js';
 import { validateIntegration } from './validator.js';
@@ -131,6 +132,21 @@ export async function runSettings({
   });
 
   try {
+    if (args.profile && args.set) {
+      const { key, value } = parseSettingAssignment(String(args.set));
+      config = updateProfileValue(config, String(args.profile), key, value);
+      config = await saveConfig(config, { configPath: args.config ? String(args.config) : undefined });
+      renderProfiles(terminal, config);
+      return config;
+    }
+
+    if (args.profile && !args.set) {
+      config = updateConfigValue(config, 'active_profile', String(args.profile));
+      config = await saveConfig(config, { configPath: args.config ? String(args.config) : undefined });
+      renderProfiles(terminal, config);
+      return config;
+    }
+
     if (args.set) {
       const { key, value } = parseSettingAssignment(String(args.set));
       config = updateConfigValue(config, key, value);
@@ -150,12 +166,18 @@ export async function runSettings({
       const choice = await selectOption(terminal, {
         message: 'Choose a setting to edit',
         choices: [
-          ...Object.keys(DEFAULT_CONFIG).map((key) => ({ label: labelForSetting(key), value: key })),
+          ...settingsKeys().map((key) => ({ label: labelForSetting(key), value: key })),
+          { label: 'Profiles', value: '__profiles__' },
           { label: 'Exit', value: 'exit' }
         ],
         answers: answerQueue
       });
       if (!choice || choice === 'exit') return config;
+      if (choice === '__profiles__') {
+        await runProfileSettings({ terminal, config, args, answers: answerQueue });
+        config = await loadConfig({ configPath: args.config ? String(args.config) : undefined });
+        continue;
+      }
       const value = await promptInput(terminal, {
         message: labelForSetting(choice),
         defaultValue: String(config[choice] ?? ''),
@@ -166,6 +188,59 @@ export async function runSettings({
     }
   } finally {
     if (closeTerminal) terminal.close();
+  }
+}
+
+async function runProfileSettings({ terminal, config, args, answers }) {
+  while (true) {
+    renderProfiles(terminal, config);
+    const choice = await selectOption(terminal, {
+      message: 'Profile action',
+      choices: [
+        { label: 'Activate Profile', value: 'activate' },
+        { label: 'Create or Edit Profile', value: 'edit' },
+        { label: 'Back', value: 'back' }
+      ],
+      answers
+    });
+    if (!choice || choice === 'back') return config;
+    if (choice === 'activate') {
+      const names = profileNames(config);
+      const selected = names.length
+        ? await selectOption(terminal, {
+          message: 'Choose active profile',
+          choices: [
+            { label: 'None', value: '' },
+            ...names.map((name) => ({ label: name, value: name }))
+          ],
+          answers
+        })
+        : await promptInput(terminal, {
+          message: 'Profile name',
+          answers
+        });
+      config = updateConfigValue(config, 'active_profile', selected || '');
+      config = await saveConfig(config, { configPath: args.config ? String(args.config) : undefined });
+      continue;
+    }
+    const profileName = await promptInput(terminal, {
+      message: 'Profile name',
+      defaultValue: profileNames(config)[0] || 'client-site',
+      answers
+    });
+    const setting = await selectOption(terminal, {
+      message: 'Profile setting',
+      choices: settingsKeys().filter((key) => key !== 'active_profile').map((key) => ({ label: labelForSetting(key), value: key })),
+      answers
+    });
+    if (!setting) continue;
+    const value = await promptInput(terminal, {
+      message: labelForSetting(setting),
+      defaultValue: String(config.project_profiles?.[profileName]?.[setting] ?? config[setting] ?? ''),
+      answers
+    });
+    config = updateProfileValue(config, profileName, setting, value);
+    config = await saveConfig(config, { configPath: args.config ? String(args.config) : undefined });
   }
 }
 
@@ -269,6 +344,7 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
         { label: 'Review Storyblok', value: 'storyblok' },
         { label: 'Review Repository', value: 'repository' },
         { label: 'Review Template', value: 'template' },
+        { label: 'Test Credentials', value: 'credentials' },
         { label: 'Generate Report', value: 'report' },
         { label: 'Settings', value: 'settings' },
         { label: 'Exit', value: 'exit' }
@@ -277,7 +353,23 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
     });
 
     if (!action || action === 'exit') return { action: 'exit' };
-    const result = await runHomeAction(action, { terminal, args, config, workDir, answers, cwd });
+    const context = { terminal, args, config, workDir, answers, cwd };
+    let result;
+    try {
+      result = await runHomeAction(action, context);
+    } catch (error) {
+      result = await runFailureRecovery({
+        terminal,
+        args,
+        config,
+        workDir,
+        answers,
+        cwd,
+        action,
+        error,
+        retry: () => runHomeAction(action, context)
+      });
+    }
     if (!terminal.interactive || result?.action === 'exit') return result;
 
     const next = await handleNextAction({ terminal, args, result, answers, workDir });
@@ -294,9 +386,70 @@ async function runHomeAction(action, context) {
   if (action === 'storyblok') return runReviewStoryblok({ terminal, args, config, workDir, answers, cwd });
   if (action === 'repository') return runReviewRepository({ terminal, config, workDir, answers, cwd });
   if (action === 'template') return runReviewTemplate({ terminal, config, workDir, answers, cwd });
+  if (action === 'credentials') return runCredentialTestScreen({ terminal, config, workDir, answers, cwd });
   if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
   if (action === 'settings') return runSettings({ args, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
   return { action: 'unknown', status: 'ignored' };
+}
+
+async function runFailureRecovery({ terminal, args, config, workDir, answers, cwd, action, error, retry }) {
+  if (!terminal.interactive) throw error;
+  const manifest = await readOptionalJson(path.join(workDir, MANIFEST_NAME));
+  const report = await createReport(workDir);
+  const reportPath = await writeMarkdownReport(workDir, report);
+  const failureResult = {
+    action,
+    status: 'failed',
+    error: error?.message || String(error),
+    manifest,
+    validation: manifest ? validatePlan(manifest) : null,
+    report: reportPath
+  };
+
+  while (true) {
+    terminal.panel('Action Failed', [
+      ['Action', labelForAction(action), 'error'],
+      ['Error', redactCredentialError(error?.message || String(error)), 'error'],
+      ['Report', reportPath, 'success']
+    ]);
+
+    terminal.section('Recovery');
+    const choice = await selectOption(terminal, {
+      message: 'Choose recovery action',
+      choices: [
+        { label: 'Retry Failed Action', value: 'retry' },
+        ...(manifest ? [{ label: 'Validate Current State', value: 'validate' }] : []),
+        { label: 'View Latest Report', value: 'report' },
+        ...(manifest ? [{ label: 'Show Rollback Preview', value: 'rollback-preview' }] : []),
+        { label: 'Return to Main Menu', value: 'home' },
+        { label: 'Exit', value: 'exit' }
+      ],
+      answers
+    });
+
+    if (choice === 'retry') {
+      try {
+        return await retry();
+      } catch (nextError) {
+        error = nextError;
+        continue;
+      }
+    }
+    if (choice === 'validate') {
+      await runPostActionValidation({ terminal, result: failureResult, workDir });
+      continue;
+    }
+    if (choice === 'report') {
+      await runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
+      continue;
+    }
+    if (choice === 'rollback-preview') {
+      await renderInteractiveRollbackPreview({ terminal, config, manifest, answers, cwd });
+      continue;
+    }
+    if (choice === 'exit') return { ...failureResult, action: 'exit' };
+    return failureResult;
+  }
 }
 
 async function continueInteractiveSession({ terminal, args, config, workDir, answers, cwd, result }) {
@@ -487,6 +640,7 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   ));
 
   terminal.status('Dry run complete', 'success');
+  renderApplyPreviewDiff(terminal, dryRun);
   const proceed = await confirm(terminal, {
     message: 'Proceed with real apply?',
     defaultValue: false,
@@ -592,6 +746,7 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
   ));
 
   terminal.status('Storyblok dry run complete', 'success');
+  renderApplyPreviewDiff(terminal, dryRun);
   const proceed = await confirm(terminal, {
     message: 'Proceed with real Storyblok apply?',
     defaultValue: false,
@@ -630,6 +785,8 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   }
   const manifest = await readJson(manifestPath);
   terminal.header('Continue Existing Integration', manifest.integration_id);
+  const resume = await createResumeModel(workDir, manifest);
+  renderResumeDashboard(terminal, resume);
   renderPlanSummary(terminal, manifest);
   const validation = validatePlan(manifest);
   renderValidationSummary(terminal, validation);
@@ -641,6 +798,10 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
       { label: 'Run Real Storyblok Apply', value: 'storyblok-apply' },
       { label: 'Run Full Dry Run', value: 'dry-run' },
       { label: 'Run Full Real Apply', value: 'apply' },
+      { label: 'Review/Edit Story Links', value: 'link-mapping' },
+      { label: 'Review/Edit Field Mapping', value: 'field-mapping' },
+      { label: 'Preview Apply Diff', value: 'preview-diff' },
+      { label: 'Show Rollback Preview', value: 'rollback-preview' },
       { label: 'Validate Local Output', value: 'validate' },
       { label: 'View Latest Report', value: 'report' },
       { label: 'Back', value: 'back' }
@@ -649,6 +810,24 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   });
   if (!action || action === 'back') return { action: 'continue_integration', status: 'cancelled' };
   if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
+  if (action === 'link-mapping') {
+    const updated = await runStoryLinkMappingEditor({ terminal, manifest, answers });
+    await persistInteractiveManifest(workDir, updated);
+    return { action: 'link_mapping', status: 'complete', manifest: updated, validation: updated.validation };
+  }
+  if (action === 'field-mapping') {
+    const updated = await runFieldMappingEditor({ terminal, manifest, answers });
+    await persistInteractiveManifest(workDir, updated);
+    return { action: 'field_mapping', status: 'complete', manifest: updated, validation: updated.validation };
+  }
+  if (action === 'preview-diff') {
+    renderManifestApplyPreview(terminal, manifest);
+    return { action: 'preview_diff', status: 'complete', manifest, validation };
+  }
+  if (action === 'rollback-preview') {
+    await renderInteractiveRollbackPreview({ terminal, config, manifest, answers, cwd });
+    return { action: 'rollback_preview', status: 'complete', manifest, validation };
+  }
 
   if (action === 'storyblok-dry-run' || action === 'storyblok-apply') {
     const realStoryblokApply = action === 'storyblok-apply';
@@ -665,7 +844,10 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
     const report = await createReport(workDir);
     const reportPath = await writeMarkdownReport(workDir, report);
     if (realStoryblokApply) renderStoryblokOnlyCompletion(terminal, result, reportPath);
-    else terminal.panel('Storyblok Dry Run Complete', [['Repository', 'Skipped', 'warning'], ['Report', reportPath, 'success']]);
+    else {
+      terminal.panel('Storyblok Dry Run Complete', [['Repository', 'Skipped', 'warning'], ['Report', reportPath, 'success']]);
+      renderApplyPreviewDiff(terminal, result);
+    }
     return {
       action: 'continue_integration',
       status: realStoryblokApply ? 'complete' : 'dry_run_complete',
@@ -703,7 +885,10 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   const report = await createReport(workDir);
   const reportPath = await writeMarkdownReport(workDir, report);
   if (realApply) renderCompletion(terminal, result, reportPath);
-  else terminal.panel('Dry Run Complete', [['Report', reportPath, 'success']]);
+  else {
+    terminal.panel('Dry Run Complete', [['Report', reportPath, 'success']]);
+    renderApplyPreviewDiff(terminal, result);
+  }
   return {
     action: 'continue_integration',
     status: realApply ? 'complete' : 'dry_run_complete',
@@ -741,6 +926,55 @@ async function runReviewStoryblok({ terminal, args, config, workDir, answers, cw
   });
   renderStoryblokSummary(terminal, inspection, config, sessionEnv);
   return { action: 'review_storyblok', inspection };
+}
+
+async function runCredentialTestScreen({ terminal, config, workDir, answers, cwd }) {
+  terminal.header('Credential Test', 'Session-only checks. Secrets are never stored.');
+  let sessionEnv = await createSessionEnvironment({ terminal, config, cwd });
+  sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: false });
+  const access = checkLiveAccess(sessionEnv);
+  terminal.panel('Credential Readiness', [
+    ['Management API', access.storyblok.ready ? 'Configured' : 'Missing token or space id', access.storyblok.ready ? 'success' : 'warning'],
+    ['Content API', access.storyblok_content.ready ? 'Configured' : 'Missing preview/delivery token', access.storyblok_content.ready ? 'success' : 'warning'],
+    ['Netlify', access.netlify.ready ? 'Configured' : 'Not configured', access.netlify.ready ? 'success' : 'warning'],
+    ['GitHub', access.github.ready ? 'Configured' : 'Not configured', access.github.ready ? 'success' : 'warning'],
+    ['GitLab', access.gitlab.ready ? 'Configured' : 'Not configured', access.gitlab.ready ? 'success' : 'warning']
+  ]);
+
+  if (access.storyblok.ready) {
+    const inspection = await terminal.task('Test Management API', async () => safeInspectStoryblokSpace({ terminal, env: sessionEnv }));
+    await writeArtifact(workDir, 'credential-storyblok-management-test.json', inspection);
+    renderStoryblokSummary(terminal, inspection, config, sessionEnv);
+  }
+
+  const manifest = await readOptionalJson(path.join(workDir, MANIFEST_NAME));
+  if (manifest && access.storyblok.ready) {
+    const preflight = await terminal.task('Test Manifest Preflight', async () => preflightStoryblokIntegration(manifest, { env: sessionEnv }));
+    await writeArtifact(workDir, 'credential-storyblok-preflight-test.json', preflight);
+    renderStoryblokPreflightSummary(terminal, preflight);
+  }
+
+  if (manifest && access.storyblok_content.ready) {
+    const validation = await terminal.task('Test Content API Drafts', async () => validateStoryblokDraftContent(manifest, { env: sessionEnv }));
+    await writeArtifact(workDir, 'credential-storyblok-content-test.json', validation);
+    renderStoryblokContentValidationSummary(terminal, validation);
+  } else if (access.storyblok_content.ready) {
+    const slug = await promptInput(terminal, {
+      message: 'Draft story slug to test',
+      defaultValue: '',
+      answers
+    });
+    if (slug) {
+      const content = await terminal.task('Test Content API', async () => inspectStoryblokContentStory({ slug, env: sessionEnv }));
+      await writeArtifact(workDir, 'credential-storyblok-content-test.json', content);
+      terminal.panel('Content API', [
+        ['Status', content.status || 'ok', content.status === 'ok' ? 'success' : 'warning'],
+        ['Story', content.story?.slug || slug, content.story ? 'success' : 'warning']
+      ]);
+    }
+  }
+
+  return { action: 'credential_test', status: 'complete', access };
 }
 
 async function createSessionEnvironment({ terminal, config, cwd, repoPath = null, env = process.env }) {
@@ -849,6 +1083,151 @@ async function runReviewTemplate({ terminal, config, workDir, answers, cwd }) {
   return { action: 'review_template', inspection };
 }
 
+async function runStoryLinkMappingEditor({ terminal, manifest, answers }) {
+  const links = collectEditableStoryLinks(manifest);
+  terminal.panel('Story Link Mapping', links.length
+    ? links.slice(0, 20).map((link) => [link.label, link.target || 'Empty', link.resolved ? 'success' : 'warning'])
+    : [['Story Links', 'None detected', 'success']]);
+  if (!terminal.interactive || links.length === 0) return withPlanValidation(manifest);
+
+  while (true) {
+    const choice = await selectOption(terminal, {
+      message: 'Choose a link to edit',
+      choices: [
+        ...links.map((link, index) => ({ label: `${link.label} -> ${link.target || 'empty'}`, value: String(index) })),
+        { label: 'Done', value: 'done' }
+      ],
+      answers
+    });
+    if (!choice || choice === 'done') return withPlanValidation(manifest);
+    const link = links[Number(choice)];
+    if (!link) continue;
+    const mode = await selectOption(terminal, {
+      message: 'Choose link target type',
+      choices: [
+        ...plannedStoryChoices(manifest),
+        { label: 'Existing Storyblok story slug...', value: '__story__' },
+        { label: 'External or anchor URL...', value: '__url__' },
+        { label: 'Leave unchanged', value: '__skip__' }
+      ],
+      answers
+    });
+    if (!mode || mode === '__skip__') continue;
+    const nextValue = { ...link.value };
+    if (mode === '__url__') {
+      const url = await promptInput(terminal, {
+        message: 'URL',
+        defaultValue: nextValue.url || nextValue.cached_url || '#',
+        answers
+      });
+      nextValue.linktype = 'url';
+      nextValue.url = url;
+      delete nextValue.cached_url;
+      delete nextValue.id;
+    } else {
+      const slug = mode === '__story__'
+        ? await promptInput(terminal, {
+          message: 'Storyblok story slug',
+          defaultValue: nextValue.cached_url || '',
+          answers
+        })
+        : mode;
+      nextValue.linktype = 'story';
+      nextValue.cached_url = normalizeStorySlug(slug);
+      nextValue.url = '';
+      delete nextValue.id;
+    }
+    setNestedValue(link.root, link.path, nextValue);
+    link.value = nextValue;
+    link.target = nextValue.cached_url || nextValue.url || '';
+    link.linktype = nextValue.linktype;
+    link.resolved = nextValue.linktype === 'url' || plannedStorySlugSet(manifest).has(normalizeStorySlug(link.target));
+    terminal.status('Link updated', 'success', `${link.label} -> ${link.target}`);
+  }
+}
+
+async function runFieldMappingEditor({ terminal, manifest, answers }) {
+  const fields = collectEditableSchemaFields(manifest);
+  terminal.panel('Field Mapping', fields.length
+    ? fields.slice(0, 24).map((field) => [`${field.component}.${field.name}`, `${field.type}${field.displayName ? ` (${field.displayName})` : ''}`, 'success'])
+    : [['Fields', 'None detected', 'warning']]);
+  if (!terminal.interactive || fields.length === 0) return withPlanValidation(manifest);
+
+  while (true) {
+    const choice = await selectOption(terminal, {
+      message: 'Choose a field to edit',
+      choices: [
+        ...fields.map((field, index) => ({ label: `${field.component}.${field.name} (${field.type})`, value: String(index) })),
+        { label: 'Done', value: 'done' }
+      ],
+      answers
+    });
+    if (!choice || choice === 'done') return withPlanValidation(manifest);
+    const field = fields[Number(choice)];
+    if (!field) continue;
+    const nextType = await selectOption(terminal, {
+      message: 'Storyblok field type',
+      choices: [
+        { label: 'Keep Current', value: field.type },
+        { label: 'Text', value: 'text' },
+        { label: 'Textarea', value: 'textarea' },
+        { label: 'Richtext', value: 'richtext' },
+        { label: 'Markdown', value: 'markdown' },
+        { label: 'Number', value: 'number' },
+        { label: 'Boolean', value: 'boolean' },
+        { label: 'Asset', value: 'asset' },
+        { label: 'Link', value: 'multilink' },
+        { label: 'Blocks', value: 'bloks' }
+      ],
+      answers
+    });
+    const displayName = await promptInput(terminal, {
+      message: 'Field display label',
+      defaultValue: field.schema.display_name || titleFromFieldName(field.name),
+      answers
+    });
+    field.schema.type = nextType || field.type;
+    if (displayName) field.schema.display_name = displayName;
+    field.type = field.schema.type;
+    field.displayName = field.schema.display_name;
+    terminal.status('Field updated', 'success', `${field.component}.${field.name}`);
+  }
+}
+
+async function persistInteractiveManifest(workDir, manifest) {
+  const next = withPlanValidation(manifest);
+  await writeArtifact(workDir, MANIFEST_NAME, next);
+  await writeArtifact(workDir, VALIDATION_NAME, next.validation);
+  return next;
+}
+
+function renderManifestApplyPreview(terminal, manifest) {
+  terminal.panel('Apply Preview Diff', [
+    ['Repository Files', count(manifest.repository?.files_to_create), count(manifest.repository?.files_to_create) ? 'success' : 'warning'],
+    ['Repository Assets', count(manifest.repository?.assets_to_create), count(manifest.repository?.assets_to_create) ? 'success' : 'warning'],
+    ['Storyblok Components', count(manifest.storyblok?.components_to_create) + count(manifest.storyblok?.components_to_duplicate), 'success'],
+    ['Asset Folders', count(manifest.storyblok?.asset_folders_to_create), count(manifest.storyblok?.asset_folders_to_create) ? 'success' : 'warning'],
+    ['Assets', count(manifest.storyblok?.assets_to_create), count(manifest.storyblok?.assets_to_create) ? 'success' : 'warning'],
+    ['Draft Stories', count(manifest.storyblok?.stories_to_create), count(manifest.storyblok?.stories_to_create) ? 'success' : 'warning'],
+    ['Safety', manifest.policy === 'additive-only-isolated' ? 'Additive Only' : manifest.policy, manifest.policy === 'additive-only-isolated' ? 'success' : 'warning']
+  ]);
+}
+
+async function renderInteractiveRollbackPreview({ terminal, config, manifest, answers, cwd }) {
+  const repoPath = await chooseRepository({ terminal, config, answers, cwd, allowStoryblokOnly: true });
+  const preview = createRollbackPreview(manifest, {
+    repoPath: repoPath && repoPath !== STORYBLOK_ONLY_REPOSITORY ? repoPath : cwd
+  });
+  terminal.panel('Rollback Preview', [
+    ['Repository Files', count(preview.repository_files_to_remove), count(preview.repository_files_to_remove) ? 'warning' : 'success'],
+    ['Storyblok Components', count(preview.storyblok_components_to_remove), count(preview.storyblok_components_to_remove) ? 'warning' : 'success'],
+    ['Storyblok Stories', count(preview.storyblok_stories_to_remove), count(preview.storyblok_stories_to_remove) ? 'warning' : 'success'],
+    ['Storyblok Assets', count(preview.storyblok_assets_to_remove), count(preview.storyblok_assets_to_remove) ? 'warning' : 'success'],
+    ['Mode', 'Preview only', 'success']
+  ]);
+  return preview;
+}
+
 async function chooseTemplate({ terminal, config, answers, cwd }) {
   const templates = await discoverTemplates({ templatesFolder: config.templates_folder, cwd });
   terminal.section('Choose Template');
@@ -906,6 +1285,62 @@ async function chooseRepository({ terminal, config, answers, cwd, allowStoryblok
   });
 }
 
+async function createResumeModel(workDir, manifest) {
+  const [
+    evidence,
+    planValidation,
+    localValidation,
+    applyResult,
+    storyblokApplyResult,
+    storyblokContentValidation
+  ] = await Promise.all([
+    readEvidence(workDir),
+    readOptionalJson(path.join(workDir, VALIDATION_NAME)),
+    readOptionalJson(path.join(workDir, 'validation-result.json')),
+    readOptionalJson(path.join(workDir, 'apply-result.json')),
+    readOptionalJson(path.join(workDir, 'storyblok-apply-result.json')),
+    readOptionalJson(path.join(workDir, 'storyblok-content-validation.json'))
+  ]);
+  const failed = [...evidence].reverse().find((entry) => entry.type === 'command_failed');
+  const latestApply = applyResult || storyblokApplyResult || null;
+  const completedSteps = count(latestApply?.steps);
+  const plannedSteps = latestApply?.action === 'apply_manifest' ? 8 : latestApply?.action === 'apply_storyblok_only' ? 5 : 0;
+  const validationStatus = planValidation ? planValidation.valid ? 'Passed' : 'Failed' : manifest.validation?.valid ? 'Passed' : 'Not run';
+  const contentStatus = storyblokContentValidation?.status || latestStoryblokContentStep(latestApply)?.status || 'Not run';
+  const failedStep = failed?.message || failedStepFromApply(latestApply);
+  return {
+    integration_id: manifest.integration_id,
+    work_dir: workDir,
+    validation: validationStatus,
+    local_validation: localValidation?.status || 'Not run',
+    storyblok_content_validation: contentStatus,
+    completed_steps: completedSteps,
+    planned_steps: plannedSteps,
+    failed_step: failedStep || null,
+    latest_status: failedStep ? 'Needs attention' : latestApply ? latestApply.dry_run ? 'Dry run complete' : 'Apply complete' : 'Planned',
+    recommended_action: failedStep
+      ? 'Open recovery options or rerun the failed step'
+      : latestApply?.dry_run
+        ? 'Review the dry run, then run real apply'
+        : latestApply
+          ? 'Validate or view report'
+          : 'Run a dry run'
+  };
+}
+
+function renderResumeDashboard(terminal, model) {
+  terminal.panel('Resume Dashboard', [
+    ['Integration', model.integration_id, 'success'],
+    ['Status', model.latest_status, model.failed_step ? 'warning' : 'success'],
+    ['Completed Steps', model.planned_steps ? `${model.completed_steps} / ${model.planned_steps}` : model.completed_steps],
+    ['Plan Validation', model.validation, model.validation === 'Passed' ? 'success' : model.validation === 'Failed' ? 'error' : 'warning'],
+    ['Local Validation', model.local_validation, model.local_validation === 'passed' ? 'success' : model.local_validation === 'failed' ? 'error' : 'warning'],
+    ['Storyblok Validation', model.storyblok_content_validation, model.storyblok_content_validation === 'passed' ? 'success' : model.storyblok_content_validation === 'failed' ? 'error' : 'warning'],
+    ['Failed Step', model.failed_step || 'None', model.failed_step ? 'error' : 'success'],
+    ['Next', model.recommended_action, model.failed_step ? 'warning' : 'info']
+  ]);
+}
+
 function renderDashboard(terminal, model) {
   terminal.header('HTML -> Storyblok Dashboard', 'Project status');
   terminal.panel('Project', [
@@ -922,7 +1357,19 @@ function renderDashboard(terminal, model) {
 
 function renderSettings(terminal, config) {
   terminal.header('HTML -> Storyblok Settings', 'Stored in ~/.html-to-storyblok/config.json unless --config is supplied');
-  terminal.panel('Configuration', Object.keys(DEFAULT_CONFIG).map((key) => [labelForSetting(key), config[key]]));
+  terminal.panel('Configuration', settingsKeys().map((key) => [labelForSetting(key), config[key]]));
+  renderProfiles(terminal, config);
+}
+
+function renderProfiles(terminal, config) {
+  const names = profileNames(config);
+  terminal.panel('Project Profiles', names.length
+    ? names.map((name) => [
+      name === config.active_profile ? `${name} (active)` : name,
+      profileSummary(config.project_profiles?.[name]),
+      name === config.active_profile ? 'success' : 'info'
+    ])
+    : [['Profiles', 'None configured', 'warning']]);
 }
 
 function renderDoctor(terminal, report) {
@@ -939,6 +1386,10 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
   const sections = [
     { label: 'Summary', value: 'summary' },
     { label: 'Validation', value: 'validation' },
+    { label: 'Storyblok', value: 'storyblok' },
+    { label: 'Assets', value: 'assets' },
+    { label: 'Links', value: 'links' },
+    { label: 'Rollback Targets', value: 'rollback' },
     { label: 'Evidence', value: 'evidence' },
     { label: 'Generated Files', value: 'files' },
     { label: 'Warnings', value: 'warnings' },
@@ -951,6 +1402,39 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
     terminal.panel('Validation', [
       ['Latest Validation', report.latest_validation?.status || 'Not run', report.latest_validation?.status === 'passed' ? 'success' : 'warning'],
       ['Plan Valid', report.safety_confirmation.plan_valid ? 'Yes' : 'No', report.safety_confirmation.plan_valid ? 'success' : 'warning']
+    ]);
+  } else if (section === 'storyblok') {
+    const storyblokArtifacts = report.artifacts.filter((artifact) => /storyblok|apply_result/.test(artifact.type));
+    terminal.panel('Storyblok', storyblokArtifacts.length
+      ? storyblokArtifacts.map((artifact) => [
+        artifact.type,
+        storyblokArtifactSummary(artifact),
+        artifact.status === 'failed' ? 'error' : artifact.status === 'skipped' ? 'warning' : 'success'
+      ])
+      : [['Storyblok', 'No Storyblok artifacts recorded', 'warning']]);
+  } else if (section === 'assets') {
+    const manifest = report.artifacts.find((artifact) => artifact.type === 'integration_manifest');
+    const apply = [...report.artifacts].reverse().find((artifact) => artifact.type === 'storyblok_apply_result' || artifact.type === 'apply_result');
+    terminal.panel('Assets', [
+      ['Planned Storyblok Assets', manifest?.storyblok_assets || 0, manifest?.storyblok_assets ? 'success' : 'warning'],
+      ['Created or Reused', apply?.assets_created_or_reused || 0, apply?.assets_created_or_reused ? 'success' : 'warning']
+    ]);
+  } else if (section === 'links') {
+    const apply = [...report.artifacts].reverse().find((artifact) => artifact.type === 'storyblok_apply_result' || artifact.type === 'apply_result');
+    terminal.panel('Links', [
+      ['Total Links', apply?.link_summary?.total_links || 0],
+      ['Story Links', apply?.link_summary?.story_links || 0],
+      ['Resolved Story Links', apply?.link_summary?.resolved_story_links || 0, apply?.link_summary?.resolved_story_links ? 'success' : 'warning'],
+      ['Unresolved Story Links', apply?.link_summary?.unresolved_story_links || 0, apply?.link_summary?.unresolved_story_links ? 'warning' : 'success']
+    ]);
+  } else if (section === 'rollback') {
+    const manifest = report.artifacts.find((artifact) => artifact.type === 'integration_manifest');
+    terminal.panel('Rollback Targets', [
+      ['Repository Files', manifest?.repository_files || 0, manifest?.repository_files ? 'warning' : 'success'],
+      ['Storyblok Components', manifest?.storyblok_components || 0, manifest?.storyblok_components ? 'warning' : 'success'],
+      ['Storyblok Stories', manifest?.storyblok_stories || 0, manifest?.storyblok_stories ? 'warning' : 'success'],
+      ['Storyblok Assets', manifest?.storyblok_assets || 0, manifest?.storyblok_assets ? 'warning' : 'success'],
+      ['Mode', 'Preview before confirmed rollback', 'success']
     ]);
   } else if (section === 'evidence') {
     terminal.panel('Evidence', [
@@ -1010,6 +1494,28 @@ function renderStoryblokSummary(terminal, storyblok, config, env = process.env) 
   ]);
 }
 
+function renderStoryblokPreflightSummary(terminal, preflight) {
+  terminal.panel('Storyblok Preflight', [
+    ['Status', preflight.status, preflight.status === 'passed' || preflight.status === 'skipped' ? 'success' : 'error'],
+    ['Components', preflight.requirements?.counts?.components || 0],
+    ['Asset Folders', preflight.requirements?.counts?.asset_folders || 0],
+    ['Assets', preflight.requirements?.counts?.assets || 0],
+    ['Stories', preflight.requirements?.counts?.stories || 0],
+    ['Failed Checks', (preflight.checks || []).filter((check) => check.required !== false && check.status !== 'passed').length, 'warning']
+  ]);
+}
+
+function renderStoryblokContentValidationSummary(terminal, validation) {
+  terminal.panel('Storyblok Content Validation', [
+    ['Status', validation.status, validation.status === 'passed' || validation.status === 'skipped' ? 'success' : 'error'],
+    ['Stories', validation.summary?.stories || 0],
+    ['Failed Stories', validation.summary?.failed || 0, validation.summary?.failed ? 'error' : 'success'],
+    ['Assets', validation.summary?.assets || 0],
+    ['Story Links', validation.summary?.story_links || 0],
+    ['Unresolved Links', validation.summary?.unresolved_generated_story_links || 0, validation.summary?.unresolved_generated_story_links ? 'warning' : 'success']
+  ]);
+}
+
 function renderTemplateSummary(terminal, template) {
   const warnings = count(template.missing_assets) + count(template.accessibility_issues);
   terminal.panel('Template', [
@@ -1031,6 +1537,19 @@ function renderPlanSummary(terminal, manifest) {
     ['Netlify', 'No changes', 'success'],
     ['Dependencies', 'No changes', 'success'],
     ['Safety', manifest.policy === 'additive-only-isolated' ? 'Additive Only' : manifest.policy, manifest.policy === 'additive-only-isolated' ? 'success' : 'warning']
+  ]);
+}
+
+function renderApplyPreviewDiff(terminal, result) {
+  const summary = summarizeApplyResult(result);
+  terminal.panel('Apply Preview Diff', [
+    ['Repository Files', summary.repository_files, summary.repository_files ? 'success' : 'warning'],
+    ['Repository Assets', summary.repository_assets, summary.repository_assets ? 'success' : 'warning'],
+    ['Storyblok Components', summary.storyblok_components, summary.storyblok_components ? 'success' : 'warning'],
+    ['Asset Folders', summary.asset_folders, summary.asset_folders ? 'success' : 'warning'],
+    ['Assets', summary.assets, summary.assets ? 'success' : 'warning'],
+    ['Draft Stories', summary.draft_stories, summary.draft_stories ? 'success' : 'warning'],
+    ['Story Links', `${summary.resolved_story_links} resolved / ${summary.unresolved_story_links} unresolved`, summary.unresolved_story_links ? 'warning' : 'success']
   ]);
 }
 
@@ -1108,6 +1627,143 @@ function count(value) {
   return Array.isArray(value) ? value.length : Number(value) || 0;
 }
 
+function summarizeApplyResult(result) {
+  const steps = Array.isArray(result?.steps) ? result.steps : [];
+  const flatResults = steps.flatMap((step) => Array.isArray(step?.results) ? step.results : []);
+  const duplicateStep = steps.find((step) => Array.isArray(step?.repository_assets) || Array.isArray(step?.repository_components));
+  const generateStep = steps.find((step) => Array.isArray(step?.files_created) || Array.isArray(step?.repository_files));
+  const draftStories = flatResults.filter((entry) => entry?.action === 'create_draft_story');
+  return {
+    repository_files: count(generateStep?.files_created || generateStep?.repository_files),
+    repository_assets: count(duplicateStep?.repository_assets),
+    storyblok_components: flatResults.filter((entry) => entry?.action === 'create_component' || entry?.action === 'duplicate_storyblok_component').length,
+    asset_folders: flatResults.filter((entry) => entry?.action === 'create_asset_folder').length,
+    assets: flatResults.filter((entry) => entry?.action === 'upload_asset').length,
+    draft_stories: draftStories.length,
+    resolved_story_links: draftStories.reduce((total, entry) => total + Number(entry.link_summary?.resolved_story_links || 0), 0),
+    unresolved_story_links: draftStories.reduce((total, entry) => total + Number(entry.link_summary?.unresolved_story_links || 0), 0)
+  };
+}
+
+function collectEditableStoryLinks(manifest) {
+  const plannedSlugs = plannedStorySlugSet(manifest);
+  const links = [];
+  for (const story of manifest.storyblok?.stories_to_create || []) {
+    collectLinksFromValue(story.content || {}, {
+      root: story.content || {},
+      storySlug: story.slug || story.full_slug || 'draft-story',
+      plannedSlugs,
+      links,
+      path: []
+    });
+  }
+  return links;
+}
+
+function collectLinksFromValue(value, context) {
+  if (Array.isArray(value)) {
+    value.forEach((entry, index) => collectLinksFromValue(entry, { ...context, path: [...context.path, index] }));
+    return;
+  }
+  if (!value || typeof value !== 'object') return;
+  if (isEditableStoryblokLink(value)) {
+    const target = value.cached_url || value.url || '';
+    linksPush(context.links, {
+      root: context.root,
+      path: context.path,
+      value,
+      target,
+      linktype: value.linktype,
+      resolved: value.linktype !== 'story' || context.plannedSlugs.has(normalizeStorySlug(target)) || Boolean(value.id),
+      label: `${context.storySlug}:${context.path.join('.') || 'root'}`
+    });
+    return;
+  }
+  for (const [key, entry] of Object.entries(value)) {
+    collectLinksFromValue(entry, { ...context, path: [...context.path, key] });
+  }
+}
+
+function collectEditableSchemaFields(manifest) {
+  const fields = [];
+  for (const component of manifest.storyblok?.components_to_create || []) {
+    const componentName = component.technical_name || component.name;
+    for (const [fieldName, schema] of Object.entries(component.schema || {})) {
+      fields.push({
+        component: componentName,
+        name: fieldName,
+        schema,
+        type: schema.type || 'text',
+        displayName: schema.display_name || ''
+      });
+    }
+  }
+  return fields;
+}
+
+function plannedStorySlugSet(manifest) {
+  return new Set((manifest.storyblok?.stories_to_create || [])
+    .map((story) => normalizeStorySlug(story.slug || story.full_slug))
+    .filter(Boolean));
+}
+
+function plannedStoryChoices(manifest) {
+  return [...plannedStorySlugSet(manifest)].map((slug) => ({
+    label: `Generated story: ${slug}`,
+    value: slug
+  }));
+}
+
+function isEditableStoryblokLink(value) {
+  return value &&
+    typeof value === 'object' &&
+    typeof value.linktype === 'string' &&
+    ('cached_url' in value || 'url' in value || 'id' in value);
+}
+
+function setNestedValue(root, pathParts, nextValue) {
+  if (!pathParts.length) return;
+  let cursor = root;
+  for (const part of pathParts.slice(0, -1)) {
+    cursor = cursor[part];
+  }
+  cursor[pathParts.at(-1)] = nextValue;
+}
+
+function normalizeStorySlug(value) {
+  return String(value || '')
+    .replaceAll('\\', '/')
+    .replace(/^[./]+/, '')
+    .replace(/^\/+|\/+$/g, '');
+}
+
+function titleFromFieldName(value) {
+  return String(value || '')
+    .replace(/[_-]+/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function linksPush(links, entry) {
+  links.push(entry);
+}
+
+function withPlanValidation(manifest) {
+  manifest.validation = validatePlan(manifest);
+  return manifest;
+}
+
+function latestStoryblokContentStep(result) {
+  return Array.isArray(result?.steps)
+    ? result.steps.find((step) => step?.action === 'validate_storyblok_content')
+    : null;
+}
+
+function failedStepFromApply(result) {
+  if (!Array.isArray(result?.steps)) return null;
+  const failed = result.steps.find((step) => step?.status === 'failed' || step?.results?.status === 'failed');
+  return failed?.action || null;
+}
+
 function slugify(value) {
   return String(value)
     .toLowerCase()
@@ -1128,6 +1784,37 @@ function frameworkValue(name, fallback = 'static') {
 
 function labelForSetting(key) {
   return key.replaceAll('_', ' ').replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function settingsKeys() {
+  return Object.keys(DEFAULT_CONFIG).filter((key) => key !== 'project_profiles');
+}
+
+function profileSummary(profile = {}) {
+  const parts = [
+    profile.default_repository ? `repo ${profile.default_repository}` : null,
+    profile.templates_folder ? `templates ${profile.templates_folder}` : null,
+    profile.storyblok_region ? `region ${profile.storyblok_region}` : null,
+    profile.default_output_folder ? `output ${profile.default_output_folder}` : null
+  ].filter(Boolean);
+  return parts.join(', ') || 'No overrides';
+}
+
+function storyblokArtifactSummary(artifact) {
+  if (artifact.type === 'storyblok_preflight') {
+    return `${artifact.status}; ${artifact.failed_checks || 0} failed checks`;
+  }
+  if (artifact.type === 'storyblok_content_validation') {
+    return `${artifact.status}; ${artifact.stories || 0} stories; ${artifact.unresolved_generated_story_links || 0} unresolved links`;
+  }
+  if (artifact.type === 'storyblok_apply_result' || artifact.type === 'apply_result') {
+    return `${artifact.draft_stories_created_or_reused || 0} stories; ${artifact.assets_created_or_reused || 0} assets`;
+  }
+  return artifact.status || 'recorded';
+}
+
+function labelForAction(action) {
+  return labelForSetting(String(action || 'unknown').replaceAll('-', '_'));
 }
 
 function labelForStatus(status) {

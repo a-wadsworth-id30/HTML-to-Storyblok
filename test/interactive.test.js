@@ -5,7 +5,7 @@ import path from 'node:path';
 import { Writable } from 'node:stream';
 import test from 'node:test';
 import { main } from '../src/cli.js';
-import { loadConfig, parseSettingAssignment, saveConfig, updateConfigValue } from '../src/config.js';
+import { loadConfig, parseSettingAssignment, saveConfig, updateConfigValue, updateProfileValue } from '../src/config.js';
 import { discoverRepositories, discoverTemplates } from '../src/discovery.js';
 import { createDashboardModel, runInteractiveApp, runSettings } from '../src/interactive.js';
 import { createDefaultManifest } from '../src/policy.js';
@@ -20,13 +20,23 @@ test('configuration is persisted without secret-like keys', async () => {
 
   config = updateConfigValue(config, 'templates_folder', 'source-templates');
   config = updateConfigValue(config, 'verbose_logging', 'yes');
+  config = updateProfileValue(config, 'Client Site', 'default_repository', '../client-site');
+  config = updateProfileValue(config, 'Client Site', 'storyblok_region', 'us');
+  config = updateConfigValue(config, 'active_profile', 'client-site');
   await saveConfig({ ...config, secret_token: 'do-not-store' }, { configPath });
 
   const persisted = JSON.parse(await readFile(configPath, 'utf8'));
   assert.equal(persisted.templates_folder, 'source-templates');
   assert.equal(persisted.verbose_logging, true);
+  assert.equal(persisted.active_profile, 'client-site');
+  assert.equal(persisted.project_profiles['client-site'].default_repository, '../client-site');
+  assert.equal(persisted.project_profiles['client-site'].storyblok_region, 'us');
   assert.equal(Object.hasOwn(persisted, 'secret_token'), false);
   assert.deepEqual(parseSettingAssignment('storyblok_region=us'), { key: 'storyblok_region', value: 'us' });
+
+  const applied = await loadConfig({ configPath });
+  assert.equal(applied.default_repository, '../client-site');
+  assert.equal(applied.storyblok_region, 'us');
 });
 
 test('template and repository discovery find nearby integration inputs', async () => {
@@ -205,6 +215,74 @@ test('interactive resume can open the report viewer for an existing integration'
   assert.match(output.text(), /View Latest Report/);
 });
 
+test('interactive resume can edit generated Storyblok story links', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  await mkdir(workDir, { recursive: true });
+  const manifest = editableManifest();
+  await writeFile(path.join(workDir, 'integration-manifest.json'), JSON.stringify(manifest, null, 2));
+
+  const output = new CaptureOutput({ isTTY: true });
+  await runInteractiveApp({
+    args: {
+      config: path.join(root, 'config.json'),
+      work_dir: workDir
+    },
+    input: new TestInput(),
+    output,
+    cwd: root,
+    answers: [
+      'resume',
+      'link-mapping',
+      '0',
+      'acme-homepage-v1/about',
+      'done',
+      'exit'
+    ]
+  });
+
+  const updated = JSON.parse(await readFile(path.join(workDir, 'integration-manifest.json'), 'utf8'));
+  const link = updated.storyblok.stories_to_create[0].content.body[0].cta_link;
+  assert.equal(link.linktype, 'story');
+  assert.equal(link.cached_url, 'acme-homepage-v1/about');
+  assert.equal(link.url, '');
+  assert.match(output.text(), /Story Link Mapping/);
+});
+
+test('interactive resume can edit generated Storyblok field mapping', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  await mkdir(workDir, { recursive: true });
+  const manifest = editableManifest();
+  await writeFile(path.join(workDir, 'integration-manifest.json'), JSON.stringify(manifest, null, 2));
+
+  const output = new CaptureOutput({ isTTY: true });
+  await runInteractiveApp({
+    args: {
+      config: path.join(root, 'config.json'),
+      work_dir: workDir
+    },
+    input: new TestInput(),
+    output,
+    cwd: root,
+    answers: [
+      'resume',
+      'field-mapping',
+      '0',
+      'textarea',
+      'Hero Headline',
+      'done',
+      'exit'
+    ]
+  });
+
+  const updated = JSON.parse(await readFile(path.join(workDir, 'integration-manifest.json'), 'utf8'));
+  const field = updated.storyblok.components_to_create[0].schema.headline;
+  assert.equal(field.type, 'textarea');
+  assert.equal(field.display_name, 'Hero Headline');
+  assert.match(output.text(), /Field Mapping/);
+});
+
 test('interactive app returns to the home screen after a completed action', async () => {
   const root = await createFixtureWorkspace();
   const workDir = path.join(root, 'work');
@@ -234,6 +312,33 @@ test('interactive app returns to the home screen after a completed action', asyn
   assert.match(output.text(), /Copyright 2026 ID30\. Developer: Adam Wadsworth - a\.wadsworth@id30\.com/);
   assert.match(output.text(), /Legal Notice: This software is the proprietary property of iD30\./);
   assert.match(output.text(), /Next/);
+});
+
+test('interactive action failure shows recovery options before returning home', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  const output = new CaptureOutput({ isTTY: true });
+  const result = await runInteractiveApp({
+    args: {
+      config: path.join(root, 'config.json'),
+      work_dir: workDir
+    },
+    input: new TestInput(),
+    output,
+    cwd: root,
+    answers: [
+      'template',
+      '__browse__',
+      path.join(root, 'missing-template'),
+      'home',
+      'home',
+      'exit'
+    ]
+  });
+
+  assert.equal(result.action, 'exit');
+  assert.match(output.text(), /Action Failed/);
+  assert.match(output.text(), /Recovery/);
 });
 
 test('interactive completed Storyblok apply can validate and return to the home screen', async () => {
@@ -381,6 +486,15 @@ test('no-command non-interactive CLI path prints help without launching the wiza
   assert.match(output, /html-to-storyblok dashboard/);
 });
 
+test('completion command prints shell completions', async () => {
+  const output = await captureStdout(async () => {
+    await main(['node', 'html-to-storyblok', 'completion', '--shell', 'fish', '--no-interactive']);
+  });
+  assert.match(output, /complete -c html-to-storyblok/);
+  assert.match(output, /storyblok-apply/);
+  assert.match(output, /validate-storyblok/);
+});
+
 async function createFixtureWorkspace() {
   const root = await mkdtemp(path.join(os.tmpdir(), 'hts-interactive-'));
   const templatePath = path.join(root, 'templates/acme-homepage');
@@ -418,6 +532,62 @@ async function createFixtureWorkspace() {
   await writeFile(path.join(repoPath, 'netlify.toml'), '[build]\ncommand = "npm run build"\npublish = "dist"\n');
   await writeFile(path.join(repoPath, 'src.ts'), 'export const value: string = "ok";\n');
   return root;
+}
+
+function editableManifest() {
+  const manifest = createDefaultManifest({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    repositoryNamespace: 'src/integrations/acme-homepage-v1'
+  });
+  manifest.storyblok.components_to_create = [
+    {
+      technical_name: 'hts_acme_homepage_v1_hero',
+      component_type: 'nestable',
+      schema: {
+        headline: {
+          type: 'text'
+        }
+      }
+    },
+    {
+      technical_name: 'hts_acme_homepage_v1_template_page',
+      component_type: 'content_type',
+      schema: {
+        body: {
+          type: 'bloks',
+          restrict_components: true,
+          component_whitelist: ['hts_acme_homepage_v1_hero']
+        }
+      }
+    }
+  ];
+  manifest.storyblok.stories_to_create = [
+    {
+      slug: 'acme-homepage-v1/home',
+      content: {
+        component: 'hts_acme_homepage_v1_template_page',
+        body: [
+          {
+            component: 'hts_acme_homepage_v1_hero',
+            headline: 'Home',
+            cta_link: {
+              linktype: 'story',
+              cached_url: 'legacy/contact'
+            }
+          }
+        ]
+      }
+    },
+    {
+      slug: 'acme-homepage-v1/about',
+      content: {
+        component: 'hts_acme_homepage_v1_template_page',
+        body: []
+      }
+    }
+  ];
+  return manifest;
 }
 
 class CaptureOutput extends Writable {

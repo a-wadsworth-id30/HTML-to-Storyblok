@@ -77,6 +77,10 @@ export async function main(argv) {
     } else if (command === 'view-report') {
       result = await runReportViewer({ args });
       printJson = false;
+    } else if (command === 'completion') {
+      console.log(renderShellCompletion(args.shell ? String(args.shell) : 'zsh'));
+      result = { action: 'completion', shell: args.shell ? String(args.shell) : 'zsh' };
+      printJson = false;
     } else if (command === 'inspect-template') {
       result = await inspectTemplate(requireOption(args, 'template'));
       await writeArtifact(workDir, 'template-inventory.json', result);
@@ -326,6 +330,81 @@ function redactMessage(message) {
     .replace(/Authorization:\s*[A-Za-z0-9._-]+/gi, 'Authorization: [REDACTED]');
 }
 
+function renderShellCompletion(shell = 'zsh') {
+  const commands = [
+    'dashboard',
+    'settings',
+    'doctor',
+    'view-report',
+    'completion',
+    'inspect-template',
+    'inspect-repository',
+    'inspect-storyblok',
+    'inspect-storyblok-content',
+    'inspect-netlify',
+    'check-access',
+    'netlify-preview',
+    'plan',
+    'infer-duplicates',
+    'validate-plan',
+    'storyblok-preflight',
+    'validate-storyblok',
+    'diff',
+    'validate',
+    'build',
+    'generate',
+    'duplicate',
+    'storyblok-components',
+    'storyblok-asset-folders',
+    'upload-assets',
+    'create-draft-story',
+    'storyblok-apply',
+    'apply',
+    'open-pr',
+    'open-mr',
+    'rollback-preview',
+    'rollback',
+    'report'
+  ];
+  const options = [
+    '--manifest',
+    '--repo',
+    '--template',
+    '--framework',
+    '--work-dir',
+    '--dry-run',
+    '--remote',
+    '--full',
+    '--version',
+    '--config',
+    '--profile',
+    '--set',
+    '--no-interactive',
+    '--help'
+  ];
+  if (shell === 'bash') {
+    return `_html_to_storyblok() {
+  local cur="\${COMP_WORDS[COMP_CWORD]}"
+  COMPREPLY=( $(compgen -W "${[...commands, ...options].join(' ')}" -- "$cur") )
+}
+complete -F _html_to_storyblok html-to-storyblok`;
+  }
+  if (shell === 'fish') {
+    return [
+      ...commands.map((command) => `complete -c html-to-storyblok -f -a ${command}`),
+      ...options.map((option) => `complete -c html-to-storyblok -l ${option.replace(/^--/, '')}`)
+    ].join('\n');
+  }
+  return `#compdef html-to-storyblok
+_html_to_storyblok() {
+  local -a commands
+  commands=(${commands.map((command) => `${command}:${command}`).join(' ')})
+  _describe 'command' commands
+  _arguments '*: :(${[...commands, ...options].join(' ')})'
+}
+_html_to_storyblok "$@"`;
+}
+
 function printHelp() {
   console.log(`html-to-storyblok
 ${CLI_BRANDING_LINES.join('\n')}
@@ -336,6 +415,7 @@ Usage:
   html-to-storyblok settings [--show] [--set key=value]
   html-to-storyblok doctor
   html-to-storyblok view-report
+  html-to-storyblok completion [--shell zsh|bash|fish]
   html-to-storyblok inspect-template --template <path>
   html-to-storyblok inspect-repository --repo <path>
   html-to-storyblok inspect-storyblok [--remote] [--full]
