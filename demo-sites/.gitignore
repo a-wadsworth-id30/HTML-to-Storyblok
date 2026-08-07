@@ -1,0 +1,7 @@
+**/node_modules/
+**/dist/
+**/.astro/
+**/.next/
+**/.nuxt/
+**/.output/
+**/package-lock.json

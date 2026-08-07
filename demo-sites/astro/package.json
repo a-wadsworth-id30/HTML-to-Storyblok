@@ -3,12 +3,18 @@
   "private": true,
   "type": "module",
   "demoEntry": "src/pages/index.astro",
+  "demoFullBuild": true,
+  "demoPreviewUrl": "http://127.0.0.1:4401/",
   "scripts": {
-    "build": "node ../scripts/build-check.mjs"
+    "build": "node ../scripts/build-check.mjs",
+    "build:framework": "astro build",
+    "preview:framework": "astro preview --host 127.0.0.1 --port 4401"
   },
   "dependencies": {
-    "@storyblok/astro": "^6.0.0",
-    "astro": "^5.0.0"
+    "@storyblok/astro": "^10.2.3",
+    "astro": "^7.2.0"
+  },
+  "overrides": {
+    "sharp": "^0.35.3"
   }
 }
-

@@ -3,13 +3,17 @@
   "private": true,
   "type": "module",
   "demoEntry": "src/App.vue",
+  "demoFullBuild": true,
+  "demoPreviewUrl": "http://127.0.0.1:4404/",
   "scripts": {
-    "build": "node ../scripts/build-check.mjs"
+    "build": "node ../scripts/build-check.mjs",
+    "build:framework": "vite build",
+    "preview:framework": "vite preview --host 127.0.0.1 --port 4404"
   },
   "dependencies": {
     "@storyblok/vue": "^9.0.0",
+    "@vitejs/plugin-vue": "^6.0.0",
     "vite": "^7.0.0",
     "vue": "^3.0.0"
   }
 }
-

@@ -3,12 +3,15 @@
   "private": true,
   "type": "module",
   "demoEntry": "pages/index.vue",
+  "demoFullBuild": true,
+  "demoPreviewUrl": "http://127.0.0.1:4403/",
   "scripts": {
-    "build": "node ../scripts/build-check.mjs"
+    "build": "node ../scripts/build-check.mjs",
+    "build:framework": "nuxt build",
+    "preview:framework": "nuxt preview"
   },
   "dependencies": {
     "@storyblok/nuxt": "^6.0.0",
     "nuxt": "^4.0.0"
   }
 }
-

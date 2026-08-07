@@ -1135,7 +1135,7 @@ Implemented:
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
 - Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, and repository conversion now writes isolated preview files for every route under `src/integrations/<integration-id>/routes/`, plus an adapter plan and guide for manual host wiring. These route previews are deliberately not registered with the host site router automatically.
-- The demo-site build checks validate generated integration shape, framework-specific preview files, route manifests, and existing-file safety without installing full Astro/Next/Nuxt/Vue/React dependency trees. Before wiring an import into a real client route, run that client repository's real install, typecheck, lint, build, and browser checks.
+- The default demo-site build checks validate generated integration shape, framework-specific preview files, route manifests, and existing-file safety without installing full Astro/Next/Nuxt/Vue/React dependency trees. The opt-in full demo runner can install and build the framework demos with preview smoke checks, but before wiring an import into a real client route, run that client repository's own install, typecheck, lint, build, and browser checks.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Optional Storyblok audit collections such as approvals, branches, workflow stages, or activities may be unavailable depending on the Storyblok plan, space features, token scope, and region. The audit records unavailable collections instead of treating them as a failed import.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials from the shell environment, `.env` / `.env.local`, or the interactive session; use `html-to-storyblok check-access` to verify readiness.
@@ -1146,11 +1146,20 @@ Implemented:
 ```sh
 npm run check
 npm test
+npm run test:demo-sites-full:list
 ```
 
-`npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
+`npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, `scripts/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
 
 The test suite includes a temp-directory end-to-end CLI workflow test that exercises the production command path without requiring live Storyblok, Netlify, GitHub, or GitLab credentials.
+
+To validate the demo sites with real framework compilers and preview smoke checks, run:
+
+```sh
+npm run test:demo-sites-full:install
+```
+
+This installs each demo site's dependencies, runs its dependency-light build contract, runs the real framework build where available, starts the framework preview server, and fetches the configured preview URL. It is intentionally opt-in because it downloads Astro, Next, Nuxt, Vue, React, Vite, and Storyblok framework packages.
 
 To run the opt-in live Storyblok sandbox test against a disposable integration namespace:
 

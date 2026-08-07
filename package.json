@@ -9,6 +9,9 @@
   "scripts": {
     "test": "node --test",
     "test:storyblok-live": "STORYBLOK_LIVE_TESTS=1 node --test test/storyblok-live.test.js",
+    "test:demo-sites-full": "node scripts/test-demo-sites-full.mjs --require-framework",
+    "test:demo-sites-full:install": "node scripts/test-demo-sites-full.mjs --install --smoke --require-framework",
+    "test:demo-sites-full:list": "node scripts/test-demo-sites-full.mjs --list",
     "check": "node scripts/check-syntax.mjs"
   },
   "engines": {

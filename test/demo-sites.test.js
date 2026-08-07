@@ -60,7 +60,10 @@ const DEMO_CASES = [
 
 test('demo site matrix accepts isolated repository integration without changing existing app files', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'hts-demo-sites-'));
-  await cp('demo-sites', path.join(root, 'demo-sites'), { recursive: true });
+  await cp('demo-sites', path.join(root, 'demo-sites'), {
+    recursive: true,
+    filter: (source) => !isGeneratedDemoArtifact(source)
+  });
 
   for (const demo of DEMO_CASES) {
     const repoPath = path.join(root, 'demo-sites', demo.name);
@@ -114,6 +117,10 @@ test('demo site matrix accepts isolated repository integration without changing 
     assert.ok(secondPreflight.collisions.some((target) => target.startsWith(`src/integrations/${integrationId}/`)), demo.name);
   }
 });
+
+function isGeneratedDemoArtifact(source) {
+  return ['node_modules', 'dist', '.astro', '.next', '.nuxt', '.output', 'package-lock.json'].includes(path.basename(source));
+}
 
 async function initializeGitRepo(repoPath) {
   await execFileAsync('git', ['init'], { cwd: repoPath });

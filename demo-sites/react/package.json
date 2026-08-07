@@ -3,15 +3,18 @@
   "private": true,
   "type": "module",
   "demoEntry": "src/App.jsx",
+  "demoFullBuild": true,
+  "demoPreviewUrl": "http://127.0.0.1:4405/",
   "scripts": {
-    "build": "node ../scripts/build-check.mjs"
+    "build": "node ../scripts/build-check.mjs",
+    "build:framework": "vite build",
+    "preview:framework": "vite preview --host 127.0.0.1 --port 4405"
   },
   "dependencies": {
-    "@storyblok/react": "^3.0.0",
+    "@storyblok/react": "^7.2.4",
     "@vitejs/plugin-react": "^5.0.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "vite": "^7.0.0"
   }
 }
-

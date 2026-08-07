@@ -4,7 +4,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
-const ROOTS = ['bin', 'src', 'test', 'demo-sites/scripts'];
+const ROOTS = ['bin', 'src', 'test', 'scripts', 'demo-sites/scripts'];
 const CHECKED_EXTENSIONS = new Set(['.js', '.mjs']);
 const IGNORED_DIRS = new Set(['.git', 'node_modules', '.tmp', 'dist', 'build', '.next', '.nuxt', '.astro']);
 
