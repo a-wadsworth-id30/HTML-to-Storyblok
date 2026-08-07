@@ -515,7 +515,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
     const resolvedContent = hydrateStoryLinks(entry.content, storyReferences);
     if (entry.existing) {
       const match = assertStoryMatches(entry.existing, { slug: entry.story.slug, content: resolvedContent });
-      const repair = match.metadata_only_difference && canRepairDraftStoryLinkMetadata(entry.existing, manifest, entry.story.slug);
+      const repair = match.repairable_link_metadata_difference && canRepairDraftStoryLinkMetadata(entry.existing, manifest, entry.story.slug);
       if (repair) {
         const updated = await updateDraftStoryContent(config, entry.story, entry.target, resolvedContent, entry.existing);
         results.push({
@@ -542,7 +542,7 @@ export async function createDraftStories(manifest, { dryRun = false, env = proce
         uuid: entry.existing.uuid || null,
         editor_url: storyblokEditorUrl(config, entry.existing.id),
         published: Boolean(entry.existing.published_at),
-        link_resolution: match.metadata_only_difference ? 'existing_story_left_unchanged' : 'already_hydrated',
+        link_resolution: match.repairable_link_metadata_difference ? 'existing_story_left_unchanged' : 'already_hydrated',
         link_summary: summarizeStoryLinks(entry.existing.content || resolvedContent, storyReferences),
         verification: summarizeStory(entry.existing)
       });
@@ -2490,7 +2490,11 @@ function assertStoryMatches(existing, intended) {
   if (sha256Json(comparableStoryContent(existing.content || {})) !== sha256Json(comparableStoryContent(intended.content || {}))) {
     throw new Error(`Storyblok draft story drift detected for ${intended.slug}; existing story does not match the manifest.`);
   }
-  return { exact: false, metadata_only_difference: true };
+  return {
+    exact: false,
+    metadata_only_difference: true,
+    repairable_link_metadata_difference: hasRepairableStoryLinkMetadataDifference(existing.content || {}, intended.content || {})
+  };
 }
 
 function sameJson(left, right) {
@@ -2509,7 +2513,49 @@ function comparableStoryContent(value) {
     }
     return comparable;
   }
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, comparableStoryContent(entry)]));
+  if (isStoryblokAssetValue(value)) return comparableStoryAsset(value);
+  return Object.fromEntries(Object.entries(value)
+    .filter(([key]) => !isStoryblokContentMetadataKey(key))
+    .map(([key, entry]) => [key, comparableStoryContent(entry)]));
+}
+
+function hasRepairableStoryLinkMetadataDifference(existingContent, intendedContent) {
+  const existingLinks = collectStoryLinks(existingContent).filter((link) => link.linktype === 'story');
+  const intendedLinks = collectStoryLinks(intendedContent).filter((link) => link.linktype === 'story');
+  if (existingLinks.length !== intendedLinks.length) return false;
+  return intendedLinks.some((intendedLink, index) => {
+    const existingLink = existingLinks[index];
+    if (!existingLink || normalizeStoryLinkKey(existingLink.cached_url || existingLink.url) !== normalizeStoryLinkKey(intendedLink.cached_url || intendedLink.url)) {
+      return false;
+    }
+    return Boolean(intendedLink.id && existingLink.id !== intendedLink.id) ||
+      (intendedLink.fieldtype && existingLink.fieldtype !== intendedLink.fieldtype) ||
+      (Object.hasOwn(intendedLink, 'url') && !Object.hasOwn(existingLink, 'url'));
+  });
+}
+
+function isStoryblokAssetValue(value) {
+  return value &&
+    typeof value === 'object' &&
+    (value.fieldtype === 'asset' || ('filename' in value && ('id' in value || 'alt' in value || 'title' in value)));
+}
+
+function comparableStoryAsset(value) {
+  const id = value.id ? String(value.id) : null;
+  const comparable = {
+    alt: value.alt || '',
+    title: value.title || ''
+  };
+  if (id) {
+    comparable.id = id;
+  } else {
+    comparable.filename = normalizeStoryAssetKey(value.filename || '');
+  }
+  return comparable;
+}
+
+function isStoryblokContentMetadataKey(key) {
+  return key === '_editable';
 }
 
 function canRepairDraftStoryLinkMetadata(existing, manifest, plannedSlug) {

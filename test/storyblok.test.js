@@ -306,6 +306,90 @@ test('createDraftStories treats matching draft stories as idempotent', async () 
   restoreFetch();
 });
 
+test('createDraftStories treats Storyblok editor metadata as idempotent on retry', async () => {
+  const plannedContent = {
+    component: 'hts_acme_homepage_v1_template_page',
+    body: [
+      {
+        _uid: 'hero-block',
+        component: 'hts_acme_homepage_v1_hero',
+        headline: 'Welcome',
+        cta_link: {
+          linktype: 'story',
+          cached_url: 'acme-homepage-v1/home'
+        },
+        image: {
+          id: 88,
+          filename: 'https://a.storyblok.com/f/123/acme-homepage-v1/hero.svg',
+          alt: 'Hero image',
+          title: '',
+          fieldtype: 'asset'
+        }
+      }
+    ]
+  };
+  const existingContent = {
+    ...plannedContent,
+    _editable: '<!--#storyblok#root-->',
+    body: [
+      {
+        ...plannedContent.body[0],
+        _editable: '<!--#storyblok#hero-->',
+        cta_link: {
+          linktype: 'story',
+          cached_url: 'acme-homepage-v1/home',
+          id: 'home-story-uuid',
+          url: '',
+          fieldtype: 'multilink'
+        },
+        image: {
+          ...plannedContent.body[0].image,
+          focus: '',
+          source: '',
+          copyright: '',
+          meta_data: {}
+        }
+      }
+    ]
+  };
+  const calls = mockFetch((url, options = {}) => {
+    if (url.includes('/stories?by_slugs=')) {
+      return {
+        stories: [
+          {
+            id: 456,
+            uuid: 'home-story-uuid',
+            slug: 'home',
+            full_slug: 'acme-homepage-v1/home',
+            published_at: null,
+            content: existingContent
+          }
+        ]
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await createDraftStories({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [
+        {
+          slug: 'acme-homepage-v1/home',
+          component: 'hts_acme_homepage_v1_template_page',
+          content: plannedContent
+        }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result[0].status, 'already_exists');
+  assert.equal(result[0].link_resolution, 'already_hydrated');
+  assert.equal(calls.filter((call) => call.options.method === 'PUT').length, 0);
+  restoreFetch();
+});
+
 test('createDraftStories hydrates draft asset fields from uploaded Storyblok assets', async () => {
   mockFetch((url, options = {}) => {
     if (url.includes('/stories?by_slugs=')) {
