@@ -93,6 +93,32 @@ const COMMAND_GUIDES = {
       'html-to-storyblok handoff --manifest .tmp/html-to-storyblok/integration-manifest.json --remote --require-storyblok'
     ]
   },
+  'handoff-pack': {
+    title: 'Production Handoff Pack',
+    purpose: 'Packages the final review evidence for an imported template into one JSON file and one Markdown handoff document.',
+    usage: [
+      'html-to-storyblok handoff-pack --manifest <path> [--repo <path>] [--template <path>] [--remote] [--skip-readiness]'
+    ],
+    when: [
+      'Use after dry run or real apply when David, the client team, QA, or editors need one concise handoff document.',
+      'Use after Storyblok-only testing to show draft story links, validation status, assets, rollback scope, and remaining next actions.'
+    ],
+    evidence: [
+      'Writes production-handoff-pack.json and production-handoff-pack.md under the work directory.',
+      'Reads existing report, history, route handoff, Storyblok validation, Netlify, rollback, and apply artifacts.'
+    ],
+    safety: [
+      'Read-only apart from writing local evidence files.',
+      'Optional --remote performs the same read-only Storyblok reconciliation used by readiness.',
+      'Does not publish content, modify existing stories, overwrite routes, or delete resources.'
+    ],
+    examples: [
+      'html-to-storyblok handoff-pack --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site --template templates/acme-campaign',
+      'html-to-storyblok production-handoff --manifest .tmp/html-to-storyblok/integration-manifest.json --remote',
+      'html-to-storyblok handoff-pack --manifest .tmp/html-to-storyblok/integration-manifest.json --skip-readiness'
+    ],
+    next: ['view-report', 'readiness', 'rollback-preview', 'wire-routes']
+  },
   'template-quality': {
     title: 'Template Quality',
     purpose: 'Scores a supplied template across route/SEO, editorial hints, assets, JavaScript safety, CSS isolation, accessibility, forms, and third-party dependencies.',
