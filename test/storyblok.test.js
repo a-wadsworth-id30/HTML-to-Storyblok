@@ -1111,6 +1111,96 @@ test('uploadStoryblokAssets ignores basename-only asset collisions outside the i
   restoreFetch();
 });
 
+test('uploadStoryblokAssets serializes duplicate remote asset targets', async () => {
+  const assetRoot = await mkdtemp(path.join(os.tmpdir(), 'hts-storyblok-asset-duplicate-'));
+  const assetPath = path.join(assetRoot, 'logo.svg');
+  await writeFile(assetPath, '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n');
+  originalFetch = global.fetch;
+  let searchAttempts = 0;
+  let signAttempts = 0;
+
+  global.fetch = async (url, options = {}) => {
+    const href = String(url);
+    if (href.includes('/asset_folders/') && (options.method || 'GET') === 'GET') {
+      return jsonResponse({
+        asset_folders: [
+          {
+            id: 77,
+            name: 'acme-homepage-v1',
+            parent_id: 0
+          }
+        ]
+      });
+    }
+    if (href.includes('/assets?search=')) {
+      searchAttempts += 1;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      return jsonResponse({ assets: [] });
+    }
+    if (href.endsWith('/assets/') && options.method === 'POST') {
+      signAttempts += 1;
+      return jsonResponse({
+        id: 88,
+        post_url: 'https://storyblok-upload.example/upload',
+        fields: {
+          key: 'upload-key'
+        }
+      });
+    }
+    if (href === 'https://storyblok-upload.example/upload') {
+      return jsonResponse({});
+    }
+    if (href.endsWith('/assets/88/finish_upload')) {
+      return jsonResponse({
+        asset: {
+          id: 88,
+          filename: 'https://a.storyblok.com/f/space/acme-homepage-v1/logo.svg',
+          short_filename: 'logo.svg',
+          asset_folder_id: 77,
+          content_length: 47
+        }
+      });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  const result = await uploadStoryblokAssets({
+    integration_id: 'acme-homepage-v1',
+    storyblok: {
+      asset_folders_to_create: [
+        { path: 'acme-homepage-v1', name: 'acme-homepage-v1', parent_id: 0 }
+      ],
+      assets_to_create: [
+        {
+          local_path: assetPath,
+          filename: 'acme-homepage-v1/logo.svg',
+          asset_folder_path: 'acme-homepage-v1',
+          source_ref: 'first-logo'
+        },
+        {
+          local_path: assetPath,
+          filename: 'acme-homepage-v1/logo.svg',
+          asset_folder_path: 'acme-homepage-v1',
+          source_ref: 'second-logo'
+        }
+      ]
+    }
+  }, {
+    env: {
+      ...storyblokEnv(),
+      STORYBLOK_READ_CONCURRENCY: '2'
+    }
+  });
+
+  assert.equal(result[0].status, 'created');
+  assert.equal(result[1].status, 'already_exists');
+  assert.equal(result[1].duplicate_target, true);
+  assert.equal(result[1].id, 88);
+  assert.equal(searchAttempts, 1);
+  assert.equal(signAttempts, 1);
+  restoreFetch();
+});
+
 test('createStoryblokInternalTags creates missing namespaced tags', async () => {
   const calls = mockFetch((url, options = {}) => {
     if (url.includes('/internal_tags/') && (options.method || 'GET') === 'GET') {
