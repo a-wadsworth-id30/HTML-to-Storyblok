@@ -413,6 +413,14 @@ HTS_DEMO_NEXT_URL=https://your-next-demo.netlify.app \
 npm run test:demo-sites-live-preview
 ```
 
+The same live check is available through the CLI:
+
+```sh
+html-to-storyblok demo-sites-live-preview --list
+html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --require-configured
+html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured
+```
+
 Use `--require-configured` when CI should fail if no deployed URL is present, and use `--require-storyblok-draft --integration-id <integration-id>` after the deployed site has the Storyblok preview token configured. That stricter mode requires each imported route to return a hidden `data-hts-storyblok-source="storyblok-draft"` marker instead of silently falling back to generated static content.
 
 ### 3. Check Storyblok access
@@ -1325,10 +1333,13 @@ To check deployed demo sites and catch missing Netlify routes or Storyblok previ
 
 ```sh
 npm run test:demo-sites-live-preview -- --list
+html-to-storyblok demo-sites-live-preview --list
 HTS_DEMO_ASTRO_URL=https://your-astro-demo.netlify.app \
 npm run test:demo-sites-live-preview -- --site astro --require-configured
+html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --require-configured
 HTS_DEMO_ASTRO_URL=https://your-astro-demo.netlify.app \
 npm run test:demo-sites-live-preview -- --site astro --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured
+html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured
 ```
 
 To run the opt-in live Storyblok sandbox test against a disposable integration namespace:

@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { main } from '../src/cli.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -18,6 +19,26 @@ test('live demo preview runner lists configured deployed URL checks', async () =
   assert.equal(result.status, 'listed');
   assert.ok(result.routes.includes('/contact'));
   assert.ok(result.sites.some((site) => site.site === 'astro' && site.env === 'HTS_DEMO_ASTRO_URL'));
+});
+
+test('demo-sites-live-preview CLI command delegates to the live runner', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-live-preview-cli-'));
+  const output = await captureStdout(() => main([
+    'node',
+    'html-to-storyblok',
+    'demo-sites-live-preview',
+    '--list',
+    '--work-dir',
+    workDir,
+    '--no-interactive'
+  ]));
+  const result = JSON.parse(output);
+  const artifact = JSON.parse(await readFile(path.join(workDir, 'demo-sites-live-preview-result.json'), 'utf8'));
+
+  assert.equal(result.action, 'test_demo_sites_live_preview');
+  assert.equal(result.status, 'listed');
+  assert.equal(artifact.action, 'test_demo_sites_live_preview');
+  assert.ok(result.sites.some((site) => site.site === 'next' && site.env === 'HTS_DEMO_NEXT_URL'));
 });
 
 test('live demo preview runner passes when deployed routes expose Storyblok draft markers', async () => {
@@ -83,4 +104,21 @@ async function writeFixture(content) {
   const filePath = path.join(directory, 'responses.json');
   await writeFile(filePath, JSON.stringify(content));
   return filePath;
+}
+
+async function captureStdout(callback) {
+  const originalWrite = process.stdout.write;
+  let output = '';
+  process.stdout.write = (chunk, encoding, done) => {
+    output += Buffer.isBuffer(chunk) ? chunk.toString(typeof encoding === 'string' ? encoding : 'utf8') : String(chunk);
+    if (typeof encoding === 'function') encoding();
+    if (typeof done === 'function') done();
+    return true;
+  };
+  try {
+    await callback();
+    return output;
+  } finally {
+    process.stdout.write = originalWrite;
+  }
 }
