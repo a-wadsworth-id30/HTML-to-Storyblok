@@ -37,6 +37,12 @@ const DEFAULT_STORYBLOK_READ_CONCURRENCY = 4;
 const requestQueues = new Map();
 const lastRequestTimes = new Map();
 
+export function createStoryblokStateCache() {
+  return {
+    remoteManagementState: null
+  };
+}
+
 export function getStoryblokConfig(env = process.env) {
   const token = envValue([
     'STORYBLOK_MANAGEMENT_TOKEN',
@@ -1165,7 +1171,12 @@ async function validateStoryblokDraftStory(story, { config, manifest, plannedSlu
   }
 }
 
-export async function reconcileStoryblokManifest(manifest, { env = process.env } = {}) {
+export async function reconcileStoryblokManifest(manifest, {
+  env = process.env,
+  remoteState = null,
+  stateCache = null,
+  refreshRemoteState = false
+} = {}) {
   const config = getStoryblokConfig(env);
   if (!config.available) {
     return {
@@ -1177,7 +1188,12 @@ export async function reconcileStoryblokManifest(manifest, { env = process.env }
     };
   }
 
-  const remote = await loadRemoteStoryblokState(config);
+  const remote = remoteState || await loadCachedRemoteStoryblokState(config, stateCache, { refresh: refreshRemoteState });
+  const { reconcile } = await buildStoryblokReconciliation(manifest, config, remote);
+  return reconcile;
+}
+
+async function buildStoryblokReconciliation(manifest, config, remote) {
   const components = await hydratePlannedComponents(config, manifest, remote.components);
   const stories = await hydratePlannedStories(config, manifest, remote.stories);
   const assetMap = createRemoteStoryAssetMap(manifest, remote.assets, remote.assetFolders);
@@ -1193,14 +1209,24 @@ export async function reconcileStoryblokManifest(manifest, { env = process.env }
   ];
   const summary = summarizeReconciliation(resources);
   return {
-    action: 'storyblok_reconcile',
-    status: summary.drifted > 0 || summary.blocked > 0 ? 'failed' : summary.missing > 0 ? 'incomplete' : 'passed',
-    summary,
-    resources
+    reconcile: {
+      action: 'storyblok_reconcile',
+      status: summary.drifted > 0 || summary.blocked > 0 ? 'failed' : summary.missing > 0 ? 'incomplete' : 'passed',
+      summary,
+      resources
+    },
+    hydratedComponents: components,
+    hydratedStories: stories,
+    remote
   };
 }
 
-export async function verifyStoryblokManagementState(manifest, { dryRun = false, env = process.env } = {}) {
+export async function verifyStoryblokManagementState(manifest, {
+  dryRun = false,
+  env = process.env,
+  stateCache = null,
+  refreshRemoteState = false
+} = {}) {
   if (storyblokRequirements(manifest).operation_count === 0) {
     return {
       action: 'verify_storyblok_management_state',
@@ -1234,8 +1260,9 @@ export async function verifyStoryblokManagementState(manifest, { dryRun = false,
     };
   }
 
-  const reconcile = await reconcileStoryblokManifest(manifest, { env });
-  const stories = await verifyManagementStories(manifest, config);
+  const remote = await loadCachedRemoteStoryblokState(config, stateCache, { refresh: refreshRemoteState });
+  const { reconcile, hydratedStories } = await buildStoryblokReconciliation(manifest, config, remote);
+  const stories = await verifyManagementStories(manifest, config, { remoteStories: hydratedStories });
   const storyFailures = stories.filter((story) => story.status === 'failed').length;
   return {
     action: 'verify_storyblok_management_state',
@@ -1605,6 +1632,14 @@ async function loadRemoteStoryblokState(config) {
     presets,
     stories
   };
+}
+
+async function loadCachedRemoteStoryblokState(config, stateCache = null, { refresh = false } = {}) {
+  if (!stateCache) return loadRemoteStoryblokState(config);
+  if (!refresh && stateCache.remoteManagementState) return stateCache.remoteManagementState;
+  const remoteState = await loadRemoteStoryblokState(config);
+  stateCache.remoteManagementState = remoteState;
+  return remoteState;
 }
 
 function reconcileComponentGroups(manifest, componentGroups) {
@@ -3044,20 +3079,23 @@ function summarizeContentValidation(results) {
   }), emptyContentValidationSummary());
 }
 
-async function verifyManagementStories(manifest, config) {
+async function verifyManagementStories(manifest, config, { remoteStories = null } = {}) {
   const stories = ensureArray(manifest.storyblok?.stories_to_create);
   const plannedSlugs = new Set(stories.map((story) => normalizeStoryLinkKey(story.slug || story.full_slug)));
+  const remoteStoryMap = remoteStories ? createRemoteStoryMap(remoteStories) : null;
   return mapConcurrent(
     stories,
-    (story) => verifyManagementStory(manifest, config, story, plannedSlugs),
+    (story) => verifyManagementStory(manifest, config, story, plannedSlugs, remoteStoryMap),
     { concurrency: config.readConcurrency }
   );
 }
 
-async function verifyManagementStory(manifest, config, story, plannedSlugs) {
+async function verifyManagementStory(manifest, config, story, plannedSlugs, remoteStoryMap = null) {
   const slug = story.slug || story.full_slug;
   try {
-    const existing = await findStoryBySlug(config, slug);
+    const existing = remoteStoryMap
+      ? remoteStoryMap.get(normalizeStoryLinkKey(slug)) || null
+      : await findStoryBySlug(config, slug);
     if (!existing) {
       return {
         slug,
@@ -3120,6 +3158,17 @@ async function verifyManagementStory(manifest, config, story, plannedSlugs) {
       unresolved_asset_fields: []
     };
   }
+}
+
+function createRemoteStoryMap(stories) {
+  const storyMap = new Map();
+  for (const story of ensureArray(stories)) {
+    for (const slug of [story.full_slug, story.slug]) {
+      const key = normalizeStoryLinkKey(slug);
+      if (key && !storyMap.has(key)) storyMap.set(key, story);
+    }
+  }
+  return storyMap;
 }
 
 function emptyManagementVerificationSummary() {

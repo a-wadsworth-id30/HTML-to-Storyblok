@@ -3,7 +3,7 @@ import { writeArtifact } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { buildOperations, createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
-import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, getStoryblokConfig, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
+import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, createStoryblokStateCache, getStoryblokConfig, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { ensureArray, readJson, requireOption } from './utils.js';
 import { preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 import { applyInferredDuplicationCandidates } from './duplication-inference.js';
@@ -61,6 +61,7 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   const progress = typeof onProgress === 'function' ? onProgress : async () => {};
   const startedAt = new Date().toISOString();
   const storyblokDetail = storyblokProgressDetail(env);
+  const storyblokStateCache = createStoryblokStateCache();
   const totalSteps = 16;
   assertApplyPreflight(manifest, { dryRun, env });
 
@@ -148,7 +149,12 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   await recordApplyStep(workDir, steps, 'apply-step-13-storyblok-content-validation.json', storyblokContentValidation);
   assertStoryblokContentValidationPassed(storyblokContentValidation);
   await progress({ label: 'Verifying Storyblok Management State', current: 14, total: totalSteps, detail: storyblokDetail });
-  const storyblokManagementVerification = await verifyStoryblokManagementState(manifest, { dryRun, env });
+  const storyblokManagementVerification = await verifyStoryblokManagementState(manifest, {
+    dryRun,
+    env,
+    stateCache: storyblokStateCache,
+    refreshRemoteState: true
+  });
   await recordApplyStep(workDir, steps, 'apply-step-14-storyblok-management-verification.json', storyblokManagementVerification);
   assertStoryblokManagementVerificationPassed(storyblokManagementVerification);
   await progress({ label: 'Recording Storyblok Activity Evidence', current: 15, total: totalSteps, detail: storyblokDetail });
@@ -174,6 +180,7 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
   const progress = typeof onProgress === 'function' ? onProgress : async () => {};
   const startedAt = new Date().toISOString();
   const storyblokDetail = storyblokProgressDetail(env);
+  const storyblokStateCache = createStoryblokStateCache();
   assertApplyPreflight(manifest, { dryRun, env });
 
   await progress({ label: 'Checking Storyblok Access', current: 0, total: 11, detail: storyblokDetail });
@@ -228,7 +235,12 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-08-content-validation.json', storyblokContentValidation);
   assertStoryblokContentValidationPassed(storyblokContentValidation);
   await progress({ label: 'Verifying Storyblok Management State', current: 9, total: 11, detail: storyblokDetail });
-  const storyblokManagementVerification = await verifyStoryblokManagementState(manifest, { dryRun, env });
+  const storyblokManagementVerification = await verifyStoryblokManagementState(manifest, {
+    dryRun,
+    env,
+    stateCache: storyblokStateCache,
+    refreshRemoteState: true
+  });
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-09-management-verification.json', storyblokManagementVerification);
   assertStoryblokManagementVerificationPassed(storyblokManagementVerification);
   await progress({ label: 'Recording Storyblok Activity Evidence', current: 10, total: 11, detail: storyblokDetail });
