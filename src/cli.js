@@ -6,6 +6,7 @@ import { ensureWorkDir, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from '
 import { generateIntegration } from './generator.js';
 import { openDraftPullRequest } from './github.js';
 import { openDraftMergeRequest } from './gitlab.js';
+import { readIntegrationHistory, recordIntegrationHistory } from './history.js';
 import { runDashboard, runDoctorCommand, runInteractiveApp, runReportViewer, runSettings } from './interactive.js';
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlify.js';
@@ -83,6 +84,10 @@ export async function main(argv) {
     } else if (command === 'view-report') {
       result = await runReportViewer({ args });
       printJson = false;
+    } else if (command === 'history') {
+      result = await readIntegrationHistory(workDir, {
+        limit: args.limit ? Number(args.limit) : undefined
+      });
     } else if (command === 'completion') {
       console.log(renderShellCompletion(args.shell ? String(args.shell) : 'zsh'));
       result = { action: 'completion', shell: args.shell ? String(args.shell) : 'zsh' };
@@ -162,6 +167,13 @@ export async function main(argv) {
     } else if (command === 'plan') {
       result = await createPlanFromArgs(args, workDir);
       await writeArtifact(workDir, 'integration-manifest.json', result);
+      await recordIntegrationHistory(workDir, {
+        manifest: result,
+        action: 'plan',
+        status: 'planned',
+        repoPath: args.repo ? String(args.repo) : null,
+        validation: result.validation
+      });
     } else if (command === 'infer-duplicates') {
       const manifestPath = requireOption(args, 'manifest');
       const manifest = await readAndValidateManifest(args, workDir);
@@ -292,6 +304,13 @@ export async function main(argv) {
     } else if (command === 'storyblok-apply') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await applyStoryblokOnly(manifest, { ...args, env }, workDir);
+      await recordIntegrationHistory(workDir, {
+        manifest,
+        action: 'storyblok_apply',
+        status: result.dry_run ? 'dry_run_complete' : 'complete',
+        repositorySkipped: true,
+        result
+      });
     } else if (command === 'generate') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await generateIntegration(manifest, {
@@ -321,6 +340,13 @@ export async function main(argv) {
     } else if (command === 'apply') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await applyManifest(manifest, { ...args, env }, workDir);
+      await recordIntegrationHistory(workDir, {
+        manifest,
+        action: 'apply',
+        status: result.dry_run ? 'dry_run_complete' : 'complete',
+        repoPath: args.repo ? String(args.repo) : process.cwd(),
+        result
+      });
     } else if (command === 'open-pr') {
       const reviewManifest = args.manifest ? await readAndValidateManifest(args, workDir) : null;
       result = await openDraftPullRequest({
@@ -412,7 +438,6 @@ function normalizeCommand(command) {
     'sb-validate': 'validate-storyblok',
     'sb-apply': 'storyblok-apply',
     'route-handoff': 'wire-routes',
-    history: 'dashboard',
     examples: 'examples'
   };
   return aliases[command] || command;
@@ -538,6 +563,7 @@ function validationSeverity(violation) {
 function renderShellCompletion(shell = 'zsh') {
   const commands = [
     'dashboard',
+    'history',
     'settings',
     'env',
     'doctor',
@@ -649,6 +675,7 @@ ${CLI_BRANDING_LINES.join('\n')}
 Usage:
   html-to-storyblok
   html-to-storyblok dashboard
+  html-to-storyblok history [--limit 20]
   html-to-storyblok settings [--show] [--set key=value]
   html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
   html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]

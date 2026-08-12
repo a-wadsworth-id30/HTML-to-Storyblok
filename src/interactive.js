@@ -7,6 +7,7 @@ import { discoverRepositories, discoverTemplates, isRepository } from './discove
 import { createDoctorReport } from './doctor.js';
 import { loadEnvironment } from './env.js';
 import { DEFAULT_WORK_DIR, ensureWorkDir, readEvidence, writeArtifact } from './evidence.js';
+import { readIntegrationHistory, recordIntegrationHistory } from './history.js';
 import { inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { createIntegrationPlan } from './planner.js';
 import { storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
@@ -310,6 +311,8 @@ export async function createDashboardModel({
   const validationPath = path.join(workDir, VALIDATION_NAME);
   const assetsPath = path.join(workDir, 'storyblok-assets-result.json');
   const componentPath = path.join(workDir, 'storyblok-components-result.json');
+  const history = await readIntegrationHistory(workDir, { limit: 1 });
+  const latestHistoryEntry = history.entries[0] || null;
   const access = checkLiveAccess(env);
   const manifest = await readOptionalJson(manifestPath);
   const validation = await readOptionalJson(validationPath);
@@ -327,7 +330,7 @@ export async function createDashboardModel({
     framework: repository?.framework?.name || config.preferred_framework || 'Unknown',
     storyblok_connected: access.storyblok.ready,
     netlify_connected: access.netlify.ready || Boolean(repository?.netlify?.present),
-    last_integration: manifest?.integration_id || null,
+    last_integration: latestHistoryEntry?.integration_id || manifest?.integration_id || null,
     validation: validation ? validation.valid ? 'Passed' : 'Failed' : 'Not run',
     pending_draft_stories: count(manifest?.storyblok?.stories_to_create),
     generated_component_groups: count(manifest?.storyblok?.component_groups_to_create),
@@ -463,8 +466,12 @@ async function runHomeAction(action, context) {
 async function runFailureRecovery({ terminal, args, config, workDir, answers, cwd, action, error, retry }) {
   if (!terminal.interactive) throw error;
   const manifest = await readOptionalJson(path.join(workDir, MANIFEST_NAME));
-  const report = await createReport(workDir);
-  const reportPath = await writeMarkdownReport(workDir, report);
+  const { reportPath } = await createReportWithHistory(workDir, {
+    manifest,
+    action,
+    status: 'failed',
+    error
+  });
   const failureResult = {
     action,
     status: 'failed',
@@ -534,6 +541,34 @@ async function runFailureRecovery({ terminal, args, config, workDir, answers, cw
     if (choice === 'exit') return { ...failureResult, action: 'exit' };
     return failureResult;
   }
+}
+
+async function createReportWithHistory(workDir, {
+  manifest = null,
+  action = 'unknown',
+  status = null,
+  repoPath = null,
+  repositorySkipped = false,
+  validation = null,
+  localValidation = null,
+  result = null,
+  error = null
+} = {}) {
+  const report = await createReport(workDir);
+  const reportPath = await writeMarkdownReport(workDir, report);
+  await recordIntegrationHistory(workDir, {
+    manifest,
+    action,
+    status,
+    reportPath,
+    repoPath,
+    repositorySkipped,
+    validation,
+    localValidation,
+    result,
+    error
+  });
+  return { report, reportPath };
 }
 
 async function continueInteractiveSession({ terminal, args, config, workDir, answers, cwd, result }) {
@@ -806,8 +841,14 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   });
 
   if (!proceed) {
-    const report = await createReport(workDir);
-    const reportPath = await writeMarkdownReport(workDir, report);
+    const { reportPath } = await createReportWithHistory(workDir, {
+      manifest,
+      action: 'create_integration',
+      status: 'dry_run_complete',
+      repoPath,
+      validation,
+      result: dryRun
+    });
     terminal.panel('Integration Paused', [
       ['Status', 'Dry run completed. Real apply was not run.', 'warning'],
       ['Report', reportPath, 'success']
@@ -831,8 +872,14 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
     workDir,
     { onProgress: (event) => terminal.progress(event.label, event.current, event.total, event.detail || "") }
   ));
-  const report = await createReport(workDir);
-  const reportPath = await writeMarkdownReport(workDir, report);
+  const { reportPath } = await createReportWithHistory(workDir, {
+    manifest,
+    action: 'create_integration',
+    status: 'complete',
+    repoPath,
+    validation,
+    result
+  });
   renderCompletion(terminal, result, reportPath, { manifest, workDir, repoPath });
   return { action: 'create_integration', status: 'complete', manifest, validation, repo_path: repoPath, result, report: reportPath };
 }
@@ -972,8 +1019,14 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
   });
 
   if (!proceed) {
-    const report = await createReport(workDir);
-    const reportPath = await writeMarkdownReport(workDir, report);
+    const { reportPath } = await createReportWithHistory(workDir, {
+      manifest,
+      action: 'storyblok_only_integration',
+      status: 'dry_run_complete',
+      repositorySkipped: true,
+      validation,
+      result: dryRun
+    });
     terminal.panel('Storyblok Test Paused', [
       ['Status', 'Dry run completed. Real Storyblok apply was not run.', 'warning'],
       ['Repository', 'Skipped', 'warning'],
@@ -998,8 +1051,14 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
     workDir,
     { onProgress: (event) => terminal.progress(event.label, event.current, event.total, event.detail || "") }
   ));
-  const report = await createReport(workDir);
-  const reportPath = await writeMarkdownReport(workDir, report);
+  const { reportPath } = await createReportWithHistory(workDir, {
+    manifest,
+    action: 'storyblok_only_integration',
+    status: 'complete',
+    repositorySkipped: true,
+    validation,
+    result
+  });
   renderStoryblokOnlyCompletion(terminal, result, reportPath, { manifest, workDir });
   return { action: 'storyblok_only_integration', status: 'complete', manifest, validation, repository_skipped: true, result, report: reportPath };
 }
@@ -1075,8 +1134,14 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
       workDir,
       { onProgress: (event) => terminal.progress(event.label, event.current, event.total, event.detail || "") }
     ));
-    const report = await createReport(workDir);
-    const reportPath = await writeMarkdownReport(workDir, report);
+    const { reportPath } = await createReportWithHistory(workDir, {
+      manifest,
+      action: 'continue_integration',
+      status: realStoryblokApply ? 'complete' : 'dry_run_complete',
+      repositorySkipped: true,
+      validation,
+      result
+    });
     if (realStoryblokApply) renderStoryblokOnlyCompletion(terminal, result, reportPath, { manifest, workDir });
     else {
       terminal.panel('Storyblok Dry Run Complete', [['Repository', 'Skipped', 'warning'], ['Report', reportPath, 'success']]);
@@ -1143,8 +1208,14 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
     workDir,
     { onProgress: (event) => terminal.progress(event.label, event.current, event.total, event.detail || "") }
   ));
-  const report = await createReport(workDir);
-  const reportPath = await writeMarkdownReport(workDir, report);
+  const { reportPath } = await createReportWithHistory(workDir, {
+    manifest,
+    action: 'continue_integration',
+    status: realApply ? 'complete' : 'dry_run_complete',
+    repoPath,
+    validation,
+    result
+  });
   if (realApply) renderCompletion(terminal, result, reportPath, { manifest, workDir, repoPath });
   else {
     terminal.panel('Dry Run Complete', [['Report', reportPath, 'success']]);
@@ -1294,10 +1365,25 @@ async function runCredentialTestScreen({ terminal, config, workDir, answers, cwd
 }
 
 async function runImportHistory({ terminal, workDir }) {
+  const history = await readIntegrationHistory(workDir, { limit: 12 });
   const evidence = await readEvidence(workDir);
   const commands = evidence.filter((entry) => ['command_started', 'command_completed', 'command_failed'].includes(entry.type));
   const artifacts = evidence.filter((entry) => entry.type === 'artifact_written');
   const recentCommands = commands.slice(-12).reverse();
+  terminal.panel('Integration History', history.entries.length
+    ? history.entries.map((entry) => [
+      entry.integration_id,
+      `${labelForStatus(entry.status)} · ${labelForAction(entry.action)} · ${shortTimestamp(entry.timestamp)}`,
+      historyStatusTone(entry.status)
+    ])
+    : [['Integrations', 'No integration history recorded yet', 'warning']]);
+  terminal.panel('History Snapshots', history.entries.length
+    ? history.entries.slice(0, 8).map((entry) => [
+      entry.manifest_snapshot || 'Manifest snapshot',
+      entry.report_path || 'Report not recorded',
+      entry.report_path ? 'success' : 'warning'
+    ])
+    : [['Snapshots', 'No snapshots recorded yet', 'warning']]);
   terminal.panel('Import History', recentCommands.length
     ? recentCommands.map((entry) => [
       entry.command || entry.type,
@@ -1310,7 +1396,7 @@ async function runImportHistory({ terminal, workDir }) {
     entry.timestamp || 'recorded',
     'success'
   ]));
-  return { action: 'import_history', status: 'complete', commands: commands.length, artifacts: artifacts.length };
+  return { action: 'import_history', status: 'complete', integrations: history.total, commands: commands.length, artifacts: artifacts.length };
 }
 
 async function runLiveSandboxWizard({ terminal, answers }) {
@@ -2557,6 +2643,8 @@ function labelForStatus(status) {
   const labels = {
     complete: 'Complete',
     dry_run_complete: 'Dry Run Complete',
+    planned: 'Planned',
+    recorded: 'Recorded',
     passed: 'Passed',
     failed: 'Failed',
     blocked: 'Blocked',
@@ -2564,4 +2652,16 @@ function labelForStatus(status) {
     missing: 'Missing'
   };
   return labels[status] || labelForSetting(String(status || 'complete'));
+}
+
+function historyStatusTone(status) {
+  if (['complete', 'passed'].includes(status)) return 'success';
+  if (['failed', 'blocked'].includes(status)) return 'error';
+  if (['dry_run_complete', 'planned', 'recorded'].includes(status)) return 'warning';
+  return 'info';
+}
+
+function shortTimestamp(timestamp) {
+  if (!timestamp) return 'unknown time';
+  return String(timestamp).replace('T', ' ').replace(/\.\d{3}Z$/, 'Z');
 }
