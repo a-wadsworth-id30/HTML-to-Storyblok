@@ -18,6 +18,7 @@ export async function createReport(workDir) {
   const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
   const latestRouteHandoff = latestSummary(artifactSummaries, ['route_handoff']);
   const latestTemplateQuality = latestSummary(artifactSummaries, ['template_quality']);
+  const latestRollback = latestSummary(artifactSummaries, ['rollback', 'rollback_preview']);
   const assetIntegrity = buildAssetIntegrityDashboard(artifactSummaries);
   return {
     work_dir: workDir,
@@ -42,6 +43,7 @@ export async function createReport(workDir) {
     latest_netlify: latestNetlify,
     latest_route_handoff: latestRouteHandoff,
     latest_template_quality: latestTemplateQuality,
+    latest_rollback: latestRollback,
     asset_integrity: assetIntegrity,
     safety_confirmation: {
       plan_valid: latestValidation?.status === 'passed' || latestValidation?.valid === true,
@@ -80,6 +82,9 @@ export function renderMarkdownReport(report) {
   const latestTemplateQuality = report.latest_template_quality
     ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
     : 'not run';
+  const latestRollback = report.latest_rollback
+    ? `${report.latest_rollback.type} (${report.latest_rollback.risk_flags || 0} risk flag(s))`
+    : 'not run';
   const artifactRows = report.artifacts.length
     ? report.artifacts.map((artifact) => `- ${artifact.type}: ${artifact.artifact}`).join('\n')
     : '- None recorded';
@@ -105,6 +110,7 @@ export function renderMarkdownReport(report) {
 - Latest Netlify: ${latestNetlify}
 - Latest route handoff: ${latestRouteHandoff}
 - Latest template quality: ${latestTemplateQuality}
+- Latest rollback: ${latestRollback}
 
 ## Safety
 
@@ -146,6 +152,9 @@ export function renderHtmlReport(report) {
   const latestTemplateQuality = report.latest_template_quality
     ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
     : 'not run';
+  const latestRollback = report.latest_rollback
+    ? `${report.latest_rollback.type} (${report.latest_rollback.risk_flags || 0} risk flag(s))`
+    : 'not run';
   const assetIntegrity = report.asset_integrity || {};
   const assetIntegrityRows = (assetIntegrity.assets || [])
     .slice(0, 20)
@@ -186,6 +195,7 @@ export function renderHtmlReport(report) {
       <p><strong>Latest Storyblok management verification:</strong> ${escapeHtml(latestStoryblokManagementVerification)}</p>
       <p><strong>Latest route handoff:</strong> ${escapeHtml(latestRouteHandoff)}</p>
       <p><strong>Latest template quality:</strong> ${escapeHtml(latestTemplateQuality)}</p>
+      <p><strong>Latest rollback:</strong> ${escapeHtml(latestRollback)}</p>
       <p><strong>Commands completed:</strong> ${report.commands_completed}</p>
     </section>
     <section>
@@ -320,6 +330,12 @@ async function summarizeArtifact(artifact) {
     }
     if (name === 'route-handoff-result.json') {
       return summarizeRouteHandoff(data, artifact);
+    }
+    if (name === 'rollback-preview.json') {
+      return summarizeRollbackArtifact(data, artifact, 'rollback_preview');
+    }
+    if (name === 'rollback-result.json') {
+      return summarizeRollbackArtifact(data, artifact, 'rollback');
     }
     if (name === 'github-pr-result.json') {
       return {
@@ -523,6 +539,25 @@ function summarizeRouteHandoff(data, artifact) {
     skipped: data.summary?.skipped || 0,
     manual_handoff_routes: ensureArray(data.routes).filter((route) => route.manual_handoff).length,
     markdown_report: data.markdown_report || null
+  };
+}
+
+function summarizeRollbackArtifact(data, artifact, type) {
+  const ledger = data.rollback_ledger || {};
+  return {
+    type,
+    artifact,
+    status: data.action || type,
+    dry_run: Boolean(data.dry_run),
+    integration_id: data.integration_id || ledger.integration_id || null,
+    local_targets: ledger.local?.targets || ensureArray(data.repository_files_to_remove).length || ensureArray(data.repository_files_removed).length,
+    local_removed: ledger.local?.removed?.length || ensureArray(data.repository_files_removed).length,
+    local_missing: ledger.local?.missing?.length || ensureArray(data.repository_files_missing).length,
+    remote_targets: ledger.remote?.total_targets || 0,
+    remote_requested: Boolean(ledger.remote?.requested),
+    hash_status: ledger.local?.hash_verification?.status || data.repository_file_hash_verification?.status || 'not_run',
+    risk_flags: ensureArray(ledger.risk_flags).length,
+    risk_flag_names: ensureArray(ledger.risk_flags).slice(0, 10)
   };
 }
 

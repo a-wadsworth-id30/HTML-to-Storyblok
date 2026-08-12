@@ -179,6 +179,43 @@ test('report summarizes template quality scoring artifacts', async () => {
   assert.match(html, /Latest template quality/);
 });
 
+test('report summarizes rollback ledger artifacts', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-report-rollback-'));
+  await writeArtifact(workDir, 'rollback-preview.json', {
+    action: 'rollback_preview',
+    dry_run: true,
+    integration_id: 'acme-homepage-v1',
+    repository_files_to_remove: [
+      { path: 'src/integrations/acme-homepage-v1/template.html', owned_by_integration: true }
+    ],
+    rollback_ledger: {
+      integration_id: 'acme-homepage-v1',
+      local: {
+        targets: 1,
+        removed: [],
+        missing: [],
+        hash_verification: {
+          status: 'pending'
+        }
+      },
+      remote: {
+        requested: false,
+        total_targets: 3
+      },
+      risk_flags: ['remote_resources_not_requested']
+    }
+  });
+
+  const report = await createReport(workDir);
+  const markdown = renderMarkdownReport(report);
+
+  assert.equal(report.latest_rollback.type, 'rollback_preview');
+  assert.equal(report.latest_rollback.local_targets, 1);
+  assert.equal(report.latest_rollback.remote_targets, 3);
+  assert.equal(report.latest_rollback.risk_flags, 1);
+  assert.match(markdown, /Latest rollback: rollback_preview \(1 risk flag\(s\)\)/);
+});
+
 test('report and asset-dashboard surface asset integrity evidence', async () => {
   const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-report-assets-'));
   const assetPath = path.join(workDir, 'hero.svg');

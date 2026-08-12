@@ -20,6 +20,11 @@ test('rollbackPreview lists only integration-owned repository paths for removal'
   assert.equal(preview.policy, 'manual_confirmation_required');
   assert.ok(preview.repository_files_to_remove.length > 0);
   assert.ok(preview.repository_files_to_remove.every((entry) => entry.owned_by_integration));
+  assert.equal(preview.rollback_ledger.action, 'rollback_ledger');
+  assert.equal(preview.rollback_ledger.phase, 'preview');
+  assert.equal(preview.rollback_ledger.local.targets, preview.repository_files_to_remove.length);
+  assert.ok(preview.rollback_ledger.remote.total_targets > 0);
+  assert.ok(preview.rollback_ledger.risk_flags.includes('remote_resources_not_requested'));
 });
 
 test('rollbackIntegration removes generated local files only after integration confirmation', async () => {
@@ -49,6 +54,10 @@ test('rollbackIntegration removes generated local files only after integration c
   assert.ok(result.repository_files_removed.includes('src/integrations/acme-homepage-v1/template.html'));
   assert.deepEqual(await readdir(repoPath), ['src']);
   assert.ok(result.remote_resources_not_removed.storyblok_components.length > 0);
+  assert.equal(result.rollback_ledger.phase, 'rollback');
+  assert.equal(result.rollback_ledger.confirmation.integration_id_confirmed, true);
+  assert.equal(result.rollback_ledger.local.removed.length, result.repository_files_removed.length);
+  assert.equal(result.rollback_ledger.local.hash_verification.status, 'passed');
 });
 
 test('rollbackIntegration prunes multi-page route preview directories', async () => {
@@ -110,4 +119,5 @@ test('rollbackIntegration refuses modified generated files when hash ledger dete
 
   assert.equal(result.repository_file_hash_verification.status, 'failed');
   assert.ok(result.repository_files_removed.includes('src/integrations/acme-drift-v1/template.html'));
+  assert.ok(result.rollback_ledger.risk_flags.includes('generated_file_drift_detected'));
 });
