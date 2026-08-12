@@ -119,6 +119,28 @@ const COMMAND_GUIDES = {
     ],
     next: ['view-report', 'readiness', 'rollback-preview', 'wire-routes']
   },
+  'evidence-index': {
+    title: 'Handoff Evidence Index',
+    purpose: 'Builds a compact checklist of the exact files, links, checks, and next commands needed for client or internal sign-off.',
+    usage: [
+      'html-to-storyblok evidence-index --manifest <path> [--repo <path>]'
+    ],
+    when: [
+      'Use after apply or before a project update to show what evidence exists and what is still missing.',
+      'Use it when a reviewer does not want to inspect JSON artifacts or search through .tmp/html-to-storyblok manually.'
+    ],
+    evidence: ['Writes handoff-evidence-index.json and handoff-evidence-index.md.'],
+    safety: [
+      'Read-only apart from writing local evidence files.',
+      'It does not run checks, create routes, mutate Storyblok, publish content, or expose secrets.',
+      'It indexes existing reports, apply results, draft Storyblok editor links, route previews, rollback evidence, deployment evidence, and recommended next commands.'
+    ],
+    examples: [
+      'html-to-storyblok evidence-index --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site',
+      'html-to-storyblok handoff-index --manifest .tmp/html-to-storyblok/integration-manifest.json'
+    ],
+    next: ['handoff-pack', 'view-report', 'platform-readiness']
+  },
   'template-quality': {
     title: 'Template Quality',
     purpose: 'Scores a supplied template across route/SEO, editorial hints, assets, JavaScript safety, CSS isolation, accessibility, forms, and third-party dependencies.',

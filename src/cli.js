@@ -8,6 +8,7 @@ import { duplicateAll } from './duplicator.js';
 import { ENV_TEMPLATE, initEnvFile, loadEnvironment } from './env.js';
 import { ensureWorkDir, recordEvidence, writeArtifact, writeTextArtifact, DEFAULT_WORK_DIR } from './evidence.js';
 import { generateIntegration } from './generator.js';
+import { createHandoffEvidenceIndex, renderHandoffEvidenceIndexMarkdown } from './handoff-evidence-index.js';
 import { openDraftPullRequest } from './github.js';
 import { openDraftMergeRequest } from './gitlab.js';
 import { createProductionHandoffPack } from './handoff-pack.js';
@@ -237,6 +238,16 @@ export async function main(argv) {
         skipReadiness: Boolean(args.skip_readiness)
       });
       if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'evidence-index') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createHandoffEvidenceIndex({
+        manifest,
+        workDir,
+        repoPath: args.repo ? String(args.repo) : null
+      });
+      result.markdown_report = await writeTextArtifact(workDir, 'handoff-evidence-index.md', renderHandoffEvidenceIndexMarkdown(result));
+      await writeArtifact(workDir, 'handoff-evidence-index.json', result);
+      if (result.status === 'attention') process.exitCode = 2;
     } else if (command === 'visual-editor-readiness') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await createVisualEditorReadiness({
@@ -571,6 +582,9 @@ function normalizeCommand(command) {
     'storyblok-visual-editor': 'visual-editor-readiness',
     'production-handoff': 'handoff-pack',
     'handoff-report': 'handoff-pack',
+    'handoff-index': 'evidence-index',
+    'evidence': 'evidence-index',
+    'project-evidence': 'evidence-index',
     'asset-map': 'asset-graph',
     'route-analyzer': 'route-collisions',
     'route-analysis': 'route-collisions',
@@ -1105,6 +1119,10 @@ function renderShellCompletion(shell = 'zsh') {
     'handoff-pack',
     'production-handoff',
     'handoff-report',
+    'evidence-index',
+    'handoff-index',
+    'evidence',
+    'project-evidence',
     'visual-editor-readiness',
     've-readiness',
     'storyblok-visual-editor',
