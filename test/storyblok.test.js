@@ -3,7 +3,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, deleteStoryblokIntegrationResources, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from '../src/storyblok.js';
+import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, createStoryblokStateCache, deleteStoryblokIntegrationResources, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from '../src/storyblok.js';
 
 test('createStoryblokComponents treats matching existing components as idempotent', async () => {
   const calls = mockFetch((url, options = {}) => {
@@ -1507,6 +1507,35 @@ test('reconcileStoryblokManifest treats unavailable internal tags as present unv
   restoreFetch();
 });
 
+test('reconcileStoryblokManifest reuses cached remote management state', async () => {
+  const calls = mockFetch((url) => {
+    if (url.includes('/component_groups/')) return { component_groups: [] };
+    if (url.includes('/internal_tags/')) return { internal_tags: [] };
+    if (url.includes('/components/')) return { components: [] };
+    if (url.includes('/asset_folders/')) return { asset_folders: [] };
+    if (url.includes('/assets')) return { assets: [] };
+    if (url.includes('/presets/')) return { presets: [] };
+    if (url.includes('/stories')) return { stories: [] };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const stateCache = createStoryblokStateCache();
+  const manifest = {
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      component_groups_to_create: [{ path: 'acme-homepage-v1', name: 'acme-homepage-v1' }]
+    }
+  };
+  const firstResult = await reconcileStoryblokManifest(manifest, { env: storyblokEnv(), stateCache });
+  const secondResult = await reconcileStoryblokManifest(manifest, { env: storyblokEnv(), stateCache });
+
+  assert.equal(firstResult.status, 'incomplete');
+  assert.equal(secondResult.status, 'incomplete');
+  assert.equal(calls.filter((call) => call.url.includes('/component_groups/')).length, 1);
+  assert.equal(calls.filter((call) => call.url.includes('/stories')).length, 1);
+  restoreFetch();
+});
+
 test('inspectStoryblokSpace audit reads optional Storyblok management collections', async () => {
   mockFetch((url) => {
     if (url.endsWith('/spaces/12345')) return { space: { id: 12345, name: 'Demo' } };
@@ -1805,7 +1834,8 @@ test('verifyStoryblokManagementState hydrates story summaries before root compon
 
   assert.equal(result.status, 'passed');
   assert.equal(result.summary.failed_story_checks, 0);
-  assert.equal(calls.filter((call) => call.url.includes('/stories/99')).length, 2);
+  assert.equal(calls.filter((call) => call.url.includes('/stories/99')).length, 1);
+  assert.equal(calls.filter((call) => call.url.includes('/stories?by_slugs=')).length, 0);
   restoreFetch();
 });
 
