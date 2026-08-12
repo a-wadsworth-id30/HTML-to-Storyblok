@@ -23,6 +23,7 @@ import { createReadinessHandoff } from './readiness.js';
 import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
 import { analyzeRouteCollisions, renderRouteCollisionReport } from './route-collision-analyzer.js';
+import { createRouteHandoffChecklist, renderRouteHandoffChecklistMarkdown } from './route-handoff-checklist.js';
 import { renderRouteHandoffReport, wireRepositoryRoutes } from './route-handoff.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson, writeText } from './utils.js';
@@ -455,6 +456,15 @@ export async function main(argv) {
       result.markdown_report = await writeTextArtifact(workDir, 'route-collision-analysis-report.md', renderRouteCollisionReport(result));
       await writeArtifact(workDir, 'route-collision-analysis.json', result);
       if (result.status === 'blocked' || result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'route-checklist') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createRouteHandoffChecklist(manifest, {
+        repoPath: args.repo ? String(args.repo) : process.cwd(),
+        route: args.route ? String(args.route) : null
+      });
+      result.markdown_report = await writeTextArtifact(workDir, 'route-handoff-checklist.md', renderRouteHandoffChecklistMarkdown(result));
+      await writeArtifact(workDir, 'route-handoff-checklist.json', result);
+      if (result.status === 'blocked') process.exitCode = 2;
     } else if (command === 'wire-routes') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await wireRepositoryRoutes(manifest, {
@@ -589,6 +599,9 @@ function normalizeCommand(command) {
     'route-analyzer': 'route-collisions',
     'route-analysis': 'route-collisions',
     'route-collision-analysis': 'route-collisions',
+    'route-handoff-checklist': 'route-checklist',
+    'routing-checklist': 'route-checklist',
+    'route-guide': 'route-checklist',
     'platform-check': 'platform-readiness',
     'adapter-readiness': 'platform-readiness',
     'framework-readiness': 'platform-readiness',
@@ -1151,6 +1164,10 @@ function renderShellCompletion(shell = 'zsh') {
     'adapter-readiness',
     'framework-readiness',
     'generate',
+    'route-checklist',
+    'route-handoff-checklist',
+    'routing-checklist',
+    'route-guide',
     'wire-routes',
     'route-handoff',
     'duplicate',

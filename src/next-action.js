@@ -20,6 +20,7 @@ export function createNextActionModel({
     actionForAssetReferenceGraph(context),
     actionForPlatformReadiness(context),
     actionForRouteCollision(context),
+    actionForRouteChecklist(context),
     actionForRouteHandoff(context),
     actionForStoryblokManagement(context),
     actionForStoryblokContent(context),
@@ -70,6 +71,7 @@ function createContext({ manifest, result, report, workDir, repoPath, repository
     assetIntegrity: report?.asset_integrity || null,
     assetReferenceGraph: report?.asset_reference_graph || null,
     platformReadiness: report?.latest_platform_readiness || latestArtifact(report, ['platform_readiness']) || null,
+    routeChecklist: report?.latest_route_handoff_checklist || latestArtifact(report, ['route_handoff_checklist']) || null,
     routeCollision: report?.latest_route_collision_analysis || latestArtifact(report, ['route_collision_analysis']) || null,
     commandsFailed: ensureArray(report?.commands_failed),
     artifacts: ensureArray(report?.artifacts)
@@ -196,6 +198,48 @@ function actionForRouteCollision(context) {
     priority: 'high',
     status: 'needs_review'
   };
+}
+
+function actionForRouteChecklist(context) {
+  if (context.repositorySkipped) return null;
+  if (!hasRoutePreviews(context)) return null;
+  if (context.routeCollision?.status === 'blocked') return null;
+  const command = `html-to-storyblok route-checklist --manifest ${context.manifestPath}${context.repoPath ? ` --repo ${context.repoPath}` : ' --repo <repo-path>'}`;
+  const checklist = context.routeChecklist;
+  if (!checklist) {
+    return {
+      id: 'route-checklist',
+      label: 'Create Route Handoff Checklist',
+      reason: 'Generated route previews are available; create a per-route checklist before wiring or manually registering routes.',
+      command,
+      menu_action: 'report',
+      priority: 'medium',
+      status: 'available'
+    };
+  }
+  if (checklist.status === 'blocked') {
+    return {
+      id: 'resolve-route-checklist',
+      label: 'Resolve Route Checklist Blockers',
+      reason: `${checklist.blocked_routes || 1} route handoff checklist route(s) are blocked.`,
+      command,
+      menu_action: 'report',
+      priority: 'critical',
+      status: 'blocked'
+    };
+  }
+  if (checklist.status === 'manual_required') {
+    return {
+      id: 'review-route-checklist',
+      label: 'Review Manual Route Checklist',
+      reason: `${checklist.manual_routes || 1} route(s) require manual host-router handoff evidence.`,
+      command,
+      menu_action: 'report',
+      priority: 'medium',
+      status: 'needs_review'
+    };
+  }
+  return null;
 }
 
 function actionForPlatformReadiness(context) {

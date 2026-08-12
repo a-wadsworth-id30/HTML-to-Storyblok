@@ -108,6 +108,15 @@ const CORE_EVIDENCE = [
     command: 'html-to-storyblok route-collisions --manifest .tmp/html-to-storyblok/integration-manifest.json --repo <repo-path>'
   },
   {
+    key: 'route_handoff_checklist',
+    label: 'Route Handoff Checklist',
+    category: 'repository',
+    files: ['route-handoff-checklist.json', 'route-handoff-checklist.md'],
+    required: false,
+    any: true,
+    command: 'html-to-storyblok route-checklist --manifest .tmp/html-to-storyblok/integration-manifest.json --repo <repo-path>'
+  },
+  {
     key: 'route_handoff',
     label: 'Route Handoff',
     category: 'repository',
@@ -263,7 +272,7 @@ function buildChecklist({ report, artifacts, latestApply, draftLinks, routePrevi
     checklistItem('Storyblok Content API validation passed or skipped intentionally', safety.storyblok_content_valid, safety.storyblok_content_valid ? 'Content validation is passed or intentionally skipped.' : 'Run validate-storyblok with a preview token.', false),
     checklistItem('Asset reference graph has no unresolved story fields', safety.asset_reference_graph_valid, safety.asset_reference_graph_valid ? 'Asset graph is passed or pending.' : 'Run asset-graph and resolve unresolved story asset fields.', false),
     checklistItem('Platform readiness reviewed', Boolean(artifacts.platform_readiness || report.latest_platform_readiness), report.latest_platform_readiness?.status ? `Platform readiness status is ${report.latest_platform_readiness.status}.` : 'Run platform-readiness before exposing imported routes.', false),
-    checklistItem('Route collision and handoff reviewed', Boolean(artifacts.route_handoff || report.latest_route_handoff || artifacts.route_collision_analysis || report.latest_route_collision_analysis), routePreviews.length ? 'Route preview evidence exists; route handoff should be reviewed before live URLs are exposed.' : 'No repository route preview evidence recorded.', false),
+    checklistItem('Route collision and handoff reviewed', Boolean(artifacts.route_handoff_checklist || report.latest_route_handoff_checklist || artifacts.route_handoff || report.latest_route_handoff || artifacts.route_collision_analysis || report.latest_route_collision_analysis), routePreviews.length ? 'Route preview evidence exists; route handoff should be reviewed before live URLs are exposed.' : 'No repository route preview evidence recorded.', false),
     checklistItem('Rollback preview available', Boolean(artifacts.rollback_preview), artifacts.rollback_preview ? 'Rollback scope evidence is available.' : 'Run rollback-preview before client handoff.', true),
     checklistItem('Deployed preview or demo evidence available', Boolean(artifacts.netlify_preview || artifacts.demo_sites_live_preview || artifacts.demo_sites_e2e), 'Record deployed preview evidence once the client/site preview is online.', false),
     checklistItem('No unresolved command failures', Number(safety.unresolved_failures || 0) === 0, `${safety.unresolved_failures || 0} unresolved command failure(s) recorded.`, true)

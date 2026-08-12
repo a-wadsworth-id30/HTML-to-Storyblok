@@ -418,6 +418,28 @@ const COMMAND_GUIDES = {
     ],
     next: ['route-collisions', 'wire-routes', 'validate']
   },
+  'route-checklist': {
+    title: 'Route Handoff Checklist',
+    purpose: 'Creates per-route acceptance criteria and handoff steps for automatic and manual framework routing.',
+    usage: [
+      'html-to-storyblok route-checklist --manifest <path> --repo <path> [--route home|about|/path]'
+    ],
+    when: [
+      'Run after platform-readiness and before wire-routes or manual host-router registration.',
+      'Use this when React, Vue, or static projects need explicit router handoff instructions for client/project-owner review.'
+    ],
+    evidence: ['Writes route-handoff-checklist.json and route-handoff-checklist.md.'],
+    safety: [
+      'Read-only. It runs route handoff preview logic but does not create host route files.',
+      'It keeps Astro, Next, and Nuxt automatic route-file steps separate from React, Vue, and static manual-router steps.',
+      'It includes Content API token reminders and acceptance criteria without exposing secrets.'
+    ],
+    examples: [
+      'html-to-storyblok route-checklist --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site',
+      'html-to-storyblok route-guide --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site --route /about'
+    ],
+    next: ['wire-routes', 'evidence-index', 'demo-sites-e2e']
+  },
   'route-collisions': {
     title: 'Route Collision Analysis',
     purpose: 'Checks whether imported routes can be exposed without taking over existing host routes or being masked by Netlify rewrites.',
