@@ -1,6 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { DEFAULT_WORK_DIR } from '../src/evidence.js';
+import { buildHtmlVisualSnapshot, buildVisualBaseline, compareVisualSnapshot, visualSnapshotKey } from '../src/visual-regression.js';
 
 const DEFAULT_SITES = ['static', 'astro', 'next', 'nuxt', 'vue', 'react'];
 const DEFAULT_ROUTES = ['/', '/about', '/services', '/gallery', '/contact'];
@@ -13,8 +14,11 @@ const timeoutMs = Number(args.timeout_ms || args.timeoutMs || DEFAULT_TIMEOUT_MS
 const requireConfigured = Boolean(args.require_configured || args.requireConfigured);
 const requireStoryblokDraft = Boolean(args.require_storyblok_draft || args.requireStoryblokDraft);
 const integrationId = args.integration_id || args.integrationId || '';
+const visual = Boolean(args.visual || args.visual_regression || args.visualRegression || args.visual_baseline || args.visualBaseline);
 const urlMap = resolveConfiguredUrls(args, process.env);
 const fixtureResponses = args.fixture ? await readFixtureResponses(args.fixture) : null;
+const visualBaseline = args.visual_baseline || args.visualBaseline ? await readVisualBaseline(args.visual_baseline || args.visualBaseline) : null;
+const writeVisualBaselinePath = args.write_visual_baseline || args.writeVisualBaseline || null;
 const reportPath = args.report === false || args.report === 'false'
   ? null
   : String(args.report_path || args.reportPath || path.join(DEFAULT_WORK_DIR, 'demo-sites-live-preview-report.md'));
@@ -24,6 +28,7 @@ if (args.list) {
     action: 'test_demo_sites_live_preview',
     status: 'listed',
     routes,
+    visual,
     sites: DEFAULT_SITES.map((site) => ({
       site,
       configured: Boolean(urlMap[site]),
@@ -54,27 +59,31 @@ if (configuredSites.length === 0) {
 
 const summaries = [];
 for (const site of configuredSites) {
-  summaries.push(await testSite(site, urlMap[site], { routes, timeoutMs, requireStoryblokDraft, integrationId, fixtureResponses }));
+  summaries.push(await testSite(site, urlMap[site], { routes, timeoutMs, requireStoryblokDraft, integrationId, fixtureResponses, visual, visualBaseline }));
 }
 
 const failed = summaries.some((site) => site.status === 'failed');
+const visualSnapshots = summaries.flatMap((site) => site.routes.map((route) => route.visual_snapshot).filter(Boolean));
 const result = {
   action: 'test_demo_sites_live_preview',
   status: failed ? 'failed' : 'passed',
   require_storyblok_draft: requireStoryblokDraft,
+  visual_regression: visual,
   integration_id: integrationId || null,
   routes,
-  sites: summaries
+  sites: summaries,
+  visual_summary: summarizeVisualRegression(summaries)
 };
+if (writeVisualBaselinePath) result.visual_baseline = await writeVisualBaseline(writeVisualBaselinePath, visualSnapshots);
 if (reportPath) result.preview_report = await writeLivePreviewReport(reportPath, result);
 console.log(JSON.stringify(result, null, 2));
 
 if (failed) process.exit(1);
 
-async function testSite(site, baseUrl, { routes, timeoutMs, requireStoryblokDraft, integrationId, fixtureResponses }) {
+async function testSite(site, baseUrl, { routes, timeoutMs, requireStoryblokDraft, integrationId, fixtureResponses, visual, visualBaseline }) {
   const routeResults = [];
   for (const route of routes) {
-    routeResults.push(await testRoute(site, baseUrl, route, { timeoutMs, requireStoryblokDraft, integrationId, fixtureResponses }));
+    routeResults.push(await testRoute(site, baseUrl, route, { timeoutMs, requireStoryblokDraft, integrationId, fixtureResponses, visual, visualBaseline }));
   }
   return {
     site,
@@ -84,7 +93,7 @@ async function testSite(site, baseUrl, { routes, timeoutMs, requireStoryblokDraf
   };
 }
 
-async function testRoute(site, baseUrl, route, { timeoutMs, requireStoryblokDraft, integrationId, fixtureResponses }) {
+async function testRoute(site, baseUrl, route, { timeoutMs, requireStoryblokDraft, integrationId, fixtureResponses, visual, visualBaseline }) {
   const url = joinUrl(baseUrl, route);
   const startedAt = Date.now();
   try {
@@ -102,18 +111,24 @@ async function testRoute(site, baseUrl, route, { timeoutMs, requireStoryblokDraf
       integrationId,
       route
     });
+    const visualResult = visual
+      ? buildVisualRouteResult(text, { site, route, url, visualBaseline })
+      : null;
+    const visualFailed = visualResult && (visualResult.snapshot.status === 'failed' || visualResult.comparison?.status === 'failed');
     return {
       route,
       url,
-      status: status.status,
+      status: visualFailed ? 'failed' : status.status,
       http_status: response.status,
       html: htmlLooksValid,
       storyblok_source: marker.source,
       storyblok_slug: marker.slug,
       storyblok_draft_rendered: marker.source === 'storyblok-draft',
       generated_fallback_rendered: marker.source === 'generated-fallback',
+      visual_snapshot: visualResult?.snapshot || null,
+      visual_comparison: visualResult?.comparison || null,
       elapsed_ms: Date.now() - startedAt,
-      reason: status.reason
+      reason: visualFailed ? visualFailureReason(visualResult) : status.reason
     };
   } catch (error) {
     return {
@@ -126,10 +141,25 @@ async function testRoute(site, baseUrl, route, { timeoutMs, requireStoryblokDraf
       storyblok_slug: null,
       storyblok_draft_rendered: false,
       generated_fallback_rendered: false,
+      visual_snapshot: null,
+      visual_comparison: null,
       elapsed_ms: Date.now() - startedAt,
       reason: error.message
     };
   }
+}
+
+function buildVisualRouteResult(html, { site, route, url, visualBaseline }) {
+  const snapshot = buildHtmlVisualSnapshot(html, { site, route, url });
+  const baselineSnapshot = visualBaseline?.snapshots?.[visualSnapshotKey(site, route)];
+  const comparison = visualBaseline ? compareVisualSnapshot(snapshot, baselineSnapshot) : null;
+  return { snapshot, comparison };
+}
+
+function visualFailureReason(visualResult) {
+  if (visualResult.snapshot.status === 'failed') return `Visual snapshot failed: ${visualResult.snapshot.reason}`;
+  if (visualResult.comparison?.status === 'failed') return `Visual regression failed: ${visualResult.comparison.reason}`;
+  return null;
 }
 
 function evaluateRouteStatus({ response, htmlLooksValid, marker, requireStoryblokDraft, integrationId, route }) {
@@ -298,8 +328,11 @@ function renderLivePreviewReport(result) {
 - Action: ${result.action}
 - Status: ${result.status}
 - Storyblok draft required: ${result.require_storyblok_draft ? 'yes' : 'no'}
+- Visual regression: ${result.visual_regression ? 'yes' : 'no'}
 - Integration: ${result.integration_id || 'not supplied'}
 - Routes checked: ${ensureArray(result.routes).join(', ') || 'none'}
+- Visual snapshots: ${result.visual_summary?.snapshots || 0}
+- Visual regressions: ${result.visual_summary?.regressions || 0}
 
 ${siteSections}
 `;
@@ -307,7 +340,7 @@ ${siteSections}
 
 function renderSiteSection(site) {
   const routeRows = ensureArray(site.routes).map((route) =>
-    `- ${route.route}: ${route.status} HTTP ${route.http_status ?? 'n/a'} source=${route.storyblok_source || 'none'} slug=${route.storyblok_slug || 'none'}${route.reason ? ` reason=${route.reason}` : ''}`
+    `- ${route.route}: ${route.status} HTTP ${route.http_status ?? 'n/a'} source=${route.storyblok_source || 'none'} slug=${route.storyblok_slug || 'none'}${route.visual_snapshot ? ` visual=${route.visual_snapshot.fingerprint.slice(0, 12)}` : ''}${route.visual_comparison ? ` visual_compare=${route.visual_comparison.status}` : ''}${route.reason ? ` reason=${route.reason}` : ''}`
   ).join('\n') || '- No routes checked';
   return `## ${site.site}
 
@@ -330,6 +363,28 @@ ${required}`;
 
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
+}
+
+async function readVisualBaseline(filePath) {
+  return JSON.parse(await readFile(String(filePath), 'utf8'));
+}
+
+async function writeVisualBaseline(filePath, snapshots) {
+  await mkdir(path.dirname(String(filePath)), { recursive: true });
+  await writeFile(String(filePath), `${JSON.stringify(buildVisualBaseline(snapshots), null, 2)}\n`);
+  return String(filePath);
+}
+
+function summarizeVisualRegression(sites = []) {
+  const routes = sites.flatMap((site) => ensureArray(site.routes));
+  const snapshots = routes.map((route) => route.visual_snapshot).filter(Boolean);
+  const comparisons = routes.map((route) => route.visual_comparison).filter(Boolean);
+  return {
+    snapshots: snapshots.length,
+    failed_snapshots: snapshots.filter((snapshot) => snapshot.status === 'failed').length,
+    comparisons: comparisons.length,
+    regressions: comparisons.filter((comparison) => comparison.status === 'failed').length
+  };
 }
 
 function parseArgs(argv) {

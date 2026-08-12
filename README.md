@@ -445,6 +445,15 @@ html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-a
 
 Use `--require-configured` when CI should fail if no deployed URL is present, and use `--require-storyblok-draft --integration-id <integration-id>` after the deployed site has the Storyblok preview token configured. That stricter mode requires each imported route to return a hidden `data-hts-storyblok-source="storyblok-draft"` marker instead of silently falling back to generated static content. Non-list live checks write `.tmp/html-to-storyblok/demo-sites-live-preview-report.md` by default; pass `--report-path <file>` to write it elsewhere or `--report false` to skip the markdown report.
 
+Live preview checks can also record deterministic visual fingerprints from the rendered HTML:
+
+```sh
+html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --visual --write-visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json
+html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json
+```
+
+The visual baseline captures stable route evidence such as document title, primary and secondary headings, image sources and alt text, link targets, integration root markers, Storyblok source markers, and structural counts. It is intentionally browser-free so it can run in CI without screenshot tooling; use browser screenshots as a later design QA layer when human pixel review is required.
+
 For a single handoff gate that combines local generated-framework validation with deployed preview validation, run the end-to-end demo deployment check:
 
 ```sh
@@ -1340,6 +1349,7 @@ npm run test:demo-sites-full:list
 npm run test:demo-sites-apply
 npm run test:demo-sites-live-preview
 npm run test:demo-sites-e2e
+npm run test:visual-regression
 ```
 
 `npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, `scripts/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
@@ -1381,6 +1391,14 @@ html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-a
 HTS_DEMO_ASTRO_URL=https://your-astro-demo.netlify.app \
 npm run test:demo-sites-live-preview -- --site astro --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured
 html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured
+```
+
+To create or enforce visual baselines for deployed demo routes:
+
+```sh
+npm run test:visual-regression
+html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --visual --write-visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json
+html-to-storyblok demo-sites-e2e --site astro --astro-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-live --require-storyblok-draft --visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json
 ```
 
 To run the combined local plus deployed demo-site handoff gate:

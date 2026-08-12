@@ -6,6 +6,7 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { main } from '../src/cli.js';
+import { buildHtmlVisualSnapshot, buildVisualBaseline } from '../src/visual-regression.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -105,6 +106,74 @@ test('live demo preview runner passes when deployed routes expose Storyblok draf
   assert.equal(result.sites[0].routes[0].storyblok_draft_rendered, true);
   assert.equal(result.sites[0].routes[0].storyblok_slug, 'acme-campaign-v1/about');
   assert.match(await readFile(reportPath, 'utf8'), /\/about: passed HTTP 200 source=storyblok-draft/);
+});
+
+test('live demo preview runner writes visual baselines from rendered routes', async () => {
+  const reportRoot = await mkdtemp(path.join(os.tmpdir(), 'hts-live-preview-visual-'));
+  const baselinePath = path.join(reportRoot, 'visual-baseline.json');
+  const fixture = await writeFixture({
+    '/': '<!doctype html><html><body><span data-hts-storyblok-source="storyblok-draft" data-hts-storyblok-slug="acme-campaign-v1/home" hidden></span><main data-integration="acme-campaign-v1"><h1>Home</h1><img src="/hero.svg" alt="Hero"></main></body></html>'
+  });
+  const { stdout } = await execFileAsync('node', [
+    'scripts/test-demo-sites-live-preview.mjs',
+    '--site',
+    'astro',
+    '--base-url',
+    'https://astro-demo.example.test',
+    '--routes',
+    '/',
+    '--fixture',
+    fixture,
+    '--visual',
+    '--write-visual-baseline',
+    baselinePath
+  ], { maxBuffer: 1024 * 1024 });
+  const result = JSON.parse(stdout);
+  const baseline = JSON.parse(await readFile(baselinePath, 'utf8'));
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.visual_regression, true);
+  assert.equal(result.visual_baseline, baselinePath);
+  assert.equal(result.visual_summary.snapshots, 1);
+  assert.equal(result.sites[0].routes[0].visual_snapshot.status, 'passed');
+  assert.ok(baseline.snapshots['astro /']);
+});
+
+test('live demo preview runner fails when visual baseline drifts', async () => {
+  const reportRoot = await mkdtemp(path.join(os.tmpdir(), 'hts-live-preview-visual-drift-'));
+  const baselinePath = path.join(reportRoot, 'visual-baseline.json');
+  const baselineSnapshot = buildHtmlVisualSnapshot('<!doctype html><html><body><main data-integration="acme-campaign-v1"><h1>Home</h1><a href="/contact">Contact</a></main></body></html>', {
+    site: 'astro',
+    route: '/'
+  });
+  await writeFile(baselinePath, JSON.stringify(buildVisualBaseline([baselineSnapshot]), null, 2));
+  const fixture = await writeFixture({
+    '/': '<!doctype html><html><body><main data-integration="acme-campaign-v1"><h1>Changed Home</h1><a href="/pricing">Pricing</a></main></body></html>'
+  });
+
+  await assert.rejects(
+    execFileAsync('node', [
+      'scripts/test-demo-sites-live-preview.mjs',
+      '--site',
+      'astro',
+      '--base-url',
+      'https://astro-demo.example.test',
+      '--routes',
+      '/',
+      '--fixture',
+      fixture,
+      '--visual-baseline',
+      baselinePath
+    ], { maxBuffer: 1024 * 1024 }),
+    (error) => {
+      const result = JSON.parse(error.stdout);
+      assert.equal(result.status, 'failed');
+      assert.equal(result.visual_summary.regressions, 1);
+      assert.equal(result.sites[0].routes[0].visual_comparison.status, 'failed');
+      assert.match(result.sites[0].routes[0].reason, /Visual regression failed/);
+      return true;
+    }
+  );
 });
 
 test('live demo preview runner fails when a deployed route returns 404', async () => {

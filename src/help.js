@@ -134,23 +134,26 @@ const COMMAND_GUIDES = {
     title: 'Live Demo Site Preview',
     purpose: 'Checks deployed demo URLs and proves imported routes are rendering Storyblok draft content.',
     usage: [
-      'html-to-storyblok demo-sites-live-preview [--site astro] [--base-url <url>] [--routes /,/about] [--integration-id <id>] [--require-storyblok-draft] [--require-configured] [--report-path <file>]'
+      'html-to-storyblok demo-sites-live-preview [--site astro] [--base-url <url>] [--routes /,/about] [--integration-id <id>] [--require-storyblok-draft] [--require-configured] [--visual] [--visual-baseline <file>] [--report-path <file>]'
     ],
     when: [
-      'Use after deploying demo sites to Netlify and configuring the Storyblok preview token.'
+      'Use after deploying demo sites to Netlify and configuring the Storyblok preview token.',
+      'Use --visual to record deterministic HTML visual fingerprints, then --visual-baseline to fail route checks on unexpected rendered structure changes.'
     ],
-    evidence: ['Writes demo-sites-live-preview-result.json and a markdown evidence report by default.'],
+    evidence: ['Writes demo-sites-live-preview-result.json and a markdown evidence report by default. Use --write-visual-baseline <file> to store visual fingerprints for later comparison.'],
     safety: ['Read-only HTTP checks. It does not change Storyblok, Netlify, GitHub, or repository files.'],
     examples: [
       'html-to-storyblok demo-sites-live-preview --list',
-      'html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured'
+      'html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured',
+      'html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --visual --write-visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json',
+      'html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json'
     ]
   },
   'demo-sites-e2e': {
     title: 'End-to-End Demo Deployment',
     purpose: 'Runs the local demo matrix and deployed preview checks as one release-readiness gate.',
     usage: [
-      'html-to-storyblok demo-sites-e2e [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--require-live] [--require-storyblok-draft] [--integration-id <id>] [--report-path <file>]'
+      'html-to-storyblok demo-sites-e2e [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--require-live] [--require-storyblok-draft] [--integration-id <id>] [--visual] [--visual-baseline <file>] [--report-path <file>]'
     ],
     when: [
       'Use after Storyblok, GitHub, Netlify, and demo-site wiring are in place.',
@@ -165,7 +168,7 @@ const COMMAND_GUIDES = {
     ],
     examples: [
       'html-to-storyblok demo-sites-e2e --site astro --generated --install --smoke --require-framework --astro-url https://your-astro-demo.netlify.app --require-live',
-      'html-to-storyblok demo-sites-e2e --site astro --astro-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-live'
+      'html-to-storyblok demo-sites-e2e --site astro --astro-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-live --visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json'
     ],
     next: ['demo-sites-live-preview', 'report', 'readiness']
   },
