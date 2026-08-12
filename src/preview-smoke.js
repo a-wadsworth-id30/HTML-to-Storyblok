@@ -1,5 +1,7 @@
 const SERVER_RENDERED_GENERATED_SITES = new Set(['astro', 'next', 'nuxt']);
 const CLIENT_APP_SHELL_GENERATED_SITES = new Set(['react', 'vue']);
+const CLIENT_BUNDLE_GENERATED_SITES = new Set(['react', 'vue']);
+const GENERATED_STORY_SEED = 'Generated integration compile smoke';
 
 export function buildPreviewSmokeTargets({ baseUrl, site, generated = null } = {}) {
   const targets = [{
@@ -105,6 +107,50 @@ export function evaluatePreviewSmokeHtml(target, {
   };
 }
 
+export function buildClientBundleSmokeTarget({ site, generated = null } = {}) {
+  const normalizedSite = String(site || '').toLowerCase();
+  if (!CLIENT_BUNDLE_GENERATED_SITES.has(normalizedSite) || !generated?.integration_id) return null;
+  return {
+    name: 'client_bundle',
+    render_mode: 'client_bundle',
+    expected: {
+      integration_id: generated.integration_id,
+      generated_story_seed: generated.generated_story_seed || GENERATED_STORY_SEED
+    }
+  };
+}
+
+export function evaluateClientBundleSmokeFiles(target, files = [], { elapsedMs = 0 } = {}) {
+  if (!target) {
+    return {
+      name: 'client_bundle',
+      status: 'skipped',
+      render_mode: 'not_applicable',
+      files_scanned: 0,
+      matched_files: [],
+      elapsed_ms: elapsedMs,
+      checks: [],
+      reason: 'Client bundle evidence is only required for generated React and Vue demo previews.'
+    };
+  }
+
+  const checks = [
+    bundleTokenCheck(files, 'integration_id_in_bundle', target.expected.integration_id),
+    bundleTokenCheck(files, 'generated_story_seed_in_bundle', target.expected.generated_story_seed)
+  ];
+  const failed = checks.filter((check) => check.status === 'failed');
+  return {
+    name: target.name,
+    status: failed.length > 0 ? 'failed' : 'passed',
+    render_mode: target.render_mode,
+    files_scanned: files.length,
+    matched_files: [...new Set(checks.flatMap((check) => check.matched_files || []))],
+    elapsed_ms: elapsedMs,
+    checks,
+    reason: failed.length > 0 ? failed.map((check) => `${check.name}: expected ${check.expected}, got ${check.actual}`).join('; ') : null
+  };
+}
+
 export function joinUrl(baseUrl, route) {
   const url = new URL(normalizeRoutePath(route), `${normalizeBaseUrl(baseUrl)}/`);
   return url.toString();
@@ -126,6 +172,19 @@ function hasClientAppShell(html) {
 
 function classIntegrationId(html, expected) {
   return html.includes(`hts-${expected}-root`) ? expected : null;
+}
+
+function bundleTokenCheck(files, name, token) {
+  const matchedFiles = files
+    .filter((file) => String(file.content || '').includes(token))
+    .map((file) => file.path);
+  return {
+    name,
+    status: matchedFiles.length > 0 ? 'passed' : 'failed',
+    expected: token,
+    actual: matchedFiles.length > 0 ? matchedFiles.join(', ') : 'not found',
+    matched_files: matchedFiles
+  };
 }
 
 function normalizeBaseUrl(value) {
