@@ -376,6 +376,16 @@ npm run test:demo-sites-generated
 
 This temporarily wires a generated route proposal into each demo site, runs the real Astro, Next, Nuxt, Vue, and React framework builds, then restores the demo files. It is opt-in because it installs and runs full framework dependency trees.
 
+After demo sites are deployed, run the live preview smoke checker against their public URLs:
+
+```sh
+HTS_DEMO_ASTRO_URL=https://your-astro-demo.netlify.app \
+HTS_DEMO_NEXT_URL=https://your-next-demo.netlify.app \
+npm run test:demo-sites-live-preview
+```
+
+Use `--require-configured` when CI should fail if no deployed URL is present, and use `--require-storyblok-draft --integration-id <integration-id>` after the deployed site has the Storyblok preview token configured. That stricter mode requires each imported route to return a hidden `data-hts-storyblok-source="storyblok-draft"` marker instead of silently falling back to generated static content.
+
 ### 3. Check Storyblok access
 
 ```sh
@@ -733,7 +743,7 @@ src/integrations/<integration-id>/
 
 Route preview files use route-relative local asset paths, so a preview under `routes/home/` resolves copied template assets from the generated integration folder instead of relying on the root preview path. Dry-run and completion output now lists the generated route preview file and route proposal wrapper for each imported route. The generated `adapter-plan.json`, `INTEGRATION_GUIDE.md`, and `route-proposals/` files provide framework-specific import examples, route-to-story mappings, review-only route wrapper modules, suggested host-route file names, and required checks before wiring the import into a real route. `generate` and `apply` do not register these routes with the host application. After review, `wire-routes` can explicitly create missing Astro, Next, or Nuxt host route files from those proposals; it refuses existing host route files and writes nothing when a collision is detected. React, Vue, and static projects receive structured manual handoff guidance instead of automatic router mutation because their route registration is project-specific.
 
-Wired Astro, Next, and Nuxt route files include an optional server-side Storyblok Content API draft fetch. When `STORYBLOK_PREVIEW_TOKEN`, `STORYBLOK_PUBLIC_TOKEN`, or `STORYBLOK_DELIVERY_TOKEN` is available in the target site's runtime environment, the route attempts to fetch the generated draft story by slug with `version=draft` and passes the live story content into the imported route proposal. If no token is configured, or the Content API request fails, the route falls back to the generated preview without exposing secrets or failing the build.
+Wired Astro, Next, and Nuxt route files include an optional server-side Storyblok Content API draft fetch. When `STORYBLOK_PREVIEW_TOKEN`, `STORYBLOK_PUBLIC_TOKEN`, or `STORYBLOK_DELIVERY_TOKEN` is available in the target site's runtime environment, the route attempts to fetch the generated draft story by slug with `version=draft` and passes the live story content into the imported route proposal. If no token is configured, or the Content API request fails, the route falls back to the generated preview without exposing secrets or failing the build. Wired routes also render a hidden `data-hts-storyblok-source` marker with `storyblok-draft` or `generated-fallback`, plus the generated Storyblok slug, so deployed smoke tests can prove whether the live Content API path is active.
 
 Preview or run the safe route handoff:
 
@@ -1254,6 +1264,7 @@ npm run typecheck
 npm run security:audit
 npm test
 npm run test:demo-sites-full:list
+npm run test:demo-sites-live-preview
 ```
 
 `npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, `scripts/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
@@ -1272,6 +1283,16 @@ To also compile generated route proposal handoffs through each real framework co
 
 ```sh
 npm run test:demo-sites-generated
+```
+
+To check deployed demo sites and catch missing Netlify routes or Storyblok preview-token issues:
+
+```sh
+npm run test:demo-sites-live-preview -- --list
+HTS_DEMO_ASTRO_URL=https://your-astro-demo.netlify.app \
+npm run test:demo-sites-live-preview -- --site astro --require-configured
+HTS_DEMO_ASTRO_URL=https://your-astro-demo.netlify.app \
+npm run test:demo-sites-live-preview -- --site astro --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured
 ```
 
 To run the opt-in live Storyblok sandbox test against a disposable integration namespace:

@@ -39,6 +39,8 @@ test('wireRepositoryRoutes creates Astro host route files additively after previ
   assert.match(aboutRoute, /STORYBLOK_PREVIEW_TOKEN/);
   assert.match(aboutRoute, /const story = Astro\.props\.story \|\| await htsFetchStoryblokDraft\(\)/);
   assert.match(aboutRoute, /HTS_STORYBLOK_STORY_SLUG = "acme-campaign-v1\/about"/);
+  assert.match(aboutRoute, /data-hts-storyblok-source=\{htsStoryblokSource\}/);
+  assert.match(aboutRoute, /data-hts-storyblok-slug=\{HTS_STORYBLOK_STORY_SLUG\}/);
 });
 
 test('wireRepositoryRoutes blocks all writes when a host route already exists', async () => {
@@ -141,6 +143,8 @@ test('wireRepositoryRoutes generates live draft fetchers for Next and Nuxt route
   assert.match(nextRoute, /await htsFetchStoryblokDraft\(\)/);
   assert.match(nextRoute, /STORYBLOK_PREVIEW_TOKEN/);
   assert.match(nextRoute, /HTS_STORYBLOK_STORY_SLUG = "next-campaign-v1\/home"/);
+  assert.match(nextRoute, /data-hts-storyblok-source=\{htsStoryblokSource\}/);
+  assert.match(nextRoute, /data-hts-storyblok-slug=\{HTS_STORYBLOK_STORY_SLUG\}/);
 
   const nuxtRepoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-route-handoff-nuxt-'));
   const nuxtManifest = await createIntegrationPlan({
@@ -160,6 +164,8 @@ test('wireRepositoryRoutes generates live draft fetchers for Next and Nuxt route
   assert.match(nuxtRoute, /if \(import\.meta\.client\) return null/);
   assert.match(nuxtRoute, /STORYBLOK_PREVIEW_TOKEN/);
   assert.match(nuxtRoute, /HTS_STORYBLOK_STORY_SLUG = "nuxt-campaign-v1\/services"/);
+  assert.match(nuxtRoute, /:data-hts-storyblok-source="story \? 'storyblok-draft' : 'generated-fallback'"/);
+  assert.match(nuxtRoute, /:data-hts-storyblok-slug="HTS_STORYBLOK_STORY_SLUG"/);
 });
 
 test('wireRepositoryRoutes gives manual handoff guidance for React and Vue routes', async () => {
