@@ -155,6 +155,30 @@ test('report summarizes route handoff evidence artifacts', async () => {
   assert.match(markdown, /Latest route handoff: skipped/);
 });
 
+test('report summarizes template quality scoring artifacts', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-report-quality-'));
+  await writeArtifact(workDir, 'template-quality.json', {
+    status: 'review_required',
+    score: 72,
+    grade: 'C',
+    categories: [
+      { id: 'editorial_model', score: 35 }
+    ],
+    risks: [
+      { id: 'editorial_model', score: 35 }
+    ]
+  });
+
+  const report = await createReport(workDir);
+  const markdown = renderMarkdownReport(report);
+  const html = renderHtmlReport(report);
+
+  assert.equal(report.latest_template_quality.score, 72);
+  assert.equal(report.latest_template_quality.grade, 'C');
+  assert.match(markdown, /Latest template quality: C \(72\/100\)/);
+  assert.match(html, /Latest template quality/);
+});
+
 test('report and asset-dashboard surface asset integrity evidence', async () => {
   const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-report-assets-'));
   const assetPath = path.join(workDir, 'hero.svg');

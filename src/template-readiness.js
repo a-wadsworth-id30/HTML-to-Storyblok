@@ -160,6 +160,7 @@ export function assessTemplateReadiness(inventory = {}) {
   const errors = checks.filter((check) => check.status === 'failed');
   const warnings = checks.filter((check) => check.status === 'warning');
   const score = readinessScore({ errors: errors.length, warnings: warnings.length, pages: summary.pages });
+  const qualityProfile = buildTemplateQualityProfile(inventory, summary);
   const status = errors.length > 0 ? 'failed' : warnings.length > 0 ? 'warning' : 'passed';
 
   return {
@@ -167,6 +168,9 @@ export function assessTemplateReadiness(inventory = {}) {
     status,
     readiness_level: status === 'failed' ? 'blocked' : status === 'warning' ? 'needs_review' : 'ready',
     score,
+    quality_score: qualityProfile.score,
+    quality_grade: qualityProfile.grade,
+    quality_profile: qualityProfile,
     summary,
     checks,
     blockers: errors.map(readinessIssue),
@@ -213,6 +217,149 @@ function addCheck(checks, check) {
 function readinessScore({ errors, warnings, pages }) {
   if (pages === 0) return 0;
   return Math.max(0, 100 - (errors * ERROR_DEDUCTION) - (warnings * WARNING_DEDUCTION));
+}
+
+function buildTemplateQualityProfile(inventory, summary) {
+  const categories = [
+    qualityCategory({
+      id: 'route_seo',
+      label: 'Route and SEO Readiness',
+      weight: 16,
+      score: ratioScore(summary.pages, summary.missing_titles + summary.pages_without_h1, 35),
+      evidence: [
+        `${summary.pages} page(s)`,
+        `${summary.missing_titles} missing title(s)`,
+        `${summary.pages_without_h1} page(s) without H1`
+      ],
+      recommendation: 'Provide a title and one clear H1 for every route before importing.'
+    }),
+    qualityCategory({
+      id: 'editorial_model',
+      label: 'Editorial Model Signals',
+      weight: 18,
+      score: Math.min(100, Math.round((summary.field_hints / Math.max(1, summary.pages * 3)) * 100)),
+      evidence: [`${summary.field_hints} explicit editable field hint(s)`],
+      recommendation: 'Add data-hts-field hints to key headings, rich text, images, links, forms, and repeated items.'
+    }),
+    qualityCategory({
+      id: 'asset_health',
+      label: 'Asset Health',
+      weight: 16,
+      score: Math.max(0, 100 - (summary.missing_assets * 30)),
+      evidence: [
+        `${summary.assets} asset(s) discovered`,
+        `${summary.missing_assets} missing local asset reference(s)`
+      ],
+      recommendation: 'Include all local images, media, CSS assets, JavaScript files, and fonts inside the template folder.'
+    }),
+    qualityCategory({
+      id: 'javascript_safety',
+      label: 'JavaScript Safety',
+      weight: 12,
+      score: Math.max(0, 100 - (summary.unsafe_script_patterns * 40) - (summary.inline_handlers * 12)),
+      evidence: [
+        `${summary.scripts} script(s)`,
+        `${summary.unsafe_script_patterns} unsafe pattern(s)`,
+        `${summary.inline_handlers} inline handler(s)`
+      ],
+      recommendation: 'Move behaviour into reviewed integration modules and remove unsafe DOM execution patterns.'
+    }),
+    qualityCategory({
+      id: 'css_isolation',
+      label: 'CSS Isolation Readiness',
+      weight: 10,
+      score: Math.max(0, 100 - (summary.global_css_selectors * 12)),
+      evidence: [`${summary.global_css_selectors} risky global selector(s)`],
+      recommendation: 'Prefer class-scoped CSS and avoid broad html/body/root/global selectors.'
+    }),
+    qualityCategory({
+      id: 'accessibility',
+      label: 'Accessibility Signals',
+      weight: 12,
+      score: Math.max(0, 100 - (summary.accessibility_issues * 15)),
+      evidence: [`${summary.accessibility_issues} static accessibility issue(s)`],
+      recommendation: 'Resolve image alt text, labels, empty links, and heading structure before client review.'
+    }),
+    qualityCategory({
+      id: 'forms',
+      label: 'Form Production Readiness',
+      weight: 8,
+      score: summary.forms === 0 ? 100 : Math.max(45, 85 - (summary.external_form_actions * 25)),
+      evidence: [
+        `${summary.forms} form(s)`,
+        `${summary.external_form_actions} external action(s)`
+      ],
+      recommendation: 'Confirm form endpoints, validation, consent, CRM routing, and spam protection.'
+    }),
+    qualityCategory({
+      id: 'third_party_dependencies',
+      label: 'Third-Party Dependency Review',
+      weight: 8,
+      score: Math.max(0, 100 - (summary.external_urls * 4) - (summary.external_scripts * 15) - (summary.fonts * 8)),
+      evidence: [
+        `${summary.external_urls} third-party URL(s)`,
+        `${summary.external_scripts} external script(s)`,
+        `${summary.fonts} local font file(s)`
+      ],
+      recommendation: 'Document approved analytics, embeds, external scripts, font licences, and vendor dependencies.'
+    })
+  ];
+  const score = weightedScore(categories);
+  const risks = categories.filter((category) => category.score < 75);
+  const strengths = categories.filter((category) => category.score >= 90).map((category) => category.label);
+  return {
+    score,
+    grade: qualityGrade(score),
+    status: score >= 90 ? 'excellent' : score >= 75 ? 'good' : score >= 60 ? 'review_required' : 'blocked',
+    categories,
+    strengths,
+    risks: risks.map((category) => ({
+      id: category.id,
+      label: category.label,
+      score: category.score,
+      grade: category.grade,
+      recommendation: category.recommendation,
+      evidence: category.evidence
+    })),
+    recommended_actions: risks.map((category) => category.recommendation).slice(0, 5)
+  };
+}
+
+function qualityCategory({ id, label, weight, score, evidence, recommendation }) {
+  const normalizedScore = clampScore(score);
+  return {
+    id,
+    label,
+    weight,
+    score: normalizedScore,
+    grade: qualityGrade(normalizedScore),
+    status: normalizedScore >= 90 ? 'excellent' : normalizedScore >= 75 ? 'good' : normalizedScore >= 60 ? 'review_required' : 'weak',
+    evidence,
+    recommendation
+  };
+}
+
+function ratioScore(total, issues, deductionPerIssue) {
+  if (total === 0) return 0;
+  return Math.max(0, 100 - (issues * deductionPerIssue));
+}
+
+function weightedScore(categories) {
+  const totalWeight = categories.reduce((total, category) => total + category.weight, 0);
+  if (totalWeight === 0) return 0;
+  return clampScore(categories.reduce((total, category) => total + (category.score * category.weight), 0) / totalWeight);
+}
+
+function clampScore(value) {
+  return Math.max(0, Math.min(100, Math.round(Number(value) || 0)));
+}
+
+function qualityGrade(score) {
+  if (score >= 90) return 'A';
+  if (score >= 80) return 'B';
+  if (score >= 70) return 'C';
+  if (score >= 60) return 'D';
+  return 'F';
 }
 
 function readinessIssue(check) {

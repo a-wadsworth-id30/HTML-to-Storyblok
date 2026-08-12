@@ -74,6 +74,22 @@ const COMMAND_GUIDES = {
       'html-to-storyblok handoff --manifest .tmp/html-to-storyblok/integration-manifest.json --remote --require-storyblok'
     ]
   },
+  'template-quality': {
+    title: 'Template Quality',
+    purpose: 'Scores a supplied template across route/SEO, editorial hints, assets, JavaScript safety, CSS isolation, accessibility, forms, and third-party dependencies.',
+    usage: ['html-to-storyblok template-quality --template <path> [--minimum-score 75]'],
+    when: [
+      'Use before planning when design or content teams need a clear handoff score.',
+      'Use --minimum-score in CI or agency intake checks when low-quality templates should stop the workflow.'
+    ],
+    evidence: ['Writes template-inventory.json and template-quality.json under the work directory.'],
+    safety: ['Read-only. It does not modify the template, repository, or Storyblok.'],
+    examples: [
+      'html-to-storyblok template-quality --template templates/acme-campaign',
+      'html-to-storyblok template-quality --template templates/acme-campaign --minimum-score 75'
+    ],
+    next: ['template-readiness', 'plan', 'readiness']
+  },
   'visual-editor-readiness': {
     title: 'Visual Editor Readiness',
     purpose: 'Checks whether an imported integration is ready for Storyblok Visual Editor preview and handoff.',
