@@ -2185,6 +2185,7 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
     ]);
   } else if (section === 'routes') {
     const handoff = [...report.artifacts].reverse().find((artifact) => artifact.type === 'route_handoff');
+    const collision = report.latest_route_collision_analysis || handoff || null;
     terminal.panel('Route Handoff', handoff ? [
       ['Status', handoff.status || 'recorded', handoff.status === 'blocked' ? 'error' : handoff.status === 'skipped' ? 'warning' : 'success'],
       ['Routes Checked', handoff.total_routes || 0, handoff.total_routes ? 'success' : 'warning'],
@@ -2194,6 +2195,14 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
       ['Manual Handoff', handoff.manual_handoff_routes || 0, handoff.manual_handoff_routes ? 'warning' : 'success'],
       ['Report', handoff.markdown_report || 'Not written', handoff.markdown_report ? 'success' : 'warning']
     ] : [['Route Handoff', 'No route handoff artifact recorded', 'warning']]);
+    terminal.panel('Route Collision Analysis', [
+      ['Status', collision?.route_collision_status || collision?.status || 'Not run', (collision?.route_collision_status || collision?.status) === 'blocked' ? 'error' : (collision?.route_collision_status || collision?.status) === 'passed' ? 'success' : 'warning'],
+      ['Blocked Routes', collision?.route_collision_blocked ?? collision?.blocked ?? 0, (collision?.route_collision_blocked ?? collision?.blocked ?? 0) ? 'error' : 'success'],
+      ['Warnings', collision?.route_collision_warnings ?? collision?.warnings ?? 0, (collision?.route_collision_warnings ?? collision?.warnings ?? 0) ? 'warning' : 'success'],
+      ['Exact File Collisions', collision?.exact_route_file_collisions || 0, collision?.exact_route_file_collisions ? 'error' : 'success'],
+      ['Dynamic Overlaps', collision?.dynamic_route_overlaps || 0, collision?.dynamic_route_overlaps ? 'error' : 'success'],
+      ['Rewrite Overlaps', collision?.rewrite_overlaps || 0, collision?.rewrite_overlaps ? 'warning' : 'success']
+    ]);
   } else if (section === 'rollback') {
     const manifest = report.artifacts.find((artifact) => artifact.type === 'integration_manifest');
     const rollback = report.latest_rollback;

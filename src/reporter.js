@@ -19,6 +19,7 @@ export async function createReport(workDir) {
   const latestStoryblokManagementVerification = latestSummary(artifactSummaries, ['storyblok_management_verification']);
   const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
   const latestRouteHandoff = latestSummary(artifactSummaries, ['route_handoff']);
+  const latestRouteCollisionAnalysis = latestSummary(artifactSummaries, ['route_collision_analysis']);
   const latestClientReviewGate = latestSummary(artifactSummaries, ['client_review_gate']);
   const latestRemoteTransactionLedger = latestSummary(artifactSummaries, ['remote_transaction_ledger']);
   const latestTemplateQuality = latestSummary(artifactSummaries, ['template_quality']);
@@ -47,6 +48,7 @@ export async function createReport(workDir) {
     latest_storyblok_management_verification: latestStoryblokManagementVerification,
     latest_netlify: latestNetlify,
     latest_route_handoff: latestRouteHandoff,
+    latest_route_collision_analysis: latestRouteCollisionAnalysis,
     latest_client_review_gate: latestClientReviewGate,
     latest_remote_transaction_ledger: latestRemoteTransactionLedger,
     latest_template_quality: latestTemplateQuality,
@@ -60,6 +62,7 @@ export async function createReport(workDir) {
       asset_integrity_valid: assetIntegrity.status === 'passed' || assetIntegrity.status === 'pending',
       asset_reference_graph_valid: assetReferenceGraph.status === 'passed' || assetReferenceGraph.status === 'pending',
       client_review_ready: !latestClientReviewGate || latestClientReviewGate.status !== 'failed',
+      route_collision_safe: !latestRouteCollisionAnalysis || latestRouteCollisionAnalysis.status !== 'blocked',
       remote_transaction_ledger_valid: !latestRemoteTransactionLedger || latestRemoteTransactionLedger.status !== 'failed',
       deploy_preview_verified: latestNetlify?.status === 'passed',
       command_argument_redaction: 'token-like argument keys are redacted in evidence',
@@ -92,6 +95,7 @@ export function renderMarkdownReport(report) {
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestNetlify = report.latest_netlify?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
+  const latestRouteCollisionAnalysis = report.latest_route_collision_analysis?.status || 'not run';
   const latestClientReviewGate = report.latest_client_review_gate?.status || 'not run';
   const latestRemoteTransactionLedger = report.latest_remote_transaction_ledger?.status || 'not run';
   const latestTemplateQuality = report.latest_template_quality
@@ -126,6 +130,7 @@ export function renderMarkdownReport(report) {
 - Latest Storyblok management verification: ${latestStoryblokManagementVerification}
 - Latest Netlify: ${latestNetlify}
 - Latest route handoff: ${latestRouteHandoff}
+- Latest route collision analysis: ${latestRouteCollisionAnalysis}
 - Latest client review gate: ${latestClientReviewGate}
 - Latest remote transaction ledger: ${latestRemoteTransactionLedger}
 - Latest template quality: ${latestTemplateQuality}
@@ -139,6 +144,7 @@ export function renderMarkdownReport(report) {
 - Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}
 - Asset reference graph valid: ${report.safety_confirmation.asset_reference_graph_valid ? 'yes' : 'no'}
 - Client review ready: ${report.safety_confirmation.client_review_ready ? 'yes' : 'no'}
+- Route collision safe: ${report.safety_confirmation.route_collision_safe ? 'yes' : 'no'}
 - Remote transaction ledger valid: ${report.safety_confirmation.remote_transaction_ledger_valid ? 'yes' : 'no'}
 - Deploy preview verified: ${report.safety_confirmation.deploy_preview_verified ? 'yes' : 'no'}
 - Unresolved failures: ${report.safety_confirmation.unresolved_failures}
@@ -177,6 +183,7 @@ export function renderHtmlReport(report) {
   const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
+  const latestRouteCollisionAnalysis = report.latest_route_collision_analysis?.status || 'not run';
   const latestClientReviewGate = report.latest_client_review_gate?.status || 'not run';
   const latestRemoteTransactionLedger = report.latest_remote_transaction_ledger?.status || 'not run';
   const latestTemplateQuality = report.latest_template_quality
@@ -232,6 +239,7 @@ export function renderHtmlReport(report) {
       <p><strong>Latest Storyblok validation:</strong> ${escapeHtml(latestStoryblokValidation)}</p>
       <p><strong>Latest Storyblok management verification:</strong> ${escapeHtml(latestStoryblokManagementVerification)}</p>
       <p><strong>Latest route handoff:</strong> ${escapeHtml(latestRouteHandoff)}</p>
+      <p><strong>Latest route collision analysis:</strong> ${escapeHtml(latestRouteCollisionAnalysis)}</p>
       <p><strong>Latest client review gate:</strong> ${escapeHtml(latestClientReviewGate)}</p>
       <p><strong>Latest remote transaction ledger:</strong> ${escapeHtml(latestRemoteTransactionLedger)}</p>
       <p><strong>Latest template quality:</strong> ${escapeHtml(latestTemplateQuality)}</p>
@@ -386,6 +394,9 @@ async function summarizeArtifact(artifact) {
     }
     if (name === 'route-handoff-result.json') {
       return summarizeRouteHandoff(data, artifact);
+    }
+    if (name === 'route-collision-analysis.json' || name.endsWith('route-collision-analysis.json')) {
+      return summarizeRouteCollisionAnalysis(data, artifact);
     }
     if (name === 'client-review-gate.json' || name.endsWith('client-review-gate.json')) {
       return summarizeClientReviewGate(data, artifact);
@@ -604,6 +615,27 @@ function summarizeRouteHandoff(data, artifact) {
     blocked: data.summary?.blocked || 0,
     skipped: data.summary?.skipped || 0,
     manual_handoff_routes: ensureArray(data.routes).filter((route) => route.manual_handoff).length,
+    route_collision_status: data.route_collision_analysis?.status || null,
+    route_collision_blocked: data.route_collision_analysis?.summary?.blocked || 0,
+    route_collision_warnings: data.route_collision_analysis?.summary?.warnings || 0,
+    markdown_report: data.markdown_report || null
+  };
+}
+
+function summarizeRouteCollisionAnalysis(data, artifact) {
+  return {
+    type: 'route_collision_analysis',
+    artifact,
+    status: data.status || 'recorded',
+    framework: data.framework || null,
+    total_routes: data.summary?.routes || ensureArray(data.routes).length,
+    blocked: data.summary?.blocked || 0,
+    warnings: data.summary?.warnings || 0,
+    exact_route_file_collisions: data.summary?.exact_route_file_collisions || 0,
+    dynamic_route_overlaps: data.summary?.dynamic_route_overlaps || 0,
+    rewrite_overlaps: data.summary?.rewrite_overlaps || 0,
+    existing_route_files: data.summary?.existing_route_files || 0,
+    rewrite_rules: data.summary?.rewrite_rules || 0,
     markdown_report: data.markdown_report || null
   };
 }

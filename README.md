@@ -862,20 +862,26 @@ src/integrations/<integration-id>/
       page.astro | page.jsx | Page.vue | route.js
 ```
 
-Route preview files use route-relative local asset paths, so a preview under `routes/home/` resolves copied template assets from the generated integration folder instead of relying on the root preview path. Dry-run and completion output now lists the generated route preview file and route proposal wrapper for each imported route. The generated `adapter-plan.json`, `INTEGRATION_GUIDE.md`, and `route-proposals/` files provide framework-specific import examples, route-to-story mappings, review-only route wrapper modules, suggested host-route file names, and required checks before wiring the import into a real route. `generate` and `apply` do not register these routes with the host application. After review, `wire-routes` can explicitly create missing Astro, Next, or Nuxt host route files from those proposals; it refuses existing host route files and writes nothing when a collision is detected. React, Vue, and static projects receive structured manual handoff guidance instead of automatic router mutation because their route registration is project-specific.
+Route preview files use route-relative local asset paths, so a preview under `routes/home/` resolves copied template assets from the generated integration folder instead of relying on the root preview path. Dry-run and completion output now lists the generated route preview file and route proposal wrapper for each imported route. The generated `adapter-plan.json`, `INTEGRATION_GUIDE.md`, and `route-proposals/` files provide framework-specific import examples, route-to-story mappings, review-only route wrapper modules, suggested host-route file names, and required checks before wiring the import into a real route. `generate` and `apply` do not register these routes with the host application. After review, `wire-routes` can explicitly create missing Astro, Next, or Nuxt host route files from those proposals; it refuses existing host route files, existing dynamic route overlaps, duplicate imported paths, and unsafe host route targets, then writes nothing when a collision is detected. React, Vue, and static projects receive structured manual handoff guidance instead of automatic router mutation because their route registration is project-specific.
 
 Wired Astro, Next, and Nuxt route files include an optional server-side Storyblok Content API draft fetch. When `STORYBLOK_PREVIEW_TOKEN`, `STORYBLOK_PUBLIC_TOKEN`, or `STORYBLOK_DELIVERY_TOKEN` is available in the target site's runtime environment, the route attempts to fetch the generated draft story by slug with `version=draft` and passes the live story content into the imported route proposal. If no token is configured, or the Content API request fails, the route falls back to the generated preview without exposing secrets or failing the build. Wired routes also render a hidden `data-hts-storyblok-source` marker with `storyblok-draft` or `generated-fallback`, plus the generated Storyblok slug, so deployed smoke tests can prove whether the live Content API path is active.
 
 Preview or run the safe route handoff:
 
 ```sh
+html-to-storyblok route-collisions \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site
+
 html-to-storyblok wire-routes \
   --manifest .tmp/html-to-storyblok/integration-manifest.json \
   --repo ../client-site \
   --dry-run
 ```
 
-Omit `--dry-run` only after reviewing the generated route proposal wrappers and running repository validation. The command is additive-only: it creates new host route files such as `src/pages/about.astro`, `src/app/about/page.jsx`, or `pages/about.vue` only when they do not already exist. Every CLI run writes `.tmp/html-to-storyblok/route-handoff-report.md` alongside `route-handoff-result.json`, covering route status, suggested host files, Storyblok draft slugs, SEO fallback evidence, manual handoff instructions, and required checks. Generic React/Vue router projects and static templates are reported as manual-review targets because route registration depends on the host router configuration. For those projects, `wire-routes` returns the generated route proposal file, suggested site path, Storyblok draft slug, safe Content API reminder, React Router/Vue Router/custom-shell integration options, and host-router registration steps.
+`route-collisions` is read-only. It writes `.tmp/html-to-storyblok/route-collision-analysis.json` and `.tmp/html-to-storyblok/route-collision-analysis-report.md`, scanning Astro, Next, Nuxt, and common `pages`/`app` route files, duplicate planned imported paths, dynamic/catch-all route overlaps, and Netlify `_redirects` / `netlify.toml` rewrite rules. Exact route files, dynamic route overlaps, duplicate imported paths, and unsafe host route targets block automatic wiring. Netlify rewrite/redirect overlaps are warnings because they may mask deployed routes even though the CLI does not edit Netlify configuration.
+
+Omit `--dry-run` only after reviewing the generated route proposal wrappers, route collision analysis, and repository validation. The command is additive-only: it creates new host route files such as `src/pages/about.astro`, `src/app/about/page.jsx`, or `pages/about.vue` only when they do not already exist and no analyzer blocker is present. Every CLI run writes `.tmp/html-to-storyblok/route-handoff-report.md` alongside `route-handoff-result.json`, covering route status, suggested host files, Storyblok draft slugs, SEO fallback evidence, collision analysis, manual handoff instructions, and required checks. Generic React/Vue router projects and static templates are reported as manual-review targets because route registration depends on the host router configuration. For those projects, `wire-routes` returns the generated route proposal file, suggested site path, Storyblok draft slug, safe Content API reminder, React Router/Vue Router/custom-shell integration options, and host-router registration steps.
 
 Supported framework output modes are:
 
@@ -1291,6 +1297,7 @@ html-to-storyblok client-review --manifest <path> --repo <path> [--host-checks l
 html-to-storyblok validate --manifest <path> --repo <path>
 html-to-storyblok build --repo <path> [--script build] [--dry-run]
 html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+html-to-storyblok route-collisions --manifest <path> --repo <path> [--route home|about|/path]
 html-to-storyblok wire-routes --manifest <path> --repo <path> [--route home|about|/path] [--dry-run]
 html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
 html-to-storyblok storyblok-component-groups --manifest <path> [--dry-run]
@@ -1311,7 +1318,7 @@ html-to-storyblok asset-dashboard
 html-to-storyblok asset-graph
 ```
 
-Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`; `asset-map` is an alias for `asset-graph`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
+Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `route-analyzer`, `route-analysis`, and `route-collision-analysis` are aliases for `route-collisions`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`; `asset-map` is an alias for `asset-graph`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
 
 ## Policy
 

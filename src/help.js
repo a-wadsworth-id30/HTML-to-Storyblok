@@ -365,12 +365,35 @@ const COMMAND_GUIDES = {
       'html-to-storyblok repository-preflight --manifest <path> --repo <path>',
       'html-to-storyblok apply --manifest <path> --repo <path> --dry-run',
       'html-to-storyblok apply --manifest <path> --repo <path>',
+      'html-to-storyblok route-collisions --manifest <path> --repo <path>',
       'html-to-storyblok wire-routes --manifest <path> --repo <path> --dry-run'
     ],
     when: ['Use this after Storyblok apply is stable and the target site is ready for local integration testing.'],
     evidence: ['Preflight, apply, validation, and route handoff each write separate artifacts.'],
     safety: ['The CLI creates isolated files under the integration namespace and blocks existing route/file collisions.'],
     examples: ['html-to-storyblok help repository']
+  },
+  'route-collisions': {
+    title: 'Route Collision Analysis',
+    purpose: 'Checks whether imported routes can be exposed without taking over existing host routes or being masked by Netlify rewrites.',
+    usage: [
+      'html-to-storyblok route-collisions --manifest <path> --repo <path> [--route home|about|/path]'
+    ],
+    when: [
+      'Run after generate/apply has written the adapter plan and before wire-routes creates host route files.',
+      'Use --route to isolate one imported path while debugging a collision.'
+    ],
+    evidence: ['Writes route-collision-analysis.json and route-collision-analysis-report.md.'],
+    safety: [
+      'Read-only. It does not create host route files or edit Netlify configuration.',
+      'Exact host route files and dynamic route overlaps block automatic route wiring.',
+      'Netlify redirect and rewrite overlaps are warnings because they may mask the imported route at deploy time.'
+    ],
+    examples: [
+      'html-to-storyblok route-collisions --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site',
+      'html-to-storyblok route-collisions --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site --route /about'
+    ],
+    next: ['wire-routes', 'validate']
   }
 };
 
