@@ -10,6 +10,7 @@ import { DEFAULT_WORK_DIR, ensureWorkDir, readEvidence, writeArtifact } from './
 import { createProductionHandoffPack } from './handoff-pack.js';
 import { readIntegrationHistory, recordIntegrationHistory } from './history.js';
 import { inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
+import { createNextActionModel } from './next-action.js';
 import { createIntegrationPlan } from './planner.js';
 import { storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
 import { createReport, writeHtmlReport, writeMarkdownReport } from './reporter.js';
@@ -753,7 +754,7 @@ async function continueInteractiveSession({ terminal, args, config, workDir, ans
 
 async function handleNextAction({ terminal, args, result, answers, workDir }) {
   while (true) {
-    const next = await chooseNextAction({ terminal, result, answers });
+    const next = await chooseNextAction({ terminal, result, answers, workDir });
     if (next === 'validate') {
       const validation = await runPostActionValidation({ terminal, result, workDir });
       result.validation = validation.plan_validation || result.validation;
@@ -768,9 +769,21 @@ async function handleNextAction({ terminal, args, result, answers, workDir }) {
   }
 }
 
-async function chooseNextAction({ terminal, result, answers }) {
-  renderPostActionCheckpoint(terminal, result);
+async function chooseNextAction({ terminal, result, answers, workDir }) {
+  const report = await createSafeNextActionReport(workDir);
+  const nextActions = createNextActionModel({
+    manifest: result?.manifest || null,
+    result,
+    report,
+    workDir,
+    repoPath: result?.repo_path || null,
+    repositorySkipped: result?.repository_skipped
+  });
+  renderPostActionCheckpoint(terminal, result, nextActions);
   const choices = [
+    ...(nextActions.primary?.menu_action && !['home', 'exit'].includes(nextActions.primary.menu_action)
+      ? [{ label: `${nextActions.primary.label} (Recommended)`, value: nextActions.primary.menu_action }]
+      : []),
     { label: 'Return to Main Menu', value: 'home' },
     ...(canRunPostActionValidation(result) ? [{ label: 'Run Validation Check', value: 'validate' }] : []),
     ...(result?.report ? [{ label: 'View Latest Report', value: 'report' }] : []),
@@ -783,6 +796,14 @@ async function chooseNextAction({ terminal, result, answers }) {
     answers
   });
   return choice || 'home';
+}
+
+async function createSafeNextActionReport(workDir) {
+  try {
+    return await createReport(workDir);
+  } catch {
+    return null;
+  }
 }
 
 async function runPostActionValidation({ terminal, result, workDir }) {
@@ -830,7 +851,7 @@ function canRunPostActionValidation(result) {
   return Boolean(result?.manifest || result?.validation || result?.status === 'complete' || result?.status === 'dry_run_complete');
 }
 
-function renderPostActionCheckpoint(terminal, result) {
+function renderPostActionCheckpoint(terminal, result, nextActions = null) {
   if (!result || result.action === 'exit') return;
   const validation = result.local_validation || result.validation;
   const status = result.status || 'complete';
@@ -841,6 +862,18 @@ function renderPostActionCheckpoint(terminal, result) {
     ['Local Validation', validation?.status || 'Available on request', validation?.status === 'passed' ? 'success' : validation?.status === 'failed' ? 'error' : 'warning'],
     ...(result.report ? [['Report', result.report, 'success']] : [])
   ]);
+  if (nextActions?.actions?.length) {
+    terminal.panel('Recommended Next Actions', nextActions.actions.slice(0, 4).map((action) => [
+      action.label,
+      action.reason,
+      action.priority === 'critical' ? 'error' : action.priority === 'high' ? 'warning' : 'info'
+    ]));
+    terminal.panel('Suggested Commands', nextActions.actions.slice(0, 3).map((action) => [
+      action.label,
+      action.command || 'Open the interactive menu',
+      action.priority === 'critical' ? 'error' : action.priority === 'high' ? 'warning' : 'success'
+    ]));
+  }
 }
 
 async function runCreateIntegration({ terminal, args, config, workDir, answers, cwd }) {

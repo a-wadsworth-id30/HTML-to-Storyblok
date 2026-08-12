@@ -1,6 +1,7 @@
 import path from 'node:path';
 import { buildAssetIntegrityDashboard, renderAssetIntegrityMarkdown, summarizeManifestAssets } from './asset-integrity.js';
 import { readEvidence } from './evidence.js';
+import { createNextActionModel } from './next-action.js';
 import { readJson, writeText } from './utils.js';
 
 export async function createReport(workDir) {
@@ -20,7 +21,7 @@ export async function createReport(workDir) {
   const latestTemplateQuality = latestSummary(artifactSummaries, ['template_quality']);
   const latestRollback = latestSummary(artifactSummaries, ['rollback', 'rollback_preview']);
   const assetIntegrity = buildAssetIntegrityDashboard(artifactSummaries);
-  return {
+  const report = {
     work_dir: workDir,
     evidence_entries: evidence.length,
     commands_started: evidence.filter((entry) => entry.type === 'command_started').length,
@@ -55,6 +56,8 @@ export async function createReport(workDir) {
       unresolved_failures: failed.length
     }
   };
+  report.next_actions = createNextActionModel({ report, workDir });
+  return report;
 }
 
 export async function writeMarkdownReport(workDir, report = null) {
@@ -96,6 +99,7 @@ export function renderMarkdownReport(report) {
     .join('\n') || '- None';
   const storyblokManagementRows = storyblokManagementVerificationRows(report).join('\n');
   const assetIntegrityMarkdown = renderAssetIntegrityMarkdown(report.asset_integrity);
+  const nextActionRows = renderNextActionRows(report);
 
   return `# HTML-to-Storyblok Report
 
@@ -123,6 +127,10 @@ export function renderMarkdownReport(report) {
 - Secret handling: ${report.safety_confirmation.command_argument_redaction}
 
 ${assetIntegrityMarkdown}
+
+## Recommended Next Actions
+
+${nextActionRows}
 
 ## Artifacts
 
@@ -163,6 +171,9 @@ export function renderHtmlReport(report) {
   const storyblokManagementRows = storyblokManagementVerificationRows(report)
     .map((row) => `<li>${escapeHtml(row.replace(/^- /, ''))}</li>`)
     .join('\n') || '<li>Not run</li>';
+  const nextActionRows = ensureArray(report.next_actions?.actions)
+    .map((action) => `<li><strong>${escapeHtml(action.label)}</strong>: ${escapeHtml(action.reason)} <code>${escapeHtml(action.command || '')}</code></li>`)
+    .join('\n') || '<li>No recommended action recorded.</li>';
   const artifactRows = report.artifacts.map((artifact) => `<tr><td>${escapeHtml(artifact.type)}</td><td>${escapeHtml(artifact.status || 'recorded')}</td><td><code>${escapeHtml(artifact.artifact)}</code></td></tr>`).join('\n') ||
     '<tr><td colspan="3">None recorded</td></tr>';
   const failureRows = report.commands_failed.map((failure) => `<li><strong>${escapeHtml(failure.command)}</strong>: ${escapeHtml(failure.message)}</li>`).join('\n') ||
@@ -216,6 +227,10 @@ export function renderHtmlReport(report) {
         <thead><tr><th>Asset</th><th>Source</th><th>Upload</th><th>ID</th></tr></thead>
         <tbody>${assetIntegrityRows}</tbody>
       </table>
+    </section>
+    <section>
+      <h2>Recommended Next Actions</h2>
+      <ul>${nextActionRows}</ul>
     </section>
     <section>
       <h2>Storyblok Management Verification</h2>
@@ -511,6 +526,7 @@ function summarizeStoryblokApplyResult(data, artifact, name) {
     presets_created_or_reused: presetResults.length,
     assets_created_or_reused: assetResults.length,
     draft_stories_created_or_reused: draftResults.length,
+    route_previews: steps.flatMap((step) => ensureArray(step?.route_previews)).length,
     asset_results: assetResults.map((asset) => ({
       status: asset.status || (asset.dry_run ? 'dry_run' : 'recorded'),
       dry_run: Boolean(asset.dry_run),
@@ -570,6 +586,15 @@ function duplicationSkippedCandidates(report) {
     .filter((artifact) => artifact.type === 'integration_manifest')
     .flatMap((artifact) => artifact.duplication_inference?.skipped_candidates || [])
     .slice(0, 10);
+}
+
+function renderNextActionRows(report) {
+  const actions = ensureArray(report.next_actions?.actions);
+  if (actions.length === 0) return '- None recorded';
+  return actions
+    .slice(0, 8)
+    .map((action) => `- ${action.label}: ${action.reason}${action.command ? `\n  \`${action.command}\`` : ''}`)
+    .join('\n');
 }
 
 function storyblokManagementVerificationRows(report) {
