@@ -3,6 +3,13 @@ import path from 'node:path';
 import { ensureArray, pathExists, readJson, writeText } from './utils.js';
 
 const SUPPORTED_FRAMEWORKS = new Set(['astro', 'next', 'nuxt']);
+const STORYBLOK_CONTENT_BASE_URLS = {
+  eu: 'https://api.storyblok.com/v2/cdn',
+  us: 'https://api-us.storyblok.com/v2/cdn',
+  ca: 'https://api-ca.storyblok.com/v2/cdn',
+  ap: 'https://api-ap.storyblok.com/v2/cdn',
+  cn: 'https://app.storyblokchina.cn/v2/cdn'
+};
 
 export async function wireRepositoryRoutes(manifest, {
   repoPath = process.cwd(),
@@ -71,6 +78,7 @@ async function planRouteHandoff(root, plan, route, { dryRun }) {
     route_proposal_file: proposalFile || null,
     host_route_file: hostRouteFile || null,
     registration_policy: 'manual_review_required',
+    content_source: 'storyblok_content_api_optional',
     host_routes_modified: false
   };
 
@@ -196,7 +204,9 @@ function renderAstroHostRoute(plan, entry) {
 // ${routeHeader(plan, entry).replaceAll('\n', '\n// ')}
 import ImportedRoute from '${entry.import_path}';
 
-const story = Astro.props.story || null;
+${renderStoryblokContentHelpers(entry.storyblok_slug)}
+
+const story = Astro.props.story || await htsFetchStoryblokDraft();
 const blok = Astro.props.blok || story?.content || {};
 ---
 
@@ -208,8 +218,13 @@ function renderNextHostRoute(plan, entry) {
   return `// ${routeHeader(plan, entry).replaceAll('\n', '\n// ')}
 import ImportedRoute from '${entry.import_path}';
 
-export default function HtsImportedRoutePage() {
-  return <ImportedRoute />;
+export const dynamic = 'force-dynamic';
+
+${renderStoryblokContentHelpers(entry.storyblok_slug)}
+
+export default async function HtsImportedRoutePage() {
+  const story = await htsFetchStoryblokDraft();
+  return <ImportedRoute story={story} blok={story?.content || null} />;
 }
 `;
 }
@@ -218,12 +233,60 @@ function renderNuxtHostRoute(plan, entry) {
   return `<script setup>
 // ${routeHeader(plan, entry).replaceAll('\n', '\n// ')}
 import ImportedRoute from '${entry.import_path}';
+
+${renderStoryblokContentHelpers(entry.storyblok_slug, { clientGuard: true })}
+
+const { data: story } = await useAsyncData('hts-${safeIdentifier(entry.slug)}-storyblok-draft', () => htsFetchStoryblokDraft(), {
+  server: true
+});
 </script>
 
 <template>
-  <ImportedRoute />
+  <ImportedRoute :story="story" :blok="story?.content || null" />
 </template>
 `;
+}
+
+function renderStoryblokContentHelpers(storyblokSlug, { clientGuard = false } = {}) {
+  return `const HTS_STORYBLOK_CONTENT_BASE_URLS = Object.freeze(${JSON.stringify(STORYBLOK_CONTENT_BASE_URLS, null, 2)});
+const HTS_STORYBLOK_STORY_SLUG = ${JSON.stringify(storyblokSlug)};
+
+async function htsFetchStoryblokDraft() {
+  ${clientGuard ? 'if (import.meta.client) return null;\n  ' : ''}const token = htsStoryblokContentToken();
+  if (!token) return null;
+  const env = htsStoryblokEnvironment();
+  const region = String(env.STORYBLOK_REGION || 'eu').toLowerCase();
+  const baseUrl = HTS_STORYBLOK_CONTENT_BASE_URLS[region] || HTS_STORYBLOK_CONTENT_BASE_URLS.eu;
+  const url = new URL(\`\${baseUrl}/stories/\${HTS_STORYBLOK_STORY_SLUG}\`);
+  url.searchParams.set('version', env.STORYBLOK_CONTENT_VERSION || 'draft');
+  url.searchParams.set('token', token);
+
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'application/json' },
+      cache: 'no-store'
+    });
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data.story || null;
+  } catch {
+    return null;
+  }
+}
+
+function htsStoryblokContentToken() {
+  const env = htsStoryblokEnvironment();
+  return env.STORYBLOK_PREVIEW_TOKEN || env.STORYBLOK_PUBLIC_TOKEN || env.STORYBLOK_DELIVERY_TOKEN || '';
+}
+
+function htsStoryblokEnvironment() {
+  return typeof process !== 'undefined' && process.env ? process.env : {};
+}`;
+}
+
+function safeIdentifier(value) {
+  const identifier = String(value || 'route').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+  return identifier || 'route';
 }
 
 function summarizeRouteHandoff(routes) {
