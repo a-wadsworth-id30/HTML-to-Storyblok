@@ -7,6 +7,7 @@ import { discoverRepositories, discoverTemplates, isRepository } from './discove
 import { createDoctorReport } from './doctor.js';
 import { cloneEnvironment, loadEnvironment, setEnvironmentSource } from './env.js';
 import { DEFAULT_WORK_DIR, ensureWorkDir, readEvidence, writeArtifact } from './evidence.js';
+import { createProductionHandoffPack } from './handoff-pack.js';
 import { readIntegrationHistory, recordIntegrationHistory } from './history.js';
 import { inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { createIntegrationPlan } from './planner.js';
@@ -433,6 +434,7 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
         { label: 'Review Template', value: 'template' },
         { label: 'Test Credentials', value: 'credentials' },
         { label: 'Generate Report', value: 'report' },
+        { label: 'Generate Handoff Pack', value: 'handoff-pack' },
         { label: 'Import History', value: 'history' },
         { label: 'Live Sandbox Test', value: 'sandbox' },
         { label: 'Settings', value: 'settings' },
@@ -502,6 +504,7 @@ async function runHomeAction(action, context) {
   if (action === 'template') return runReviewTemplate({ terminal, config, workDir, answers, cwd });
   if (action === 'credentials') return runCredentialTestScreen({ terminal, config, workDir, answers, cwd });
   if (action === 'report') return runReportViewer({ args: { ...args, work_dir: workDir }, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
+  if (action === 'handoff-pack') return runProductionHandoffScreen({ terminal, config, workDir, cwd });
   if (action === 'history') return runImportHistory({ terminal, workDir });
   if (action === 'sandbox') return runLiveSandboxWizard({ terminal, answers });
   if (action === 'settings') return runSettings({ args, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
@@ -553,6 +556,26 @@ async function runOnboardingScreen({ terminal, config, workDir, cwd }) {
   return { action: 'onboarding', status: guide.status, guide };
 }
 
+async function runProductionHandoffScreen({ terminal, config, workDir, cwd }) {
+  const manifest = await readOptionalJson(path.join(workDir, MANIFEST_NAME));
+  if (!manifest) throw new Error(`missing integration manifest at ${path.join(workDir, MANIFEST_NAME)}`);
+  const session = await loadEnvironment({
+    cwd,
+    repoPath: config.default_repository || null,
+    config
+  });
+  const pack = await terminal.task('Create Handoff Pack', async () => createProductionHandoffPack({
+    manifest,
+    repoPath: config.default_repository || null,
+    templatePath: manifest.template?.source_path || null,
+    workDir,
+    cwd,
+    env: session.env
+  }));
+  renderProductionHandoffSummary(terminal, pack);
+  return { action: 'handoff_pack', status: pack.status, pack, report: pack.markdown_report };
+}
+
 function renderOnboardingGuide(terminal, guide, {
   compact = false,
   title = 'First-Time Setup Guide'
@@ -588,6 +611,29 @@ function renderOnboardingGuide(terminal, guide, {
     ]);
   }
   terminal.panel('Next Steps', guide.next_steps.map((step, index) => `${index + 1}. ${step}`));
+}
+
+function renderProductionHandoffSummary(terminal, pack) {
+  terminal.header('Production Handoff Pack', 'Review-ready evidence bundle');
+  terminal.panel('Summary', [
+    ['Integration', pack.integration_id, 'success'],
+    ['Status', labelForStatus(pack.status), pack.status === 'passed' ? 'success' : pack.status === 'failed' ? 'error' : 'warning'],
+    ['Draft Stories', pack.summary.draft_stories, pack.summary.draft_stories ? 'success' : 'warning'],
+    ['Components', pack.summary.storyblok_components, pack.summary.storyblok_components ? 'success' : 'warning'],
+    ['Assets', pack.summary.storyblok_assets, pack.summary.storyblok_assets ? 'success' : 'warning'],
+    ['Readiness', pack.summary.readiness_status, pack.summary.readiness_status === 'failed' ? 'error' : pack.summary.readiness_status === 'passed' ? 'success' : 'warning'],
+    ['Asset Integrity', pack.summary.asset_integrity, pack.summary.asset_integrity === 'failed' ? 'error' : pack.summary.asset_integrity === 'passed' ? 'success' : 'warning']
+  ]);
+  terminal.panel('Outputs', [
+    ['Markdown', pack.markdown_report, 'success'],
+    ['JSON', pack.json_report, 'success'],
+    ['Latest Report', pack.review_links.latest_report, 'success'],
+    ['Rollback Preview', pack.rollback.preview_command, 'warning']
+  ]);
+  if (pack.review_links.storyblok_drafts.length > 0) {
+    terminal.panel('Draft Story Links', pack.review_links.storyblok_drafts.slice(0, 6).map((entry) => [entry.slug, entry.editor_url, 'success']));
+  }
+  terminal.panel('Next Actions', pack.next_actions.slice(0, 6).map((action, index) => `${index + 1}. ${action}`));
 }
 
 async function runFailureRecovery({ terminal, args, config, workDir, answers, cwd, action, error, retry }) {

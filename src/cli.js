@@ -9,6 +9,7 @@ import { ensureWorkDir, recordEvidence, writeArtifact, writeTextArtifact, DEFAUL
 import { generateIntegration } from './generator.js';
 import { openDraftPullRequest } from './github.js';
 import { openDraftMergeRequest } from './gitlab.js';
+import { createProductionHandoffPack } from './handoff-pack.js';
 import { helpTopicNames, renderHelpTopic } from './help.js';
 import { readIntegrationHistory, recordIntegrationHistory } from './history.js';
 import { runDashboard, runDoctorCommand, runInteractiveApp, runOnboardingCommand, runReportViewer, runSettings } from './interactive.js';
@@ -218,6 +219,20 @@ export async function main(argv) {
         requireRepository: Boolean(args.require_repository)
       });
       await writeArtifact(workDir, 'readiness-result.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'handoff-pack') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createProductionHandoffPack({
+        manifest,
+        repoPath: args.repo ? String(args.repo) : null,
+        templatePath: args.template ? String(args.template) : manifest.template?.source_path || null,
+        workDir,
+        env,
+        remote: Boolean(args.remote),
+        requireStoryblok: Boolean(args.require_storyblok),
+        requireRepository: Boolean(args.require_repository),
+        skipReadiness: Boolean(args.skip_readiness)
+      });
       if (result.status === 'failed') process.exitCode = 2;
     } else if (command === 'visual-editor-readiness') {
       const manifest = await readAndValidateManifest(args, workDir);
@@ -515,6 +530,8 @@ function normalizeCommand(command) {
     'e2e-demo-sites': 'demo-sites-e2e',
     've-readiness': 'visual-editor-readiness',
     'storyblok-visual-editor': 'visual-editor-readiness',
+    'production-handoff': 'handoff-pack',
+    'handoff-report': 'handoff-pack',
     handoff: 'readiness',
     examples: 'examples'
   };
@@ -1039,6 +1056,9 @@ function renderShellCompletion(shell = 'zsh') {
     'netlify-preview',
     'readiness',
     'handoff',
+    'handoff-pack',
+    'production-handoff',
+    'handoff-report',
     'visual-editor-readiness',
     've-readiness',
     'storyblok-visual-editor',
@@ -1102,6 +1122,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--write-visual-baseline',
     '--require-storyblok',
     '--require-repository',
+    '--skip-readiness',
     '--require-preview-url',
     '--integration-id',
     '--fixture',
@@ -1203,6 +1224,7 @@ Usage:
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
   html-to-storyblok readiness --manifest <path> [--repo <path>] [--template <path>] [--remote] [--require-storyblok] [--require-repository]
+  html-to-storyblok handoff-pack --manifest <path> [--repo <path>] [--template <path>] [--remote] [--skip-readiness]
   html-to-storyblok visual-editor-readiness --manifest <path> [--repo <path>] [--preview-url <https-url>] [--require-preview-url]
   html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--template <path>] [--schema-overrides <json>] [--repo <path>] [--infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
