@@ -164,10 +164,19 @@ Credential handling:
 Run environment and project readiness checks:
 
 ```sh
-html-to-storyblok doctor
+html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]
+html-to-storyblok doctor --for storyblok-only
+html-to-storyblok doctor --for full-import
+html-to-storyblok doctor --for netlify-preview
+html-to-storyblok doctor --for repo-only
 ```
 
-The doctor checks Node.js, npm, Git, optional Netlify CLI availability for log snapshots, Storyblok credentials, Netlify credentials, GitHub/GitLab credentials, required folders, and repository health, then prints actionable fixes for warnings or failures.
+The default doctor checks Node.js, npm, Git, optional Netlify CLI availability for log snapshots, Storyblok credentials, Netlify credentials, GitHub/GitLab credentials, required folders, and repository health, then prints actionable fixes for warnings or failures. Use `--for` to run a task-aware profile so optional services do not look like blockers when they are unrelated to the current workflow:
+
+- `storyblok-only`: Node, npm, template folder, required Management API credentials, and optional Content API credentials.
+- `full-import`: Node, npm, Git, template folder, repository health, required Management API credentials, and optional Content API credentials.
+- `netlify-preview`: Node, npm, Git, repository health, Netlify credentials, and optional Netlify CLI support.
+- `repo-only`: Node, npm, Git, template folder, and repository health only.
 
 Open the interactive report viewer:
 

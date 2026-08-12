@@ -608,6 +608,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--version',
     '--config',
     '--profile',
+    '--for',
     '--set',
     '--init',
     '--print',
@@ -648,7 +649,7 @@ Usage:
   html-to-storyblok dashboard
   html-to-storyblok settings [--show] [--set key=value]
   html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
-  html-to-storyblok doctor
+  html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]
   html-to-storyblok view-report
   html-to-storyblok completion [--shell zsh|bash|fish]
   html-to-storyblok inspect-template --template <path>
