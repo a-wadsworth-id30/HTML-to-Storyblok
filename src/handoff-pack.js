@@ -191,6 +191,7 @@ function buildStoryblokHandoff({ manifest, latestApply, artifacts, report }) {
   const draftLinks = collectDraftEditorLinks(latestApply);
   const verification = artifacts.storyblok_management_verification || report.latest_storyblok_management_verification || null;
   const contentValidation = artifacts.storyblok_content_validation || report.latest_storyblok_validation || null;
+  const transactionLedger = artifacts.remote_transaction_ledger || artifacts.storyblok_remote_transaction_ledger || report.latest_remote_transaction_ledger || null;
   return {
     folder: manifest.storyblok?.story_folder || manifest.integration_id,
     component_groups: count(manifest.storyblok?.component_groups_to_create),
@@ -216,6 +217,14 @@ function buildStoryblokHandoff({ manifest, latestApply, artifacts, report }) {
         failed_story_checks: verification.summary?.failed_story_checks || verification.failed_story_checks || 0,
         unresolved_generated_story_links: verification.summary?.unresolved_generated_story_links || verification.unresolved_generated_story_links || 0,
         unresolved_asset_fields: verification.summary?.unresolved_asset_fields || verification.unresolved_asset_fields || 0
+      }
+      : null,
+    remote_transaction_ledger: transactionLedger
+      ? {
+        status: transactionLedger.status || 'recorded',
+        transactions: transactionLedger.transaction_count || transactionLedger.summary?.total || 0,
+        remote_mutations: transactionLedger.safety?.remote_mutations || transactionLedger.remote_mutations || 0,
+        rollback_allowed: transactionLedger.summary?.rollback_allowed || transactionLedger.rollback_allowed || 0
       }
       : null
   };
@@ -393,6 +402,7 @@ function renderStoryblokMarkdown(storyblok) {
 - Assets: ${storyblok.assets}
 - Content validation: ${storyblok.content_validation?.status || 'not_run'}
 - Management verification: ${storyblok.management_verification?.status || 'not_run'}
+- Remote transaction ledger: ${storyblok.remote_transaction_ledger?.status || 'not_run'} (${storyblok.remote_transaction_ledger?.transactions || 0} transaction(s), ${storyblok.remote_transaction_ledger?.rollback_allowed || 0} rollback target(s))
 
 Draft editor links:
 ${links}`;
@@ -448,6 +458,8 @@ async function readHandoffArtifacts(workDir) {
     storyblok_management_verification: await readOptionalJson(path.join(workDir, 'storyblok-management-verification.json')),
     netlify_preview: await readOptionalJson(path.join(workDir, 'netlify-preview.json')),
     route_handoff: await readOptionalJson(path.join(workDir, 'route-handoff-result.json')),
+    remote_transaction_ledger: await readOptionalJson(path.join(workDir, 'remote-transaction-ledger.json')),
+    storyblok_remote_transaction_ledger: await readOptionalJson(path.join(workDir, 'storyblok-remote-transaction-ledger.json')),
     rollback_preview: await readOptionalJson(path.join(workDir, 'rollback-preview.json')),
     readiness_result: await readOptionalJson(path.join(workDir, 'readiness-result.json')),
     demo_sites_live_preview: await readOptionalJson(path.join(workDir, 'demo-sites-live-preview-result.json')),

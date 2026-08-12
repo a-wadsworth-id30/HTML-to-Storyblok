@@ -13,6 +13,7 @@ import { inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from 
 import { createNextActionModel } from './next-action.js';
 import { createIntegrationPlan } from './planner.js';
 import { storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
+import { createRemoteTransactionLedger } from './remote-transaction-ledger.js';
 import { createReport, writeHtmlReport, writeMarkdownReport } from './reporter.js';
 import { createRecoveryAdvice, renderRecoveryAssistant, renderRecoveryDetails } from './recovery-advice.js';
 import { createRollbackPreview } from './rollback.js';
@@ -2511,6 +2512,7 @@ function renderCompletion(terminal, result, reportPath, { manifest = null, workD
   terminal.panel('Report', [
     ['Path', reportPath, 'success']
   ]);
+  renderRemoteTransactionSummary(terminal, result, manifest);
   renderWhatChanged(terminal, result, { repositorySkipped: false });
   const draftLinks = collectDraftEditorLinks(result);
   if (draftLinks.length > 0) {
@@ -2544,6 +2546,7 @@ function renderStoryblokOnlyCompletion(terminal, result, reportPath, { manifest 
   terminal.panel('Report', [
     ['Path', reportPath, 'success']
   ]);
+  renderRemoteTransactionSummary(terminal, result, manifest);
   renderWhatChanged(terminal, result, { repositorySkipped: true });
   const draftLinks = collectDraftEditorLinks(result);
   if (draftLinks.length > 0) {
@@ -2555,6 +2558,21 @@ function renderStoryblokOnlyCompletion(terminal, result, reportPath, { manifest 
     reportPath,
     repositorySkipped: true
   });
+}
+
+function renderRemoteTransactionSummary(terminal, result, manifest = null) {
+  if (!manifest || !Array.isArray(result?.steps)) return;
+  const ledger = createRemoteTransactionLedger(manifest, {
+    steps: result.steps,
+    dryRun: Boolean(result.dry_run),
+    workflow: result.repository_skipped ? 'storyblok_only_apply' : 'apply_manifest'
+  });
+  terminal.panel('Remote Transaction Ledger', [
+    ['Transactions', ledger.transaction_count, ledger.transaction_count ? 'success' : 'warning'],
+    ['Created/Updated', ledger.safety.remote_mutations, ledger.safety.remote_mutations ? 'success' : 'warning'],
+    ['Reused/Verified', ledger.safety.reused_or_verified, ledger.safety.reused_or_verified ? 'success' : 'info'],
+    ['Rollback Targets', ledger.summary.rollback_allowed, ledger.summary.rollback_allowed ? 'warning' : 'success']
+  ]);
 }
 
 function renderWhatChanged(terminal, result, { repositorySkipped = false } = {}) {

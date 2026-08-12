@@ -19,6 +19,7 @@ export async function createReport(workDir) {
   const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
   const latestRouteHandoff = latestSummary(artifactSummaries, ['route_handoff']);
   const latestClientReviewGate = latestSummary(artifactSummaries, ['client_review_gate']);
+  const latestRemoteTransactionLedger = latestSummary(artifactSummaries, ['remote_transaction_ledger']);
   const latestTemplateQuality = latestSummary(artifactSummaries, ['template_quality']);
   const latestRollback = latestSummary(artifactSummaries, ['rollback', 'rollback_preview']);
   const assetIntegrity = buildAssetIntegrityDashboard(artifactSummaries);
@@ -45,6 +46,7 @@ export async function createReport(workDir) {
     latest_netlify: latestNetlify,
     latest_route_handoff: latestRouteHandoff,
     latest_client_review_gate: latestClientReviewGate,
+    latest_remote_transaction_ledger: latestRemoteTransactionLedger,
     latest_template_quality: latestTemplateQuality,
     latest_rollback: latestRollback,
     asset_integrity: assetIntegrity,
@@ -54,6 +56,7 @@ export async function createReport(workDir) {
       storyblok_management_valid: latestStoryblokManagementVerification?.status === 'passed' || latestStoryblokManagementVerification?.status === 'skipped',
       asset_integrity_valid: assetIntegrity.status === 'passed' || assetIntegrity.status === 'pending',
       client_review_ready: !latestClientReviewGate || latestClientReviewGate.status !== 'failed',
+      remote_transaction_ledger_valid: !latestRemoteTransactionLedger || latestRemoteTransactionLedger.status !== 'failed',
       deploy_preview_verified: latestNetlify?.status === 'passed',
       command_argument_redaction: 'token-like argument keys are redacted in evidence',
       unresolved_failures: failed.length
@@ -86,6 +89,7 @@ export function renderMarkdownReport(report) {
   const latestNetlify = report.latest_netlify?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
   const latestClientReviewGate = report.latest_client_review_gate?.status || 'not run';
+  const latestRemoteTransactionLedger = report.latest_remote_transaction_ledger?.status || 'not run';
   const latestTemplateQuality = report.latest_template_quality
     ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
     : 'not run';
@@ -118,6 +122,7 @@ export function renderMarkdownReport(report) {
 - Latest Netlify: ${latestNetlify}
 - Latest route handoff: ${latestRouteHandoff}
 - Latest client review gate: ${latestClientReviewGate}
+- Latest remote transaction ledger: ${latestRemoteTransactionLedger}
 - Latest template quality: ${latestTemplateQuality}
 - Latest rollback: ${latestRollback}
 
@@ -128,6 +133,7 @@ export function renderMarkdownReport(report) {
 - Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}
 - Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}
 - Client review ready: ${report.safety_confirmation.client_review_ready ? 'yes' : 'no'}
+- Remote transaction ledger valid: ${report.safety_confirmation.remote_transaction_ledger_valid ? 'yes' : 'no'}
 - Deploy preview verified: ${report.safety_confirmation.deploy_preview_verified ? 'yes' : 'no'}
 - Unresolved failures: ${report.safety_confirmation.unresolved_failures}
 - Secret handling: ${report.safety_confirmation.command_argument_redaction}
@@ -164,6 +170,7 @@ export function renderHtmlReport(report) {
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
   const latestClientReviewGate = report.latest_client_review_gate?.status || 'not run';
+  const latestRemoteTransactionLedger = report.latest_remote_transaction_ledger?.status || 'not run';
   const latestTemplateQuality = report.latest_template_quality
     ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
     : 'not run';
@@ -213,6 +220,7 @@ export function renderHtmlReport(report) {
       <p><strong>Latest Storyblok management verification:</strong> ${escapeHtml(latestStoryblokManagementVerification)}</p>
       <p><strong>Latest route handoff:</strong> ${escapeHtml(latestRouteHandoff)}</p>
       <p><strong>Latest client review gate:</strong> ${escapeHtml(latestClientReviewGate)}</p>
+      <p><strong>Latest remote transaction ledger:</strong> ${escapeHtml(latestRemoteTransactionLedger)}</p>
       <p><strong>Latest template quality:</strong> ${escapeHtml(latestTemplateQuality)}</p>
       <p><strong>Latest rollback:</strong> ${escapeHtml(latestRollback)}</p>
       <p><strong>Commands completed:</strong> ${report.commands_completed}</p>
@@ -225,6 +233,7 @@ export function renderHtmlReport(report) {
         <li class="${report.safety_confirmation.storyblok_management_valid ? 'ok' : 'warn'}">Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.asset_integrity_valid ? 'ok' : 'warn'}">Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.client_review_ready ? 'ok' : 'warn'}">Client review ready: ${report.safety_confirmation.client_review_ready ? 'yes' : 'no'}</li>
+        <li class="${report.safety_confirmation.remote_transaction_ledger_valid ? 'ok' : 'warn'}">Remote transaction ledger valid: ${report.safety_confirmation.remote_transaction_ledger_valid ? 'yes' : 'no'}</li>
         <li>Secret handling: ${escapeHtml(report.safety_confirmation.command_argument_redaction)}</li>
       </ul>
     </section>
@@ -357,6 +366,9 @@ async function summarizeArtifact(artifact) {
     }
     if (name === 'client-review-gate.json' || name.endsWith('client-review-gate.json')) {
       return summarizeClientReviewGate(data, artifact);
+    }
+    if (name === 'remote-transaction-ledger.json' || name.endsWith('remote-transaction-ledger.json')) {
+      return summarizeRemoteTransactionLedger(data, artifact);
     }
     if (name === 'rollback-preview.json') {
       return summarizeRollbackArtifact(data, artifact, 'rollback_preview');
@@ -584,6 +596,28 @@ function summarizeClientReviewGate(data, artifact) {
     planned_repository_assets: ensureArray(data.diff?.repository_assets).length,
     route_handoff_status: data.route_handoff_preview?.status || 'not_run',
     host_scripts_available: ensureArray(data.host_scripts).filter((script) => script.command).length
+  };
+}
+
+function summarizeRemoteTransactionLedger(data, artifact) {
+  const summary = data.summary || {};
+  const rollbackScope = data.rollback_scope || {};
+  return {
+    type: 'remote_transaction_ledger',
+    artifact,
+    status: data.status || (data.safety?.unnamespaced_resources > 0 || data.safety?.published_stories > 0 ? 'failed' : 'recorded'),
+    workflow: data.workflow || null,
+    dry_run: Boolean(data.dry_run),
+    transaction_count: data.transaction_count || ensureArray(data.transactions).length,
+    created: summary.created || 0,
+    already_exists: summary.already_exists || 0,
+    updated_link_metadata: summary.updated_link_metadata || 0,
+    skipped_optional: summary.skipped_optional || 0,
+    rollback_allowed: summary.rollback_allowed || 0,
+    remote_mutations: data.safety?.remote_mutations || 0,
+    published_stories: data.safety?.published_stories || 0,
+    unnamespaced_resources: data.safety?.unnamespaced_resources || 0,
+    rollback_scope: Object.fromEntries(Object.entries(rollbackScope).map(([key, value]) => [key, ensureArray(value).length]))
   };
 }
 
