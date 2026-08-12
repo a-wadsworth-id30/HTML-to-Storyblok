@@ -98,6 +98,13 @@ export async function main(argv) {
       await writeArtifact(workDir, 'demo-sites-validation-result.json', result);
       if (demoSitesResultFailed(result)) process.exitCode = 2;
       printJson = Boolean(args.json_summary);
+    } else if (command === 'demo-sites-live-preview') {
+      result = await runLiveDemoPreviewValidation(args, {
+        silent: Boolean(args.json_summary)
+      });
+      await writeArtifact(workDir, 'demo-sites-live-preview-result.json', result);
+      if (demoSitesResultFailed(result)) process.exitCode = 2;
+      printJson = Boolean(args.json_summary);
     } else if (command === 'completion') {
       console.log(renderShellCompletion(args.shell ? String(args.shell) : 'zsh'));
       result = { action: 'completion', shell: args.shell ? String(args.shell) : 'zsh' };
@@ -454,6 +461,7 @@ function normalizeCommand(command) {
     'sb-validate': 'validate-storyblok',
     'sb-apply': 'storyblok-apply',
     'route-handoff': 'wire-routes',
+    'live-demo-sites': 'demo-sites-live-preview',
     examples: 'examples'
   };
   return aliases[command] || command;
@@ -476,7 +484,7 @@ function redactMessage(message) {
 
 function errorCodeFor(error, command) {
   const message = String(error?.message || error || '');
-  if (command === 'demo-sites') return 'HTS_DEMO_SITES_VALIDATION';
+  if (command === 'demo-sites' || command === 'demo-sites-live-preview') return 'HTS_DEMO_SITES_VALIDATION';
   if (/credential|token|space id|Management API/i.test(message)) return 'HTS_STORYBLOK_CREDENTIALS';
   if (/manifest failed|additive-only|Policy|violations/i.test(message)) return 'HTS_POLICY_VALIDATION';
   if (/Storyblok .* failed with 429|rate limit/i.test(message)) return 'HTS_STORYBLOK_RATE_LIMIT';
@@ -503,12 +511,14 @@ function summarizeCommandResult(command, result) {
     summary.failed_sites = result.sites.filter((site) => site.status === 'failed').length;
     summary.preview_report = result.preview_report || undefined;
   }
-  if (Array.isArray(result?.routes)) {
+  if (Array.isArray(result?.routes) && result.routes.every((route) => route && typeof route === 'object')) {
     summary.routes = result.routes.length;
     summary.blocked_routes = result.routes.filter((entry) => entry.status === 'blocked').length;
     summary.created_routes = result.routes.filter((entry) => entry.status === 'created').length;
     summary.would_create_routes = result.routes.filter((entry) => entry.status === 'would_create').length;
     summary.manual_handoff_routes = result.routes.filter((entry) => entry.manual_handoff).length;
+  } else if (Array.isArray(result?.routes)) {
+    summary.routes = result.routes.length;
   }
   if (result?.manual_handoff?.required) summary.manual_handoff_required = true;
   if (Array.isArray(result?.resources)) {
@@ -536,20 +546,35 @@ function statusFromResult(result) {
 
 async function runDemoSitesValidation(args, { silent = false } = {}) {
   const scriptArgs = buildDemoSitesRunnerArgs(args);
-  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-  const timeoutMs = args.timeout_ms ? Number(args.timeout_ms) : 10 * 60 * 1000;
-  const execution = await runNodeScript(scriptArgs, {
-    cwd: repoRoot,
-    timeoutMs,
-    silent
-  });
+  const execution = await runDelegatedScript(scriptArgs, args, { silent });
 
-  const parsed = parseDemoSitesRunnerOutput(execution.stdout, execution.stderr);
+  const parsed = parseDelegatedRunnerOutput(execution.stdout, execution.stderr, 'test_demo_sites_full');
   if (execution.exitCode !== 0) {
     parsed.status ||= 'failed';
     parsed.exit_code = execution.exitCode;
   }
   return parsed;
+}
+
+async function runLiveDemoPreviewValidation(args, { silent = false } = {}) {
+  const scriptArgs = buildLiveDemoPreviewRunnerArgs(args);
+  const execution = await runDelegatedScript(scriptArgs, args, { silent });
+  const parsed = parseDelegatedRunnerOutput(execution.stdout, execution.stderr, 'test_demo_sites_live_preview');
+  if (execution.exitCode !== 0) {
+    parsed.status ||= 'failed';
+    parsed.exit_code = execution.exitCode;
+  }
+  return parsed;
+}
+
+async function runDelegatedScript(scriptArgs, args, { silent }) {
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const timeoutMs = args.timeout_ms ? Number(args.timeout_ms) : 10 * 60 * 1000;
+  return runNodeScript(scriptArgs, {
+    cwd: repoRoot,
+    timeoutMs,
+    silent
+  });
 }
 
 function buildDemoSitesRunnerArgs(args) {
@@ -566,13 +591,34 @@ function buildDemoSitesRunnerArgs(args) {
   return scriptArgs;
 }
 
+function buildLiveDemoPreviewRunnerArgs(args) {
+  const scriptArgs = ['scripts/test-demo-sites-live-preview.mjs'];
+  appendBooleanArg(scriptArgs, args, 'list', '--list');
+  appendValueArg(scriptArgs, args, 'site', '--site');
+  appendValueArg(scriptArgs, args, 'routes', '--routes');
+  appendValueArg(scriptArgs, args, 'timeout_ms', '--timeout-ms');
+  appendBooleanArg(scriptArgs, args, 'require_configured', '--require-configured');
+  appendBooleanArg(scriptArgs, args, 'require_storyblok_draft', '--require-storyblok-draft');
+  appendValueArg(scriptArgs, args, 'integration_id', '--integration-id');
+  appendValueArg(scriptArgs, args, 'fixture', '--fixture');
+  appendValueArg(scriptArgs, args, 'base_url', '--base-url');
+  appendValueArg(scriptArgs, args, 'url', '--url');
+  for (const site of ['static', 'astro', 'next', 'nuxt', 'vue', 'react']) {
+    appendValueArg(scriptArgs, args, `${site}_url`, `--${site}-url`);
+  }
+  return scriptArgs;
+}
+
 function appendBooleanArg(scriptArgs, args, key, flag) {
   if (args[key]) scriptArgs.push(flag);
 }
 
 function appendValueArg(scriptArgs, args, key, flag) {
   if (args[key] !== undefined && args[key] !== true) {
-    scriptArgs.push(flag, String(args[key]));
+    const values = Array.isArray(args[key]) ? args[key] : [args[key]];
+    for (const value of values) {
+      scriptArgs.push(flag, String(value));
+    }
   }
 }
 
@@ -616,11 +662,11 @@ function runNodeScript(scriptArgs, { cwd, timeoutMs, silent }) {
   });
 }
 
-function parseDemoSitesRunnerOutput(output, diagnostics = '') {
-  const marker = '{\n  "action": "test_demo_sites_full"';
+function parseDelegatedRunnerOutput(output, diagnostics = '', action) {
+  const marker = `{\n  "action": "${action}"`;
   const index = output.lastIndexOf(marker);
   if (index === -1) {
-    throw new Error(`demo-sites validation did not return a JSON result: ${tailText(diagnostics || output)}`);
+    throw new Error(`${action} did not return a JSON result: ${tailText(diagnostics || output)}`);
   }
   return JSON.parse(output.slice(index));
 }
@@ -690,6 +736,8 @@ function renderShellCompletion(shell = 'zsh') {
     'dashboard',
     'history',
     'demo-sites',
+    'demo-sites-live-preview',
+    'live-demo-sites',
     'settings',
     'env',
     'doctor',
@@ -750,6 +798,19 @@ function renderShellCompletion(shell = 'zsh') {
     '--framework',
     '--route',
     '--site',
+    '--routes',
+    '--base-url',
+    '--url',
+    '--require-configured',
+    '--require-storyblok-draft',
+    '--integration-id',
+    '--fixture',
+    '--static-url',
+    '--astro-url',
+    '--next-url',
+    '--nuxt-url',
+    '--vue-url',
+    '--react-url',
     '--work-dir',
     '--dry-run',
     '--remote',
@@ -811,6 +872,7 @@ Usage:
   html-to-storyblok dashboard
   html-to-storyblok history [--limit 20]
   html-to-storyblok demo-sites [--list] [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--report-path <file>]
+  html-to-storyblok demo-sites-live-preview [--list] [--site astro] [--base-url <url>] [--routes /,/about] [--integration-id <id>] [--require-storyblok-draft] [--require-configured]
   html-to-storyblok settings [--show] [--set key=value]
   html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
   html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]
