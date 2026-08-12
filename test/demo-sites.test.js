@@ -10,6 +10,7 @@ import { inspectRepository } from '../src/inspectors.js';
 import { createIntegrationPlan } from '../src/planner.js';
 import { createRollbackPreview } from '../src/rollback.js';
 import { preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from '../src/validator.js';
+import { applyManifest } from '../src/workflow.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -131,6 +132,60 @@ test('demo site matrix accepts isolated repository integration without changing 
   }
 });
 
+test('framework demo matrix applies repository integration through the real apply pipeline', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'hts-demo-sites-apply-'));
+  await cp('demo-sites', path.join(root, 'demo-sites'), {
+    recursive: true,
+    filter: (source) => !isGeneratedDemoArtifact(source)
+  });
+
+  for (const demo of DEMO_CASES) {
+    const repoPath = path.join(root, 'demo-sites', demo.name);
+    const workDir = await mkdtemp(path.join(os.tmpdir(), `hts-demo-${demo.name}-apply-work-`));
+    await initializeGitRepo(repoPath);
+    const guardPath = path.join(repoPath, demo.guardFile);
+    const before = await readFile(guardPath, 'utf8');
+    const integrationId = `demo-${demo.name}-apply-v1`;
+    const manifest = withoutStoryblokOperations(await createIntegrationPlan({
+      integrationId,
+      templatePath: 'templates/acme-campaign',
+      repoPath,
+      framework: demo.framework
+    }));
+
+    const result = await applyManifest(manifest, {
+      repo: repoPath,
+      template: 'templates/acme-campaign',
+      framework: demo.framework,
+      host_checks: 'build',
+      env: {}
+    }, workDir);
+
+    assert.equal(result.action, 'apply_manifest', demo.name);
+    assert.equal(result.dry_run, false, demo.name);
+    assert.equal(result.steps.length, 15, demo.name);
+    assert.equal(result.steps[0].phase, 'baseline', demo.name);
+    assert.equal(result.steps[3].action, 'local_validation', demo.name);
+    assert.equal(result.steps[3].results.status, 'passed', demo.name);
+    assert.equal(result.steps[4].status, 'passed', demo.name);
+    assert.equal(result.steps[5].action, 'storyblok_component_groups', demo.name);
+    assert.deepEqual(result.steps[5].results, [], demo.name);
+
+    const generatedPreviewPath = path.join(repoPath, `src/integrations/${integrationId}/${demo.previewFile}`);
+    const routeProposalManifest = JSON.parse(await readFile(path.join(repoPath, `src/integrations/${integrationId}/route-proposals/manifest.json`), 'utf8'));
+    const adapterPlan = JSON.parse(await readFile(path.join(repoPath, `src/integrations/${integrationId}/adapter-plan.json`), 'utf8'));
+    const after = await readFile(guardPath, 'utf8');
+
+    assert.match(await readFile(generatedPreviewPath, 'utf8'), new RegExp(integrationId), demo.name);
+    assert.equal(routeProposalManifest.framework, demo.framework, demo.name);
+    assert.ok(routeProposalManifest.routes.some((route) => route.slug === 'home'), demo.name);
+    assert.ok(routeProposalManifest.routes.some((route) => route.slug === 'contact'), demo.name);
+    assert.equal(adapterPlan.host_routes_modified, false, demo.name);
+    assert.equal(adapterPlan.route_proposals.host_routes_modified, false, demo.name);
+    assert.equal(after, before, demo.name);
+  }
+});
+
 function isGeneratedDemoArtifact(source) {
   return ['node_modules', 'dist', '.astro', '.next', '.nuxt', '.output', 'package-lock.json'].includes(path.basename(source));
 }
@@ -148,4 +203,22 @@ async function initializeGitRepo(repoPath) {
       GIT_COMMITTER_EMAIL: 'tests@example.com'
     }
   });
+}
+
+function withoutStoryblokOperations(manifest) {
+  const keys = [
+    'component_groups_to_create',
+    'internal_tags_to_create',
+    'components_to_create',
+    'components_to_duplicate',
+    'asset_folders_to_create',
+    'assets_to_create',
+    'presets_to_create',
+    'stories_to_create'
+  ];
+  for (const key of keys) {
+    manifest.storyblok[key] = [];
+  }
+  manifest.operations = manifest.operations.filter((operation) => !String(operation.resource_type || '').startsWith('storyblok_'));
+  return manifest;
 }

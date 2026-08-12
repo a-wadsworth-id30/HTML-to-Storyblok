@@ -14,6 +14,7 @@
     "test:storyblok-live": "STORYBLOK_LIVE_TESTS=1 node --test test/storyblok-live.test.js",
     "test:demo-sites-full": "node scripts/test-demo-sites-full.mjs --require-framework",
     "test:demo-sites-full:install": "node scripts/test-demo-sites-full.mjs --install --smoke --require-framework",
+    "test:demo-sites-apply": "node --test test/demo-sites.test.js",
     "test:demo-sites-generated": "node scripts/test-demo-sites-full.mjs --install --smoke --require-framework --generated",
     "test:demo-sites-live-preview": "node scripts/test-demo-sites-live-preview.mjs",
     "test:demo-sites-e2e": "node bin/html-to-storyblok.js demo-sites-e2e",
