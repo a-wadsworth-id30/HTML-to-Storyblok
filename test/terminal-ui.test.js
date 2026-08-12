@@ -45,6 +45,29 @@ test('selectOption resumes interactive stdin before waiting for menu input', asy
   assert.match(output.text(), /Return to Main Menu/);
 });
 
+test('progress output owns long-running task rendering after first progress event', async () => {
+  const output = new CaptureOutput({ isTTY: true });
+  const terminal = createTerminal({ output, colorMode: 'never' });
+
+  await terminal.task('Long Apply', async () => {
+    await delay(120);
+    terminal.progress('Creating Storyblok Components', 8, 16, 'rate safe: 6 retries');
+    await delay(180);
+  });
+
+  const text = output.text();
+  const progressIndex = text.indexOf('Creating Storyblok Components');
+  assert.notEqual(progressIndex, -1);
+  const afterProgress = text.slice(progressIndex);
+  assert.doesNotMatch(afterProgress, /⠋ Long Apply|⠙ Long Apply|⠹ Long Apply|⠸ Long Apply|⠼ Long Apply|⠴ Long Apply|⠦ Long Apply|⠧ Long Apply|⠇ Long Apply|⠏ Long Apply/);
+  assert.match(afterProgress, /8 \/ 16 50%/);
+  assert.match(afterProgress, /✓ Long Apply done/);
+});
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 class CaptureOutput extends Writable {
   constructor({ isTTY = false } = {}) {
     super();
