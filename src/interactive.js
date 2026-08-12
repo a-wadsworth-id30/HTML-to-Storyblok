@@ -2105,14 +2105,29 @@ function renderStoryblokContentValidationSummary(terminal, validation) {
 
 function renderTemplateSummary(terminal, template) {
   const warnings = count(template.missing_assets) + count(template.accessibility_issues);
+  const readiness = template.template_readiness || null;
   terminal.panel('Template', [
     ['Pages', count(template.pages), count(template.pages) ? 'success' : 'warning'],
     ['Sections', count(template.shared_sections) + count(template.repeated_sections), 'success'],
     ['Assets', count(template.assets)],
     ['Fonts', count(template.fonts)],
     ['Scripts', count(template.behaviour_inventory)],
-    ['Warnings', warnings, warnings ? 'warning' : 'success']
+    ['Warnings', warnings, warnings ? 'warning' : 'success'],
+    ...(readiness ? [
+      ['Readiness', `${labelForStatus(readiness.readiness_level)} (${readiness.score}/100)`, readiness.status === 'passed' ? 'success' : readiness.status === 'failed' ? 'error' : 'warning']
+    ] : [])
   ]);
+  const topIssues = [
+    ...ensureArray(readiness?.blockers),
+    ...ensureArray(readiness?.warnings)
+  ].slice(0, 5);
+  if (topIssues.length > 0) {
+    terminal.panel('Template Readiness', topIssues.map((issue) => [
+      issue.label,
+      issue.message,
+      issue.severity === 'error' ? 'error' : 'warning'
+    ]));
+  }
 }
 
 function renderPlanSummary(terminal, manifest) {

@@ -338,6 +338,20 @@ The template inspection looks for:
 - accessibility concerns
 - unsafe or environment-specific code
 
+Run the designer handoff readiness gate before planning:
+
+```sh
+html-to-storyblok template-readiness --template templates/acme-homepage
+```
+
+This writes `.tmp/html-to-storyblok/template-readiness.json` and returns:
+
+- `passed` when the template is ready for planning
+- `warning` when the import can continue but needs human review
+- `failed` when blockers such as missing assets or unsafe local scripts should be fixed first
+
+The readiness gate checks for HTML routes, missing local assets, page titles, H1s, explicit editorial field hints, third-party URLs, external scripts, inline handlers, local unsafe JavaScript, forms, accessibility issues, global CSS selectors, font licence review, and unsupported files. The interactive wizard shows the same readiness status and top issues during template inspection.
+
 ### 2. Inspect the target repository
 
 Point the CLI at the existing client repository:
@@ -1148,6 +1162,7 @@ html-to-storyblok doctor
 html-to-storyblok view-report
 html-to-storyblok completion [--shell zsh|bash|fish]
 html-to-storyblok inspect-template --template <path>
+html-to-storyblok template-readiness --template <path>
 html-to-storyblok inspect-repository --repo <path>
 html-to-storyblok inspect-storyblok [--remote] [--full] [--audit]
 html-to-storyblok storyblok-audit [--full]
@@ -1239,7 +1254,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, multi-route isolated repository previews, review-only route proposal wrappers, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
@@ -1256,6 +1271,7 @@ Implemented:
 ## Remaining limitations
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
+- Template readiness is a static designer-handoff gate. It catches missing assets, unsafe scripts, weak route metadata, forms, third-party dependencies, accessibility warnings, CSS globals, font licence review, unsupported files, and missing field hints before planning, but it does not replace browser rendering, visual regression, client QA, or Storyblok editor review.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
 - Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, and repository conversion now writes isolated preview files for every route under `src/integrations/<integration-id>/routes/`, plus an adapter plan, guide, and `route-proposals/` wrappers. These route previews and proposal wrappers are deliberately not registered by `generate` or `apply`; `wire-routes` is the explicit opt-in handoff and only creates missing Astro/Next/Nuxt route files with optional Content API draft hydration. React, Vue, and static projects receive structured manual handoff guidance instead of automatic router mutation.
 - The default demo-site build checks validate generated integration shape, framework-specific preview files, route manifests, and existing-file safety without installing full Astro/Next/Nuxt/Vue/React dependency trees. The opt-in generated demo runner can temporarily wire generated route proposals and compile them through the real Astro/Next/Nuxt/Vue/React framework builds. Before wiring an import into a real client route, still run that client repository's own install and browser checks.
