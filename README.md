@@ -462,6 +462,14 @@ html-to-storyblok demo-sites-e2e --generated --install --smoke --require-framewo
 
 `demo-sites-e2e` runs the local `demo-sites` phase, runs the deployed `demo-sites-live-preview` phase, keeps their phase-specific reports, and writes a consolidated `.tmp/html-to-storyblok/demo-sites-e2e-report.md`. Use `--require-live` when missing deployed URLs should fail the gate, `--skip-local` or `--skip-live` to isolate one side while debugging, and `--local-report-path` / `--live-report-path` when CI needs deterministic artifact names. The command is read-only against deployed URLs and remains additive-only for temporary local demo output.
 
+Before handing imported draft stories to editors, run the Visual Editor readiness report:
+
+```sh
+html-to-storyblok visual-editor-readiness --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site --preview-url https://preview.example.com
+```
+
+This read-only check verifies planned draft stories, block identity, generated `_editable` marker preservation, isolated preview roots, route proposal draft slugs, Storyblok Bridge evidence, HTTPS preview URLs, and iframe/CSP handoff signals. It writes `.tmp/html-to-storyblok/visual-editor-readiness-result.json` and `.tmp/html-to-storyblok/visual-editor-readiness-report.md`. Use `--require-preview-url` when the preview URL should be a blocking handoff requirement.
+
 ### 3. Check Storyblok access
 
 ```sh
@@ -1350,6 +1358,7 @@ npm run test:demo-sites-apply
 npm run test:demo-sites-live-preview
 npm run test:demo-sites-e2e
 npm run test:visual-regression
+npm run test:visual-editor-readiness
 ```
 
 `npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, `scripts/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
@@ -1399,6 +1408,13 @@ To create or enforce visual baselines for deployed demo routes:
 npm run test:visual-regression
 html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --visual --write-visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json
 html-to-storyblok demo-sites-e2e --site astro --astro-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-live --require-storyblok-draft --visual-baseline .tmp/html-to-storyblok/astro-visual-baseline.json
+```
+
+To check Storyblok Visual Editor handoff readiness:
+
+```sh
+npm run test:visual-editor-readiness
+html-to-storyblok visual-editor-readiness --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site --preview-url https://preview.example.com
 ```
 
 To run the combined local plus deployed demo-site handoff gate:

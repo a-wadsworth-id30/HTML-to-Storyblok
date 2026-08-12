@@ -22,6 +22,7 @@ import { renderRouteHandoffReport, wireRepositoryRoutes } from './route-handoff.
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson, writeText } from './utils.js';
 import { diffIntegration, preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from './validator.js';
+import { createVisualEditorReadiness } from './visual-editor-readiness.js';
 import { applyManifest, applyStoryblokOnly, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
 
 const MUTATING_COMMANDS = new Set([
@@ -208,6 +209,17 @@ export async function main(argv) {
         requireRepository: Boolean(args.require_repository)
       });
       await writeArtifact(workDir, 'readiness-result.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'visual-editor-readiness') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createVisualEditorReadiness({
+        manifest,
+        repoPath: args.repo ? String(args.repo) : null,
+        previewUrl: args.preview_url ? String(args.preview_url) : args.base_url ? String(args.base_url) : null,
+        requirePreviewUrl: Boolean(args.require_preview_url),
+        workDir
+      });
+      await writeArtifact(workDir, 'visual-editor-readiness-result.json', result);
       if (result.status === 'failed') process.exitCode = 2;
     } else if (command === 'check-access') {
       result = checkLiveAccess(env);
@@ -489,6 +501,8 @@ function normalizeCommand(command) {
     'route-handoff': 'wire-routes',
     'live-demo-sites': 'demo-sites-live-preview',
     'e2e-demo-sites': 'demo-sites-e2e',
+    've-readiness': 'visual-editor-readiness',
+    'storyblok-visual-editor': 'visual-editor-readiness',
     handoff: 'readiness',
     examples: 'examples'
   };
@@ -543,6 +557,11 @@ function summarizeCommandResult(command, result) {
     summary.phases = result.phases.length;
     summary.failed_phases = result.phases.filter((phase) => phase.status === 'failed').length;
     summary.partial = result.status === 'partial';
+  }
+  if (Array.isArray(result?.checks)) {
+    summary.checks = result.checks.length;
+    summary.failed_checks = result.checks.filter((check) => check.status === 'failed').length;
+    summary.warning_checks = result.checks.filter((check) => check.status === 'warning').length;
   }
   if (Array.isArray(result?.routes) && result.routes.every((route) => route && typeof route === 'object')) {
     summary.routes = result.routes.length;
@@ -1005,6 +1024,9 @@ function renderShellCompletion(shell = 'zsh') {
     'netlify-preview',
     'readiness',
     'handoff',
+    'visual-editor-readiness',
+    've-readiness',
+    'storyblok-visual-editor',
     'plan',
     'infer-duplicates',
     'validate-plan',
@@ -1054,6 +1076,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--site',
     '--routes',
     '--base-url',
+    '--preview-url',
     '--url',
     '--require-configured',
     '--require-live',
@@ -1064,6 +1087,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--write-visual-baseline',
     '--require-storyblok',
     '--require-repository',
+    '--require-preview-url',
     '--integration-id',
     '--fixture',
     '--static-url',
@@ -1161,6 +1185,7 @@ Usage:
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
   html-to-storyblok readiness --manifest <path> [--repo <path>] [--template <path>] [--remote] [--require-storyblok] [--require-repository]
+  html-to-storyblok visual-editor-readiness --manifest <path> [--repo <path>] [--preview-url <https-url>] [--require-preview-url]
   html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--template <path>] [--schema-overrides <json>] [--repo <path>] [--infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
@@ -1196,7 +1221,7 @@ Usage:
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
 Use --no-interactive for scriptable non-interactive execution.
 Use --json-summary for compact CI output.
-Aliases: route-handoff, handoff, live-demo-sites, e2e-demo-sites. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
+Aliases: route-handoff, handoff, live-demo-sites, e2e-demo-sites, ve-readiness, storyblok-visual-editor. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
 Run html-to-storyblok help <topic> for focused guidance.

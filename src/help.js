@@ -74,6 +74,27 @@ const COMMAND_GUIDES = {
       'html-to-storyblok handoff --manifest .tmp/html-to-storyblok/integration-manifest.json --remote --require-storyblok'
     ]
   },
+  'visual-editor-readiness': {
+    title: 'Visual Editor Readiness',
+    purpose: 'Checks whether an imported integration is ready for Storyblok Visual Editor preview and handoff.',
+    usage: [
+      'html-to-storyblok visual-editor-readiness --manifest <path> [--repo <path>] [--preview-url <https-url>] [--require-preview-url]'
+    ],
+    when: [
+      'Use after generation or apply, before asking editors to review imported draft stories in Storyblok.',
+      'Use with --repo to check generated renderer files, route proposals, bridge evidence, and iframe/CSP handoff signals.'
+    ],
+    evidence: ['Writes visual-editor-readiness-result.json and visual-editor-readiness-report.md.'],
+    safety: [
+      'Read-only against the repository and manifest.',
+      'Does not change Storyblok stories, components, assets, or production content.'
+    ],
+    examples: [
+      'html-to-storyblok visual-editor-readiness --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site --preview-url https://preview.example.com',
+      'html-to-storyblok ve-readiness --manifest .tmp/html-to-storyblok/integration-manifest.json --require-preview-url'
+    ],
+    next: ['demo-sites-live-preview', 'wire-routes', 'readiness']
+  },
   'storyblok-apply': {
     title: 'Storyblok Apply',
     purpose: 'Runs only the Storyblok side of the import: folders, components, presets, assets, and draft stories.',

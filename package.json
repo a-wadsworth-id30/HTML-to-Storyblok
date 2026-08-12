@@ -19,6 +19,7 @@
     "test:demo-sites-live-preview": "node scripts/test-demo-sites-live-preview.mjs",
     "test:demo-sites-e2e": "node bin/html-to-storyblok.js demo-sites-e2e",
     "test:visual-regression": "node --test test/visual-regression.test.js test/demo-sites-live-preview.test.js",
+    "test:visual-editor-readiness": "node --test test/visual-editor-readiness.test.js",
     "test:demo-sites-full:list": "node scripts/test-demo-sites-full.mjs --list",
     "security:audit": "node scripts/security-audit.mjs",
     "check": "node scripts/check-syntax.mjs"
