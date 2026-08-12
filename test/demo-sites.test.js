@@ -92,7 +92,13 @@ test('demo site matrix accepts isolated repository integration without changing 
     assert.ok(generated.files.includes(`src/integrations/${integrationId}/${demo.previewFile}`), demo.name);
     assert.ok(generated.files.includes(`src/integrations/${integrationId}/routes/about/${demo.previewFile}`), demo.name);
     const homeRoute = await readFile(path.join(repoPath, `src/integrations/${integrationId}/routes/home/${demo.previewFile}`), 'utf8');
-    assert.match(homeRoute, /\.\.\/\.\.\/assets\/assets\/logo\.svg/, demo.name);
+    if (demo.framework === 'static') {
+      assert.match(homeRoute, /\.\.\/\.\.\/assets\/assets\/logo\.svg/, demo.name);
+    } else {
+      assert.match(homeRoute, /renderTemplateHtml/, demo.name);
+      const homeRouteHtml = await readFile(path.join(repoPath, `src/integrations/${integrationId}/routes/home/template-html.js`), 'utf8');
+      assert.match(homeRouteHtml, /\.\.\/\.\.\/assets\/assets\/logo\.svg/, demo.name);
+    }
 
     const validation = await validateIntegration(manifest, { repoPath });
     assert.equal(validation.status, 'passed', demo.name);

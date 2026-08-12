@@ -27,6 +27,35 @@ test('validateIntegration passes for a generated isolated integration', async ()
   assert.equal(result.failed_checks, 0);
 });
 
+test('validateIntegration allows only generated Storyblok HTML renderers', async () => {
+  const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-validate-renderer-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'react-renderer-v1',
+    storyblokPrefix: 'hts_react_renderer_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'react'
+  });
+
+  const generatedResult = await validateIntegration(manifest, { repoPath });
+  assert.equal(generatedResult.status, 'passed');
+
+  const previewPath = path.join(repoPath, 'src/integrations/react-renderer-v1/TemplatePage.jsx');
+  await writeFile(previewPath, 'export function HtsTemplatePage({ html = "" }) { return <main dangerouslySetInnerHTML={{ __html: html }} />; }\n');
+
+  const unsafeResult = await validateIntegration(manifest, { repoPath });
+  assert.equal(unsafeResult.status, 'failed');
+  assert.ok(unsafeResult.checks.some((check) =>
+    check.name === 'forbidden_coupling:src/integrations/react-renderer-v1/TemplatePage.jsx' &&
+    check.status === 'failed' &&
+    check.details.includes('dangerouslySetInnerHTML')
+  ));
+});
+
 test('validateIntegration fails when a generated file imports an existing presentation component', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-validate-fail-'));
   const manifest = await createIntegrationPlan({
