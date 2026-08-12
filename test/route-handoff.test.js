@@ -61,7 +61,9 @@ test('wireRepositoryRoutes blocks all writes when a host route already exists', 
   const result = await wireRepositoryRoutes(manifest, { repoPath });
   assert.equal(result.status, 'blocked');
   assert.equal(result.summary.blocked, 1);
-  assert.match(result.routes.find((route) => route.slug === 'about').reason, /already exists/);
+  assert.equal(result.route_collision_analysis.status, 'blocked');
+  assert.equal(result.route_collision_analysis.summary.exact_route_file_collisions, 1);
+  assert.match(result.routes.find((route) => route.slug === 'about').reason, /Route collision analysis blocked/);
   assert.equal(await pathExists(path.join(repoPath, 'src/pages/index.astro')), false);
 });
 

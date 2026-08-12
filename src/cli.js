@@ -20,6 +20,7 @@ import { validatePlan } from './policy.js';
 import { createReadinessHandoff } from './readiness.js';
 import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
+import { analyzeRouteCollisions, renderRouteCollisionReport } from './route-collision-analyzer.js';
 import { renderRouteHandoffReport, wireRepositoryRoutes } from './route-handoff.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson, writeText } from './utils.js';
@@ -423,6 +424,15 @@ export async function main(argv) {
         dryRun: Boolean(args.dry_run)
       });
       await writeArtifact(workDir, 'generate-result.json', result);
+    } else if (command === 'route-collisions') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await analyzeRouteCollisions(manifest, {
+        repoPath: args.repo ? String(args.repo) : process.cwd(),
+        route: args.route ? String(args.route) : null
+      });
+      result.markdown_report = await writeTextArtifact(workDir, 'route-collision-analysis-report.md', renderRouteCollisionReport(result));
+      await writeArtifact(workDir, 'route-collision-analysis.json', result);
+      if (result.status === 'blocked' || result.status === 'failed') process.exitCode = 2;
     } else if (command === 'wire-routes') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await wireRepositoryRoutes(manifest, {
@@ -551,6 +561,9 @@ function normalizeCommand(command) {
     'production-handoff': 'handoff-pack',
     'handoff-report': 'handoff-pack',
     'asset-map': 'asset-graph',
+    'route-analyzer': 'route-collisions',
+    'route-analysis': 'route-collisions',
+    'route-collision-analysis': 'route-collisions',
     handoff: 'readiness',
     examples: 'examples'
   };
@@ -1261,6 +1274,7 @@ Usage:
   html-to-storyblok validate --manifest <path> --repo <path>
   html-to-storyblok build --repo <path> [--script build] [--dry-run]
   html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+  html-to-storyblok route-collisions --manifest <path> --repo <path> [--route home|about|/path]
   html-to-storyblok wire-routes --manifest <path> --repo <path> [--route home|about|/path] [--dry-run]
   html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
   html-to-storyblok storyblok-component-groups --manifest <path> [--dry-run]
@@ -1283,7 +1297,7 @@ Usage:
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
 Use --no-interactive for scriptable non-interactive execution.
 Use --json-summary for compact CI output.
-Aliases: route-handoff, handoff, live-demo-sites, e2e-demo-sites, ve-readiness, storyblok-visual-editor, asset-map. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
+Aliases: route-handoff, route-analyzer, route-analysis, route-collision-analysis, handoff, live-demo-sites, e2e-demo-sites, ve-readiness, storyblok-visual-editor, asset-map. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
 Run html-to-storyblok help <topic> for focused guidance.
