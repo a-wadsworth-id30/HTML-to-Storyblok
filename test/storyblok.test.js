@@ -1895,6 +1895,63 @@ test('validateStoryblokDraftContent fails generated story links without UUIDs', 
   restoreFetch();
 });
 
+test('validateStoryblokDraftContent preserves story order with concurrent reads', async () => {
+  originalFetch = global.fetch;
+  let activeRequests = 0;
+  let maxActiveRequests = 0;
+  const delays = new Map([
+    ['acme-homepage-v1/home', 20],
+    ['acme-homepage-v1/about', 0],
+    ['acme-homepage-v1/contact', 5]
+  ]);
+
+  global.fetch = async (url) => {
+    const slug = new URL(String(url)).pathname.split('/stories/')[1];
+    activeRequests += 1;
+    maxActiveRequests = Math.max(maxActiveRequests, activeRequests);
+    await new Promise((resolve) => setTimeout(resolve, delays.get(slug) || 0));
+    activeRequests -= 1;
+    return jsonResponse({
+      story: {
+        id: slug,
+        uuid: `${slug}-uuid`,
+        name: slug,
+        slug: slug.split('/').at(-1),
+        full_slug: slug,
+        content: {
+          component: 'hts_acme_homepage_v1_template_page'
+        },
+        published_at: null
+      }
+    });
+  };
+
+  const result = await validateStoryblokDraftContent({
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [
+        { slug: 'acme-homepage-v1/home', content: { component: 'hts_acme_homepage_v1_template_page' } },
+        { slug: 'acme-homepage-v1/about', content: { component: 'hts_acme_homepage_v1_template_page' } },
+        { slug: 'acme-homepage-v1/contact', content: { component: 'hts_acme_homepage_v1_template_page' } }
+      ]
+    }
+  }, {
+    env: {
+      STORYBLOK_PREVIEW_TOKEN: 'preview-token',
+      STORYBLOK_CONTENT_READ_CONCURRENCY: '2'
+    }
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.deepEqual(result.stories.map((story) => story.slug), [
+    'acme-homepage-v1/home',
+    'acme-homepage-v1/about',
+    'acme-homepage-v1/contact'
+  ]);
+  assert.equal(maxActiveRequests, 2);
+  restoreFetch();
+});
+
 test('Storyblok Management API calls fail fast when request timeout is reached', async () => {
   originalFetch = global.fetch;
   global.fetch = async (_url, options = {}) => new Promise((_resolve, reject) => {

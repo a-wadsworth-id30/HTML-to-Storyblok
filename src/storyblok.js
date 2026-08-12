@@ -32,6 +32,7 @@ const DEFAULT_STORYBLOK_RETRY_MAX_MS = 8000;
 const DEFAULT_STORYBLOK_TIMEOUT_MS = 30000;
 const DEFAULT_STORYBLOK_INSPECT_MAX_ITEMS = 1000;
 const DEFAULT_STORYBLOK_REQUEST_INTERVAL_MS = 0;
+const DEFAULT_STORYBLOK_READ_CONCURRENCY = 4;
 
 const requestQueues = new Map();
 const lastRequestTimes = new Map();
@@ -55,6 +56,7 @@ export function getStoryblokConfig(env = process.env) {
     timeoutMs: integerEnv(envValue(['STORYBLOK_TIMEOUT_MS'], env), DEFAULT_STORYBLOK_TIMEOUT_MS),
     inspectMaxItems: integerEnv(envValue(['STORYBLOK_INSPECT_MAX_ITEMS'], env), DEFAULT_STORYBLOK_INSPECT_MAX_ITEMS),
     requestIntervalMs: integerEnv(envValue(['STORYBLOK_REQUEST_INTERVAL_MS'], env), DEFAULT_STORYBLOK_REQUEST_INTERVAL_MS),
+    readConcurrency: positiveIntegerEnv(envValue(['STORYBLOK_READ_CONCURRENCY'], env), DEFAULT_STORYBLOK_READ_CONCURRENCY),
     available: Boolean(token && spaceId)
   };
 }
@@ -74,6 +76,7 @@ export function getStoryblokContentConfig(env = process.env) {
     retryBaseMs: integerEnv(envValue(['STORYBLOK_CONTENT_RETRY_BASE_MS', 'STORYBLOK_RETRY_BASE_MS'], env), DEFAULT_STORYBLOK_RETRY_BASE_MS),
     retryMaxMs: integerEnv(envValue(['STORYBLOK_CONTENT_RETRY_MAX_MS', 'STORYBLOK_RETRY_MAX_MS'], env), DEFAULT_STORYBLOK_RETRY_MAX_MS),
     timeoutMs: integerEnv(envValue(['STORYBLOK_CONTENT_TIMEOUT_MS', 'STORYBLOK_TIMEOUT_MS'], env), DEFAULT_STORYBLOK_TIMEOUT_MS),
+    readConcurrency: positiveIntegerEnv(envValue(['STORYBLOK_CONTENT_READ_CONCURRENCY', 'STORYBLOK_READ_CONCURRENCY'], env), DEFAULT_STORYBLOK_READ_CONCURRENCY),
     available: Boolean(token)
   };
 }
@@ -99,15 +102,26 @@ export async function inspectStoryblokSpace({ env = process.env, full = false, a
 
   const space = await storyblokRequest(config, `/spaces/${config.spaceId}`);
   const listOptions = full ? {} : { maxItems: config.inspectMaxItems };
-  const components = await listStoryblokComponents(config, {}, listOptions);
-  const componentGroups = await listStoryblokComponentGroups(config, {}, listOptions);
-  const stories = await listStoryblokStories(config, {}, listOptions);
-  const assetFolders = await listStoryblokAssetFolders(config, {}, listOptions);
-  const assets = await listStoryblokAssets(config, {}, listOptions);
-  const internalTagsResult = await optionalStoryblokItems(config, 'internal_tags', listStoryblokInternalTags, {}, listOptions);
+  const [
+    components,
+    componentGroups,
+    stories,
+    assetFolders,
+    assets,
+    internalTagsResult,
+    presets,
+    auditResult
+  ] = await mapConcurrent([
+    () => listStoryblokComponents(config, {}, listOptions),
+    () => listStoryblokComponentGroups(config, {}, listOptions),
+    () => listStoryblokStories(config, {}, listOptions),
+    () => listStoryblokAssetFolders(config, {}, listOptions),
+    () => listStoryblokAssets(config, {}, listOptions),
+    () => optionalStoryblokItems(config, 'internal_tags', listStoryblokInternalTags, {}, listOptions),
+    () => listStoryblokPresets(config, {}, listOptions),
+    () => audit ? inspectStoryblokAuditResources(config, listOptions) : null
+  ], (task) => task(), { concurrency: config.readConcurrency });
   const internalTags = internalTagsResult.items;
-  const presets = await listStoryblokPresets(config, {}, listOptions);
-  const auditResult = audit ? await inspectStoryblokAuditResources(config, listOptions) : null;
 
   return {
     ...access,
@@ -188,31 +202,42 @@ export async function preflightStoryblokIntegration(manifest, { dryRun = false, 
     };
   }
 
-  checks.push(await endpointPreflight(config, 'space_read', `/spaces/${config.spaceId}`));
+  const endpointChecks = [
+    { name: 'space_read', endpoint: `/spaces/${config.spaceId}` }
+  ];
   if (requirements.component_groups) {
-    checks.push(await endpointPreflight(config, 'component_groups_read', `/spaces/${config.spaceId}/component_groups/?per_page=1&page=1`));
+    endpointChecks.push({ name: 'component_groups_read', endpoint: `/spaces/${config.spaceId}/component_groups/?per_page=1&page=1` });
   }
   if (requirements.internal_tags) {
-    checks.push(await endpointPreflight(config, 'internal_tags_read', `/spaces/${config.spaceId}/internal_tags/?per_page=1&page=1`, {
-      required: false,
-      optional: true
-    }));
+    endpointChecks.push({
+      name: 'internal_tags_read',
+      endpoint: `/spaces/${config.spaceId}/internal_tags/?per_page=1&page=1`,
+      options: {
+        required: false,
+        optional: true
+      }
+    });
   }
   if (requirements.components) {
-    checks.push(await endpointPreflight(config, 'components_read', `/spaces/${config.spaceId}/components/?per_page=1&page=1`));
+    endpointChecks.push({ name: 'components_read', endpoint: `/spaces/${config.spaceId}/components/?per_page=1&page=1` });
   }
   if (requirements.stories) {
-    checks.push(await endpointPreflight(config, 'stories_read', `/spaces/${config.spaceId}/stories?per_page=1&page=1`));
+    endpointChecks.push({ name: 'stories_read', endpoint: `/spaces/${config.spaceId}/stories?per_page=1&page=1` });
   }
   if (requirements.asset_folders) {
-    checks.push(await endpointPreflight(config, 'asset_folders_read', `/spaces/${config.spaceId}/asset_folders/?per_page=1&page=1`));
+    endpointChecks.push({ name: 'asset_folders_read', endpoint: `/spaces/${config.spaceId}/asset_folders/?per_page=1&page=1` });
   }
   if (requirements.assets) {
-    checks.push(await endpointPreflight(config, 'assets_read', `/spaces/${config.spaceId}/assets?per_page=1&page=1`));
+    endpointChecks.push({ name: 'assets_read', endpoint: `/spaces/${config.spaceId}/assets?per_page=1&page=1` });
   }
   if (requirements.presets) {
-    checks.push(await endpointPreflight(config, 'presets_read', `/spaces/${config.spaceId}/presets/?per_page=1&page=1`));
+    endpointChecks.push({ name: 'presets_read', endpoint: `/spaces/${config.spaceId}/presets/?per_page=1&page=1` });
   }
+  checks.push(...await mapConcurrent(
+    endpointChecks,
+    (check) => endpointPreflight(config, check.name, check.endpoint, check.options || {}),
+    { concurrency: config.readConcurrency }
+  ));
 
   const requiredChecks = checks.filter((check) => check.required !== false);
   return {
@@ -1008,54 +1033,11 @@ export async function validateStoryblokDraftContent(manifest, { dryRun = false, 
   }
 
   const plannedSlugs = new Set(stories.map((story) => normalizeStoryLinkKey(story.slug || story.full_slug)));
-  const results = [];
-  for (const story of stories) {
-    const slug = story.slug || story.full_slug;
-    try {
-      const response = await storyblokContentRequest(config, `/stories/${encodeStorySlug(slug)}`, {
-        token: config.token,
-        version
-      }, { retryStatuses: [404] });
-      const remoteStory = response.story || {};
-      const content = remoteStory.content || {};
-      const componentNames = collectComponentNames(content);
-      const assetFields = collectAssetFields(content);
-      const storyLinks = collectStoryLinks(content).filter((link) => link.linktype === 'story');
-      const unresolvedGeneratedLinks = storyLinks.filter((link) => {
-        const target = normalizeStoryLinkKey(link.cached_url || link.url);
-        return plannedSlugs.has(target) && !link.id;
-      });
-      const unnamespacedComponents = componentNames.filter((name) => !String(name).startsWith(manifest.storyblok_prefix));
-      const missingAssetFilenames = assetFields.filter((asset) => !asset.filename);
-      const expectedRoot = story.content?.component || story.component || null;
-      const checks = [
-        contentCheck('root_component_namespaced', String(content.component || '').startsWith(manifest.storyblok_prefix), content.component || null),
-        contentCheck('root_component_matches_manifest', !expectedRoot || content.component === expectedRoot, { expected: expectedRoot, actual: content.component || null }),
-        contentCheck('all_components_namespaced', unnamespacedComponents.length === 0, unnamespacedComponents),
-        contentCheck('asset_fields_have_filenames', missingAssetFilenames.length === 0, missingAssetFilenames),
-        contentCheck('generated_story_links_have_uuid', unresolvedGeneratedLinks.length === 0, unresolvedGeneratedLinks.map((link) => link.cached_url || link.url))
-      ];
-      results.push({
-        slug,
-        status: checks.every((check) => check.status === 'passed') ? 'passed' : 'failed',
-        story: summarizeContentStory(remoteStory),
-        checks,
-        components: componentNames.length,
-        assets: assetFields.length,
-        story_links: storyLinks.length,
-        unresolved_generated_story_links: unresolvedGeneratedLinks.map((link) => link.cached_url || link.url)
-      });
-    } catch (error) {
-      results.push({
-        slug,
-        status: 'failed',
-        error: error.message || String(error),
-        checks: [
-          contentCheck('content_api_fetch', false, error.message || String(error))
-        ]
-      });
-    }
-  }
+  const results = await mapConcurrent(
+    stories,
+    (story) => validateStoryblokDraftStory(story, { config, manifest, plannedSlugs, version }),
+    { concurrency: config.readConcurrency }
+  );
 
   return {
     action: 'validate_storyblok_content',
@@ -1064,6 +1046,54 @@ export async function validateStoryblokDraftContent(manifest, { dryRun = false, 
     stories: results,
     summary: summarizeContentValidation(results)
   };
+}
+
+async function validateStoryblokDraftStory(story, { config, manifest, plannedSlugs, version }) {
+  const slug = story.slug || story.full_slug;
+  try {
+    const response = await storyblokContentRequest(config, `/stories/${encodeStorySlug(slug)}`, {
+      token: config.token,
+      version
+    }, { retryStatuses: [404] });
+    const remoteStory = response.story || {};
+    const content = remoteStory.content || {};
+    const componentNames = collectComponentNames(content);
+    const assetFields = collectAssetFields(content);
+    const storyLinks = collectStoryLinks(content).filter((link) => link.linktype === 'story');
+    const unresolvedGeneratedLinks = storyLinks.filter((link) => {
+      const target = normalizeStoryLinkKey(link.cached_url || link.url);
+      return plannedSlugs.has(target) && !link.id;
+    });
+    const unnamespacedComponents = componentNames.filter((name) => !String(name).startsWith(manifest.storyblok_prefix));
+    const missingAssetFilenames = assetFields.filter((asset) => !asset.filename);
+    const expectedRoot = story.content?.component || story.component || null;
+    const checks = [
+      contentCheck('root_component_namespaced', String(content.component || '').startsWith(manifest.storyblok_prefix), content.component || null),
+      contentCheck('root_component_matches_manifest', !expectedRoot || content.component === expectedRoot, { expected: expectedRoot, actual: content.component || null }),
+      contentCheck('all_components_namespaced', unnamespacedComponents.length === 0, unnamespacedComponents),
+      contentCheck('asset_fields_have_filenames', missingAssetFilenames.length === 0, missingAssetFilenames),
+      contentCheck('generated_story_links_have_uuid', unresolvedGeneratedLinks.length === 0, unresolvedGeneratedLinks.map((link) => link.cached_url || link.url))
+    ];
+    return {
+      slug,
+      status: checks.every((check) => check.status === 'passed') ? 'passed' : 'failed',
+      story: summarizeContentStory(remoteStory),
+      checks,
+      components: componentNames.length,
+      assets: assetFields.length,
+      story_links: storyLinks.length,
+      unresolved_generated_story_links: unresolvedGeneratedLinks.map((link) => link.cached_url || link.url)
+    };
+  } catch (error) {
+    return {
+      slug,
+      status: 'failed',
+      error: error.message || String(error),
+      checks: [
+        contentCheck('content_api_fetch', false, error.message || String(error))
+      ]
+    };
+  }
 }
 
 export async function reconcileStoryblokManifest(manifest, { env = process.env } = {}) {
@@ -1423,8 +1453,12 @@ async function inspectStoryblokAuditResources(config, listOptions) {
   ];
   const collections = {};
   const unavailable = [];
-  for (const [name, listFn, summarizeFn] of definitions) {
-    const result = await optionalStoryblokCollection(config, name, listFn, summarizeFn, listOptions);
+  const results = await mapConcurrent(
+    definitions,
+    async ([name, listFn, summarizeFn]) => [name, await optionalStoryblokCollection(config, name, listFn, summarizeFn, listOptions)],
+    { concurrency: config.readConcurrency }
+  );
+  for (const [name, result] of results) {
     collections[name] = result;
     if (result.status !== 'ok') unavailable.push({ name, reason: result.reason });
   }
@@ -1481,15 +1515,15 @@ async function loadRemoteStoryblokState(config) {
     assets,
     presets,
     stories
-  ] = await Promise.all([
-    listStoryblokComponentGroups(config),
-    optionalStoryblokItems(config, 'internal_tags', listStoryblokInternalTags),
-    listStoryblokComponents(config),
-    listStoryblokAssetFolders(config),
-    listStoryblokAssets(config),
-    listStoryblokPresets(config),
-    listStoryblokStories(config)
-  ]);
+  ] = await mapConcurrent([
+    () => listStoryblokComponentGroups(config),
+    () => optionalStoryblokItems(config, 'internal_tags', listStoryblokInternalTags),
+    () => listStoryblokComponents(config),
+    () => listStoryblokAssetFolders(config),
+    () => listStoryblokAssets(config),
+    () => listStoryblokPresets(config),
+    () => listStoryblokStories(config)
+  ], (task) => task(), { concurrency: config.readConcurrency });
   return {
     componentGroups,
     internalTags: internalTagsResult.items,
@@ -1705,11 +1739,11 @@ async function hydratePlannedComponents(config, manifest, components) {
     ...ensureArray(manifest.storyblok?.components_to_create).map((component) => component.technical_name || component.name),
     ...ensureArray(manifest.storyblok?.components_to_duplicate).map((component) => component.technical_name || component.name || component.target_technical_name)
   ].filter(Boolean));
-  return Promise.all(ensureArray(components).map(async (component) => {
+  return mapConcurrent(ensureArray(components), async (component) => {
     if (!names.has(component.name)) return component;
     if (Object.hasOwn(component, 'schema') && Object.hasOwn(component, 'is_root') && Object.hasOwn(component, 'is_nestable')) return component;
     return hydrateComponentDetail(config, component);
-  }));
+  }, { concurrency: config.readConcurrency });
 }
 
 async function hydrateComponentDetail(config, component) {
@@ -1722,11 +1756,11 @@ async function hydratePlannedStories(config, manifest, stories) {
   const slugs = new Set(ensureArray(manifest.storyblok?.stories_to_create)
     .map((story) => normalizeStoryLinkKey(story.slug || story.full_slug))
     .filter(Boolean));
-  return Promise.all(ensureArray(stories).map(async (story) => {
+  return mapConcurrent(ensureArray(stories), async (story) => {
     const slug = normalizeStoryLinkKey(story.full_slug || story.slug);
     if (!slugs.has(slug)) return story;
     return hydrateStoryDetail(config, story);
-  }));
+  }, { concurrency: config.readConcurrency });
 }
 
 async function hydrateStoryDetail(config, story) {
@@ -2944,76 +2978,79 @@ function summarizeContentValidation(results) {
 async function verifyManagementStories(manifest, config) {
   const stories = ensureArray(manifest.storyblok?.stories_to_create);
   const plannedSlugs = new Set(stories.map((story) => normalizeStoryLinkKey(story.slug || story.full_slug)));
-  const results = [];
-  for (const story of stories) {
-    const slug = story.slug || story.full_slug;
-    try {
-      const existing = await findStoryBySlug(config, slug);
-      if (!existing) {
-        results.push({
-          slug,
-          status: 'failed',
-          checks: [
-            contentCheck('management_story_exists', false, slug)
-          ],
-          unresolved_generated_story_links: [],
-          unresolved_asset_fields: []
-        });
-        continue;
-      }
+  return mapConcurrent(
+    stories,
+    (story) => verifyManagementStory(manifest, config, story, plannedSlugs),
+    { concurrency: config.readConcurrency }
+  );
+}
 
-      const content = existing.content || {};
-      const componentNames = collectComponentNames(content);
-      const unnamespacedComponents = componentNames.filter((name) => !String(name).startsWith(manifest.storyblok_prefix));
-      const storyLinks = collectStoryLinks(content).filter((link) => link.linktype === 'story');
-      const unresolvedGeneratedLinks = storyLinks.filter((link) => {
-        const target = normalizeStoryLinkKey(link.cached_url || link.url);
-        return plannedSlugs.has(target) && !link.id;
-      });
-      const generatedLinksOutsidePlan = storyLinks.filter((link) => {
-        const target = normalizeStoryLinkKey(link.cached_url || link.url);
-        return target.startsWith(`${manifest.integration_id}/`) && !plannedSlugs.has(target);
-      });
-      const assetFields = collectAssetFields(content);
-      const unresolvedAssetFields = assetFields.filter((asset) => {
-        const filename = String(asset.filename || '');
-        return !asset.id || !filename || filename.startsWith('.') || filename.startsWith('/') || filename.includes('/templates/');
-      });
-      const checks = [
-        contentCheck('management_story_exists', true, existing.full_slug || slug),
-        contentCheck('story_is_unpublished_draft', !existing.published_at, existing.published_at || null),
-        contentCheck('root_component_namespaced', String(content.component || '').startsWith(manifest.storyblok_prefix), content.component || null),
-        contentCheck('all_components_namespaced', unnamespacedComponents.length === 0, unnamespacedComponents),
-        contentCheck('generated_story_links_have_uuid', unresolvedGeneratedLinks.length === 0, unresolvedGeneratedLinks.map((link) => link.cached_url || link.url)),
-        contentCheck('generated_story_links_target_planned_routes', generatedLinksOutsidePlan.length === 0, generatedLinksOutsidePlan.map((link) => link.cached_url || link.url)),
-        contentCheck('asset_fields_are_uploaded_storyblok_assets', unresolvedAssetFields.length === 0, unresolvedAssetFields.map((asset) => asset.filename || asset.id || 'asset_field'))
-      ];
-      results.push({
-        slug,
-        status: checks.every((check) => check.status === 'passed') ? 'passed' : 'failed',
-        story: summarizeStory(existing),
-        checks,
-        components: componentNames.length,
-        story_links: storyLinks.length,
-        asset_fields: assetFields.length,
-        unresolved_generated_story_links: unresolvedGeneratedLinks.map((link) => link.cached_url || link.url),
-        generated_links_outside_plan: generatedLinksOutsidePlan.map((link) => link.cached_url || link.url),
-        unresolved_asset_fields: unresolvedAssetFields.map((asset) => asset.filename || asset.id || 'asset_field')
-      });
-    } catch (error) {
-      results.push({
+async function verifyManagementStory(manifest, config, story, plannedSlugs) {
+  const slug = story.slug || story.full_slug;
+  try {
+    const existing = await findStoryBySlug(config, slug);
+    if (!existing) {
+      return {
         slug,
         status: 'failed',
-        error: error.message || String(error),
         checks: [
-          contentCheck('management_story_fetch', false, error.message || String(error))
+          contentCheck('management_story_exists', false, slug)
         ],
         unresolved_generated_story_links: [],
         unresolved_asset_fields: []
-      });
+      };
     }
+
+    const content = existing.content || {};
+    const componentNames = collectComponentNames(content);
+    const unnamespacedComponents = componentNames.filter((name) => !String(name).startsWith(manifest.storyblok_prefix));
+    const storyLinks = collectStoryLinks(content).filter((link) => link.linktype === 'story');
+    const unresolvedGeneratedLinks = storyLinks.filter((link) => {
+      const target = normalizeStoryLinkKey(link.cached_url || link.url);
+      return plannedSlugs.has(target) && !link.id;
+    });
+    const generatedLinksOutsidePlan = storyLinks.filter((link) => {
+      const target = normalizeStoryLinkKey(link.cached_url || link.url);
+      return target.startsWith(`${manifest.integration_id}/`) && !plannedSlugs.has(target);
+    });
+    const assetFields = collectAssetFields(content);
+    const unresolvedAssetFields = assetFields.filter((asset) => {
+      const filename = String(asset.filename || '');
+      return !asset.id || !filename || filename.startsWith('.') || filename.startsWith('/') || filename.includes('/templates/');
+    });
+    const checks = [
+      contentCheck('management_story_exists', true, existing.full_slug || slug),
+      contentCheck('story_is_unpublished_draft', !existing.published_at, existing.published_at || null),
+      contentCheck('root_component_namespaced', String(content.component || '').startsWith(manifest.storyblok_prefix), content.component || null),
+      contentCheck('all_components_namespaced', unnamespacedComponents.length === 0, unnamespacedComponents),
+      contentCheck('generated_story_links_have_uuid', unresolvedGeneratedLinks.length === 0, unresolvedGeneratedLinks.map((link) => link.cached_url || link.url)),
+      contentCheck('generated_story_links_target_planned_routes', generatedLinksOutsidePlan.length === 0, generatedLinksOutsidePlan.map((link) => link.cached_url || link.url)),
+      contentCheck('asset_fields_are_uploaded_storyblok_assets', unresolvedAssetFields.length === 0, unresolvedAssetFields.map((asset) => asset.filename || asset.id || 'asset_field'))
+    ];
+    return {
+      slug,
+      status: checks.every((check) => check.status === 'passed') ? 'passed' : 'failed',
+      story: summarizeStory(existing),
+      checks,
+      components: componentNames.length,
+      story_links: storyLinks.length,
+      asset_fields: assetFields.length,
+      unresolved_generated_story_links: unresolvedGeneratedLinks.map((link) => link.cached_url || link.url),
+      generated_links_outside_plan: generatedLinksOutsidePlan.map((link) => link.cached_url || link.url),
+      unresolved_asset_fields: unresolvedAssetFields.map((asset) => asset.filename || asset.id || 'asset_field')
+    };
+  } catch (error) {
+    return {
+      slug,
+      status: 'failed',
+      error: error.message || String(error),
+      checks: [
+        contentCheck('management_story_fetch', false, error.message || String(error))
+      ],
+      unresolved_generated_story_links: [],
+      unresolved_asset_fields: []
+    };
   }
-  return results;
 }
 
 function emptyManagementVerificationSummary() {
@@ -3627,6 +3664,31 @@ function integerEnv(value, fallback) {
   if (value === null || value === undefined || value === '') return fallback;
   const parsed = Number(value);
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+function positiveIntegerEnv(value, fallback) {
+  const parsed = integerEnv(value, fallback);
+  return parsed > 0 ? parsed : fallback;
+}
+
+async function mapConcurrent(items, mapper, { concurrency = DEFAULT_STORYBLOK_READ_CONCURRENCY } = {}) {
+  const input = ensureArray(items);
+  if (input.length === 0) return [];
+
+  const limit = Math.max(1, Math.min(Number(concurrency) || 1, input.length));
+  const results = new Array(input.length);
+  let nextIndex = 0;
+
+  await Promise.all(Array.from({ length: limit }, async () => {
+    for (;;) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= input.length) return;
+      results[index] = await mapper(input[index], index);
+    }
+  }));
+
+  return results;
 }
 
 function endpointWithQuery(endpoint, params = {}) {
