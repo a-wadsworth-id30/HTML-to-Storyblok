@@ -127,6 +127,34 @@ test('report surfaces Storyblok Management API content drift verification', asyn
   assert.match(html, /Content drifted stories: 1/);
 });
 
+test('report summarizes route handoff evidence artifacts', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-report-route-handoff-'));
+  await writeArtifact(workDir, 'route-handoff-result.json', {
+    action: 'wire_repository_routes',
+    status: 'skipped',
+    dry_run: true,
+    summary: {
+      total: 2,
+      created: 0,
+      would_create: 0,
+      blocked: 0,
+      skipped: 2
+    },
+    routes: [
+      { slug: 'home', manual_handoff: { framework: 'react' } },
+      { slug: 'services', manual_handoff: { framework: 'react' } }
+    ],
+    markdown_report: path.join(workDir, 'route-handoff-report.md')
+  });
+
+  const report = await createReport(workDir);
+  const markdown = renderMarkdownReport(report);
+
+  assert.equal(report.latest_route_handoff.status, 'skipped');
+  assert.equal(report.latest_route_handoff.manual_handoff_routes, 2);
+  assert.match(markdown, /Latest route handoff: skipped/);
+});
+
 test('apply dry-run executes the import pipeline without copying template assets as repository duplicates', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-apply-dry-run-repo-'));
   const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-apply-dry-run-work-'));

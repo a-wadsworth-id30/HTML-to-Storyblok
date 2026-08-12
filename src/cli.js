@@ -5,7 +5,7 @@ import { checkLiveAccess } from './access.js';
 import { CLI_BRANDING_LINES } from './branding.js';
 import { duplicateAll } from './duplicator.js';
 import { ENV_TEMPLATE, initEnvFile, loadEnvironment } from './env.js';
-import { ensureWorkDir, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from './evidence.js';
+import { ensureWorkDir, recordEvidence, writeArtifact, writeTextArtifact, DEFAULT_WORK_DIR } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { openDraftPullRequest } from './github.js';
 import { openDraftMergeRequest } from './gitlab.js';
@@ -18,7 +18,7 @@ import { validatePlan } from './policy.js';
 import { createReadinessHandoff } from './readiness.js';
 import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
-import { wireRepositoryRoutes } from './route-handoff.js';
+import { renderRouteHandoffReport, wireRepositoryRoutes } from './route-handoff.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
 import { diffIntegration, preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from './validator.js';
@@ -369,6 +369,7 @@ export async function main(argv) {
         dryRun: Boolean(args.dry_run),
         route: args.route ? String(args.route) : null
       });
+      result.markdown_report = await writeTextArtifact(workDir, 'route-handoff-report.md', renderRouteHandoffReport(result));
       await writeArtifact(workDir, 'route-handoff-result.json', result);
       if (result.status === 'blocked' || result.status === 'failed') process.exitCode = 2;
     } else if (command === 'duplicate') {

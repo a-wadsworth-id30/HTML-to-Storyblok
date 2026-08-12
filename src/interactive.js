@@ -1901,6 +1901,7 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
     { label: 'Storyblok', value: 'storyblok' },
     { label: 'Assets', value: 'assets' },
     { label: 'Links', value: 'links' },
+    { label: 'Route Handoff', value: 'routes' },
     { label: 'Rollback Targets', value: 'rollback' },
     { label: 'Activity Timeline', value: 'activity' },
     { label: 'Evidence', value: 'evidence' },
@@ -1943,6 +1944,17 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
       ['Resolved Story Links', apply?.link_summary?.resolved_story_links || 0, apply?.link_summary?.resolved_story_links ? 'success' : 'warning'],
       ['Unresolved Story Links', apply?.link_summary?.unresolved_story_links || 0, apply?.link_summary?.unresolved_story_links ? 'warning' : 'success']
     ]);
+  } else if (section === 'routes') {
+    const handoff = [...report.artifacts].reverse().find((artifact) => artifact.type === 'route_handoff');
+    terminal.panel('Route Handoff', handoff ? [
+      ['Status', handoff.status || 'recorded', handoff.status === 'blocked' ? 'error' : handoff.status === 'skipped' ? 'warning' : 'success'],
+      ['Routes Checked', handoff.total_routes || 0, handoff.total_routes ? 'success' : 'warning'],
+      ['Created', handoff.created || 0, handoff.created ? 'success' : 'warning'],
+      ['Would Create', handoff.would_create || 0, handoff.would_create ? 'success' : 'warning'],
+      ['Blocked', handoff.blocked || 0, handoff.blocked ? 'error' : 'success'],
+      ['Manual Handoff', handoff.manual_handoff_routes || 0, handoff.manual_handoff_routes ? 'warning' : 'success'],
+      ['Report', handoff.markdown_report || 'Not written', handoff.markdown_report ? 'success' : 'warning']
+    ] : [['Route Handoff', 'No route handoff artifact recorded', 'warning']]);
   } else if (section === 'rollback') {
     const manifest = report.artifacts.find((artifact) => artifact.type === 'integration_manifest');
     terminal.panel('Rollback Targets', [
