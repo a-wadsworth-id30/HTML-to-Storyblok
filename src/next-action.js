@@ -18,6 +18,7 @@ export function createNextActionModel({
     actionForUnresolvedLinks(context),
     actionForAssetIntegrity(context),
     actionForAssetReferenceGraph(context),
+    actionForPlatformReadiness(context),
     actionForRouteCollision(context),
     actionForRouteHandoff(context),
     actionForStoryblokManagement(context),
@@ -68,6 +69,7 @@ function createContext({ manifest, result, report, workDir, repoPath, repository
     storyblokManagement: report?.latest_storyblok_management_verification || latestArtifact(report, ['storyblok_management_verification']) || null,
     assetIntegrity: report?.asset_integrity || null,
     assetReferenceGraph: report?.asset_reference_graph || null,
+    platformReadiness: report?.latest_platform_readiness || latestArtifact(report, ['platform_readiness']) || null,
     routeCollision: report?.latest_route_collision_analysis || latestArtifact(report, ['route_collision_analysis']) || null,
     commandsFailed: ensureArray(report?.commands_failed),
     artifacts: ensureArray(report?.artifacts)
@@ -196,11 +198,52 @@ function actionForRouteCollision(context) {
   };
 }
 
+function actionForPlatformReadiness(context) {
+  if (context.repositorySkipped) return null;
+  if (!hasRoutePreviews(context)) return null;
+  const command = `html-to-storyblok platform-readiness --manifest ${context.manifestPath}${context.repoPath ? ` --repo ${context.repoPath}` : ' --repo <repo-path>'}`;
+  const readiness = context.platformReadiness;
+  if (!readiness) {
+    return {
+      id: 'platform-readiness',
+      label: 'Check Platform Readiness',
+      reason: 'Generated route previews are available; confirm framework handoff mode, adapter evidence, route proposals, and host checks before wiring routes.',
+      command,
+      menu_action: 'report',
+      priority: 'medium',
+      status: 'available'
+    };
+  }
+  if (['blocked', 'failed'].includes(readiness.status)) {
+    return {
+      id: 'resolve-platform-readiness',
+      label: 'Resolve Platform Readiness',
+      reason: `${readiness.failed_checks || 1} platform readiness check(s) block route exposure.`,
+      command,
+      menu_action: 'report',
+      priority: 'critical',
+      status: 'blocked'
+    };
+  }
+  if (readiness.manual_route_handoff_required) {
+    return {
+      id: 'review-platform-manual-handoff',
+      label: 'Review Manual Platform Handoff',
+      reason: `${readiness.framework || 'This framework'} requires host-router registration outside automatic wire-routes.`,
+      command,
+      menu_action: 'report',
+      priority: 'medium',
+      status: 'needs_review'
+    };
+  }
+  return null;
+}
+
 function actionForRouteHandoff(context) {
   if (context.repositorySkipped) return null;
   if (context.routeCollision?.status === 'blocked') return null;
   if (context.routeHandoff && !['skipped', 'blocked'].includes(context.routeHandoff.status)) return null;
-  if (!context.summary.route_previews && !context.manifest?.repository?.route_previews) return null;
+  if (!hasRoutePreviews(context)) return null;
   return {
     id: 'wire-routes',
     label: 'Review Route Handoff',
@@ -210,6 +253,10 @@ function actionForRouteHandoff(context) {
     priority: 'medium',
     status: 'available'
   };
+}
+
+function hasRoutePreviews(context) {
+  return Boolean(context.summary.route_previews || context.manifest?.repository?.route_previews);
 }
 
 function actionForStoryblokManagement(context) {
