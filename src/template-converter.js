@@ -334,7 +334,7 @@ function renderTemplateModule(integrationId, html) {
 
 export function renderTemplateHtml(blok = {}) {
   const fields = flattenBlokFields(blok);
-  return hydrateTextFields(
+  const hydrated = hydrateTextFields(
     hydrateFormFields(
       hydrateLinkFields(
         hydrateAssetFields(templateHtml, fields),
@@ -344,6 +344,36 @@ export function renderTemplateHtml(blok = {}) {
     ),
     fields
   );
+  return injectStoryblokEditableMarkers(hydrated, blok);
+}
+
+function injectStoryblokEditableMarkers(html, blok) {
+  const rootMarker = storyblokEditableComment(blok);
+  const blockMarkers = Array.isArray(blok?.body)
+    ? blok.body.map(storyblokEditableComment).filter(Boolean)
+    : [];
+  const markedHtml = blockMarkers.length > 0
+    ? injectSequentialEditableMarkers(html, blockMarkers)
+    : html;
+  return rootMarker ? rootMarker + markedHtml : markedHtml;
+}
+
+function injectSequentialEditableMarkers(html, markers) {
+  let index = 0;
+  const output = html.replace(/<(header|nav|main|section|article|aside|footer)\\b/gi, (match) => {
+    if (index >= markers.length) return match;
+    const marker = markers[index];
+    index += 1;
+    return marker + match;
+  });
+  return index === 0 ? markers.join('') + html : output;
+}
+
+function storyblokEditableComment(value) {
+  const comment = typeof value?._editable === 'string' ? value._editable.trim() : '';
+  if (!/^<!--#storyblok#[\\s\\S]*-->$/.test(comment)) return '';
+  if (/<\\/?script\\b/i.test(comment)) return '';
+  return comment;
 }
 
 function hydrateTextFields(html, fields) {
