@@ -258,7 +258,7 @@ html-to-storyblok handoff-pack \
   --template templates/acme-campaign
 ```
 
-`handoff-pack` writes `.tmp/html-to-storyblok/production-handoff-pack.md` and `.tmp/html-to-storyblok/production-handoff-pack.json`. It packages the integration summary, Storyblok draft editor links, route preview files, route handoff state, validation state, asset integrity, rollback scope, evidence files, sign-off checklist, and next actions into one review-ready document. It runs the same read-only readiness checks by default; pass `--skip-readiness` to package only existing evidence. `production-handoff` and `handoff-report` are aliases.
+`handoff-pack` writes `.tmp/html-to-storyblok/production-handoff-pack.md` and `.tmp/html-to-storyblok/production-handoff-pack.json`. It packages the integration summary, Storyblok draft editor links, route preview files, route handoff state, validation state, asset integrity, the asset reference graph, rollback scope, evidence files, sign-off checklist, and next actions into one review-ready document. It runs the same read-only readiness checks by default; pass `--skip-readiness` to package only existing evidence. `production-handoff` and `handoff-report` are aliases.
 
 Open the interactive report viewer:
 
@@ -270,15 +270,18 @@ html-to-storyblok report --html
 
 The report viewer exposes summary, validation, evidence, generated files, warnings, failures, Storyblok drilldowns, Management API content-drift verification, activity timelines, recommended next actions, report search, and optional standalone HTML report export without requiring users to inspect JSON manually.
 
-The report viewer also includes Storyblok, assets, links, and rollback-target sections so you can inspect created/reused resources, unresolved generated story links, and cleanup scope without opening JSON artifacts directly.
+The report viewer also includes Storyblok, assets, asset reference graph, links, and rollback-target sections so you can inspect created/reused resources, story fields that use uploaded assets, unresolved generated story links, and cleanup scope without opening JSON artifacts directly.
 
 For a scriptable asset integrity dashboard:
 
 ```sh
 html-to-storyblok asset-dashboard
+html-to-storyblok asset-graph
 ```
 
 This read-only command summarizes planned repository assets, planned Storyblok assets, local source availability, SHA-256 hashes, upload dry-run evidence, real uploaded/reused assets, Storyblok asset IDs, Management API asset-field verification, Content API asset counts, and unresolved draft asset fields.
+
+`asset-graph` is also read-only. It writes `.tmp/html-to-storyblok/asset-reference-graph.json` and joins planned assets, repository copy targets, Storyblok upload evidence, and every generated story field that references an asset. Use it when a draft story image looks wrong or missing: the output shows the source reference, story slug, field path, component, upload status, remote Storyblok asset ID, ambiguous aliases, and unresolved story asset fields.
 
 ## Where to put templates
 
@@ -1064,7 +1067,7 @@ html-to-storyblok upload-assets \
 
 When `apply` or `storyblok-apply` runs the full workflow, uploaded asset results are fed into draft story creation. Template-local asset references such as `./assets/hero.svg` are converted into Storyblok asset fields with the uploaded asset ID, final Storyblok filename, alt text, and `fieldtype: "asset"`.
 
-Existing Storyblok assets are reused only when the match is integration-owned and exact. The CLI compares the manifest filename/path and the resolved integration asset folder, so a generic existing asset with the same basename, such as `logo.svg`, is not treated as a safe match unless it belongs to the planned integration namespace. Upload evidence includes the local byte size and SHA-256 hash for each source file, and `asset-dashboard` combines that evidence with manifest, upload, Content API, and Management API verification results so missing files or unresolved draft asset fields are visible without opening JSON artifacts.
+Existing Storyblok assets are reused only when the match is integration-owned and exact. The CLI compares the manifest filename/path and the resolved integration asset folder, so a generic existing asset with the same basename, such as `logo.svg`, is not treated as a safe match unless it belongs to the planned integration namespace. Upload evidence includes the local byte size and SHA-256 hash for each source file. `asset-dashboard` combines that evidence with manifest, upload, Content API, and Management API verification results so missing files or unresolved draft asset fields are visible without opening JSON artifacts. `asset-graph` goes one level deeper by showing which story/component field uses each asset and whether that field resolved to uploaded Storyblok media.
 
 Create Storyblok component presets listed in `storyblok.presets_to_create`:
 
@@ -1259,6 +1262,7 @@ html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
 html-to-storyblok doctor
 html-to-storyblok view-report
 html-to-storyblok asset-dashboard
+html-to-storyblok asset-graph
 html-to-storyblok completion [--shell zsh|bash|fish]
 html-to-storyblok inspect-template --template <path>
 html-to-storyblok template-readiness --template <path>
@@ -1304,9 +1308,10 @@ html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
 html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--allow-modified-generated-files] [--dry-run]
 html-to-storyblok report [--view] [--html]
 html-to-storyblok asset-dashboard
+html-to-storyblok asset-graph
 ```
 
-Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
+Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`; `asset-map` is an alias for `asset-graph`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
 
 ## Policy
 

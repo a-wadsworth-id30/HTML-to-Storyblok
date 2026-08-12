@@ -236,7 +236,26 @@ test('report and asset-dashboard surface asset integrity evidence', async () => 
         {
           local_path: assetPath,
           filename: 'acme-homepage-v1/hero.svg',
+          source_ref: 'assets/hero.svg',
           asset_folder_path: 'acme-homepage-v1'
+        }
+      ],
+      stories_to_create: [
+        {
+          slug: 'acme-homepage-v1/home',
+          content: {
+            component: 'hts_acme_homepage_v1_template_page',
+            body: [
+              {
+                component: 'hts_acme_homepage_v1_hero',
+                image: {
+                  filename: './assets/hero.svg',
+                  fieldtype: 'asset',
+                  alt: 'Hero'
+                }
+              }
+            ]
+          }
         }
       ]
     }
@@ -282,17 +301,29 @@ test('report and asset-dashboard surface asset integrity evidence', async () => 
     await main(['node', 'html-to-storyblok', 'asset-dashboard', '--work-dir', workDir]);
   });
   const dashboard = JSON.parse(dashboardOutput);
+  const graphOutput = await captureStdout(async () => {
+    await main(['node', 'html-to-storyblok', 'asset-graph', '--work-dir', workDir]);
+  });
+  const graph = JSON.parse(graphOutput);
 
   assert.equal(report.asset_integrity.status, 'passed');
   assert.equal(report.asset_integrity.planned_storyblok_assets, 1);
   assert.equal(report.asset_integrity.uploaded_or_reused, 1);
   assert.equal(report.asset_integrity.unresolved_asset_fields, 0);
   assert.equal(report.safety_confirmation.asset_integrity_valid, true);
+  assert.equal(report.asset_reference_graph.status, 'passed');
+  assert.equal(report.asset_reference_graph.summary.story_asset_fields, 1);
+  assert.equal(report.asset_reference_graph.summary.resolved_story_asset_fields, 1);
+  assert.equal(report.safety_confirmation.asset_reference_graph_valid, true);
   assert.match(markdown, /## Asset Integrity/);
+  assert.match(markdown, /## Asset Reference Graph/);
   assert.match(markdown, /Uploaded or reused: 1/);
   assert.match(html, /Asset Integrity/);
+  assert.match(html, /Asset Reference Graph/);
   assert.equal(dashboard.status, 'passed');
   assert.equal(dashboard.assets[0].id, 123);
+  assert.equal(graph.status, 'passed');
+  assert.equal(graph.story_usages[0].status, 'hydrated');
 });
 
 test('apply dry-run executes the import pipeline without copying template assets as repository duplicates', async () => {

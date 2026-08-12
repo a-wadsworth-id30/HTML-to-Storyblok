@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { buildAssetIntegrityDashboard, renderAssetIntegrityMarkdown, summarizeManifestAssets } from './asset-integrity.js';
+import { buildAssetReferenceGraph, renderAssetReferenceGraphMarkdown, summarizeManifestAssetReferenceGraph } from './asset-reference-graph.js';
 import { readEvidence } from './evidence.js';
 import { createNextActionModel } from './next-action.js';
 import { readJson, writeText } from './utils.js';
@@ -23,6 +24,7 @@ export async function createReport(workDir) {
   const latestTemplateQuality = latestSummary(artifactSummaries, ['template_quality']);
   const latestRollback = latestSummary(artifactSummaries, ['rollback', 'rollback_preview']);
   const assetIntegrity = buildAssetIntegrityDashboard(artifactSummaries);
+  const assetReferenceGraph = buildAssetReferenceGraph(artifactSummaries);
   const report = {
     work_dir: workDir,
     evidence_entries: evidence.length,
@@ -50,11 +52,13 @@ export async function createReport(workDir) {
     latest_template_quality: latestTemplateQuality,
     latest_rollback: latestRollback,
     asset_integrity: assetIntegrity,
+    asset_reference_graph: assetReferenceGraph,
     safety_confirmation: {
       plan_valid: latestValidation?.status === 'passed' || latestValidation?.valid === true,
       storyblok_content_valid: latestStoryblokValidation?.status === 'passed' || latestStoryblokValidation?.status === 'skipped',
       storyblok_management_valid: latestStoryblokManagementVerification?.status === 'passed' || latestStoryblokManagementVerification?.status === 'skipped',
       asset_integrity_valid: assetIntegrity.status === 'passed' || assetIntegrity.status === 'pending',
+      asset_reference_graph_valid: assetReferenceGraph.status === 'passed' || assetReferenceGraph.status === 'pending',
       client_review_ready: !latestClientReviewGate || latestClientReviewGate.status !== 'failed',
       remote_transaction_ledger_valid: !latestRemoteTransactionLedger || latestRemoteTransactionLedger.status !== 'failed',
       deploy_preview_verified: latestNetlify?.status === 'passed',
@@ -107,6 +111,7 @@ export function renderMarkdownReport(report) {
     .join('\n') || '- None';
   const storyblokManagementRows = storyblokManagementVerificationRows(report).join('\n');
   const assetIntegrityMarkdown = renderAssetIntegrityMarkdown(report.asset_integrity);
+  const assetReferenceGraphMarkdown = renderAssetReferenceGraphMarkdown(report.asset_reference_graph);
   const nextActionRows = renderNextActionRows(report);
 
   return `# HTML-to-Storyblok Report
@@ -132,6 +137,7 @@ export function renderMarkdownReport(report) {
 - Storyblok content valid: ${report.safety_confirmation.storyblok_content_valid ? 'yes' : 'no'}
 - Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}
 - Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}
+- Asset reference graph valid: ${report.safety_confirmation.asset_reference_graph_valid ? 'yes' : 'no'}
 - Client review ready: ${report.safety_confirmation.client_review_ready ? 'yes' : 'no'}
 - Remote transaction ledger valid: ${report.safety_confirmation.remote_transaction_ledger_valid ? 'yes' : 'no'}
 - Deploy preview verified: ${report.safety_confirmation.deploy_preview_verified ? 'yes' : 'no'}
@@ -139,6 +145,8 @@ export function renderMarkdownReport(report) {
 - Secret handling: ${report.safety_confirmation.command_argument_redaction}
 
 ${assetIntegrityMarkdown}
+
+${assetReferenceGraphMarkdown}
 
 ## Recommended Next Actions
 
@@ -178,9 +186,14 @@ export function renderHtmlReport(report) {
     ? `${report.latest_rollback.type} (${report.latest_rollback.risk_flags || 0} risk flag(s))`
     : 'not run';
   const assetIntegrity = report.asset_integrity || {};
+  const assetReferenceGraph = report.asset_reference_graph || {};
   const assetIntegrityRows = (assetIntegrity.assets || [])
     .slice(0, 20)
     .map((asset) => `<tr><td>${escapeHtml(asset.filename || asset.local_path || 'asset')}</td><td>${escapeHtml(asset.source_status || 'unknown')}</td><td>${escapeHtml(asset.upload_status || 'not_run')}</td><td>${escapeHtml(asset.id || '')}</td></tr>`)
+    .join('\n') || '<tr><td colspan="4">None recorded</td></tr>';
+  const assetGraphRows = (assetReferenceGraph.assets || [])
+    .slice(0, 20)
+    .map((asset) => `<tr><td>${escapeHtml(asset.filename || asset.local_path || asset.asset_key || 'asset')}</td><td>${escapeHtml(asset.usage_count || 0)}</td><td>${escapeHtml(asset.upload_status || 'not_run')}</td><td>${escapeHtml(asset.remote_id || '')}</td></tr>`)
     .join('\n') || '<tr><td colspan="4">None recorded</td></tr>';
   const storyblokManagementRows = storyblokManagementVerificationRows(report)
     .map((row) => `<li>${escapeHtml(row.replace(/^- /, ''))}</li>`)
@@ -247,6 +260,14 @@ export function renderHtmlReport(report) {
       </table>
     </section>
     <section>
+      <h2>Asset Reference Graph</h2>
+      <p><strong>Status:</strong> ${escapeHtml(assetReferenceGraph.status || 'not_run')}; <strong>Story asset fields:</strong> ${assetReferenceGraph.summary?.story_asset_fields || 0}; <strong>Resolved:</strong> ${assetReferenceGraph.summary?.resolved_story_asset_fields || 0}; <strong>Unresolved:</strong> ${assetReferenceGraph.summary?.unresolved_story_asset_fields || 0}</p>
+      <table>
+        <thead><tr><th>Asset</th><th>Story Fields</th><th>Upload</th><th>Remote ID</th></tr></thead>
+        <tbody>${assetGraphRows}</tbody>
+      </table>
+    </section>
+    <section>
       <h2>Recommended Next Actions</h2>
       <ul>${nextActionRows}</ul>
     </section>
@@ -283,6 +304,7 @@ async function summarizeArtifact(artifact) {
     const data = await readJson(artifact);
     if (name === 'integration-manifest.json') {
       const skippedCandidates = normalizeSkippedCandidates(data.duplication_inference?.skipped_repository_candidates);
+      const assetIntegrity = await summarizeManifestAssets(data);
       return {
         type: 'integration_manifest',
         artifact,
@@ -296,7 +318,8 @@ async function summarizeArtifact(artifact) {
         storyblok_presets: data.storyblok?.presets_to_create?.length || 0,
         storyblok_stories: data.storyblok?.stories_to_create?.length || 0,
         storyblok_assets: data.storyblok?.assets_to_create?.length || 0,
-        asset_integrity: await summarizeManifestAssets(data),
+        asset_integrity: assetIntegrity,
+        asset_reference_graph: await summarizeManifestAssetReferenceGraph(data, { assetIntegrity }),
         duplication_inference: data.duplication_inference
           ? {
             repository_components: data.duplication_inference.repository_components || 0,
@@ -366,6 +389,9 @@ async function summarizeArtifact(artifact) {
     }
     if (name === 'client-review-gate.json' || name.endsWith('client-review-gate.json')) {
       return summarizeClientReviewGate(data, artifact);
+    }
+    if (name === 'asset-reference-graph.json' || name.endsWith('asset-reference-graph.json')) {
+      return summarizeAssetReferenceGraph(data, artifact);
     }
     if (name === 'remote-transaction-ledger.json' || name.endsWith('remote-transaction-ledger.json')) {
       return summarizeRemoteTransactionLedger(data, artifact);
@@ -618,6 +644,21 @@ function summarizeRemoteTransactionLedger(data, artifact) {
     published_stories: data.safety?.published_stories || 0,
     unnamespaced_resources: data.safety?.unnamespaced_resources || 0,
     rollback_scope: Object.fromEntries(Object.entries(rollbackScope).map(([key, value]) => [key, ensureArray(value).length]))
+  };
+}
+
+function summarizeAssetReferenceGraph(data, artifact) {
+  const summary = data.summary || {};
+  return {
+    type: 'asset_reference_graph',
+    artifact,
+    status: data.status || 'recorded',
+    asset_nodes: summary.asset_nodes || ensureArray(data.assets).length,
+    story_asset_fields: summary.story_asset_fields || ensureArray(data.story_usages).length,
+    resolved_story_asset_fields: summary.resolved_story_asset_fields || 0,
+    unresolved_story_asset_fields: summary.unresolved_story_asset_fields || 0,
+    uploaded_or_reused: summary.uploaded_or_reused || 0,
+    remote_unresolved_asset_fields: summary.remote_unresolved_asset_fields || 0
   };
 }
 

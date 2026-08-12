@@ -2138,6 +2138,7 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
     renderStoryblokReportDrilldown(terminal, storyblokArtifacts);
   } else if (section === 'assets') {
     const assets = report.asset_integrity || {};
+    const graph = report.asset_reference_graph || {};
     terminal.panel('Assets', [
       ['Status', assets.status || 'not_run', assets.status === 'failed' ? 'error' : assets.status === 'warning' || assets.status === 'pending' ? 'warning' : 'success'],
       ['Planned Repository Assets', assets.planned_repository_assets || 0, assets.planned_repository_assets ? 'success' : 'warning'],
@@ -2156,6 +2157,23 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
     if (rows.length > 0) terminal.panel('Asset Evidence', rows);
     if (assets.warnings?.length) {
       terminal.panel('Asset Warnings', assets.warnings.map((warning) => ['Warning', warning, 'warning']));
+    }
+    terminal.panel('Asset Reference Graph', [
+      ['Status', graph.status || 'not_run', graph.status === 'failed' ? 'error' : graph.status === 'warning' || graph.status === 'pending' ? 'warning' : 'success'],
+      ['Asset Nodes', graph.summary?.asset_nodes || 0, graph.summary?.asset_nodes ? 'success' : 'warning'],
+      ['Story Asset Fields', graph.summary?.story_asset_fields || 0, graph.summary?.story_asset_fields ? 'success' : 'warning'],
+      ['Resolved Story Fields', graph.summary?.resolved_story_asset_fields || 0, graph.summary?.resolved_story_asset_fields ? 'success' : 'warning'],
+      ['Unresolved Story Fields', graph.summary?.unresolved_story_asset_fields || 0, graph.summary?.unresolved_story_asset_fields ? 'error' : 'success'],
+      ['Remote Unresolved Fields', graph.summary?.remote_unresolved_asset_fields || 0, graph.summary?.remote_unresolved_asset_fields ? 'error' : 'success']
+    ]);
+    const graphRows = (graph.assets || []).slice(0, 8).map((asset) => [
+      asset.filename || asset.local_path || asset.asset_key || 'asset',
+      `${asset.usage_count || 0} field(s); upload ${asset.upload_status || 'not_run'}${asset.remote_id ? `; id ${asset.remote_id}` : ''}`,
+      asset.upload_status === 'failed' ? 'error' : asset.usage_count ? 'success' : 'warning'
+    ]);
+    if (graphRows.length > 0) terminal.panel('Asset Usage Graph', graphRows);
+    if (graph.warnings?.length) {
+      terminal.panel('Asset Graph Warnings', graph.warnings.map((warning) => ['Warning', warning, 'warning']));
     }
   } else if (section === 'links') {
     const apply = [...report.artifacts].reverse().find((artifact) => artifact.type === 'storyblok_apply_result' || artifact.type === 'apply_result');
