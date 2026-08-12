@@ -17,6 +17,8 @@ export function createNextActionModel({
     actionForDryRun(context),
     actionForUnresolvedLinks(context),
     actionForAssetIntegrity(context),
+    actionForAssetReferenceGraph(context),
+    actionForRouteCollision(context),
     actionForRouteHandoff(context),
     actionForStoryblokManagement(context),
     actionForStoryblokContent(context),
@@ -65,6 +67,8 @@ function createContext({ manifest, result, report, workDir, repoPath, repository
     storyblokValidation: report?.latest_storyblok_validation || latestArtifact(report, ['storyblok_content_validation']) || null,
     storyblokManagement: report?.latest_storyblok_management_verification || latestArtifact(report, ['storyblok_management_verification']) || null,
     assetIntegrity: report?.asset_integrity || null,
+    assetReferenceGraph: report?.asset_reference_graph || null,
+    routeCollision: report?.latest_route_collision_analysis || latestArtifact(report, ['route_collision_analysis']) || null,
     commandsFailed: ensureArray(report?.commands_failed),
     artifacts: ensureArray(report?.artifacts)
   };
@@ -137,10 +141,11 @@ function actionForAssetIntegrity(context) {
   const assets = context.assetIntegrity;
   if (!assets) return null;
   if (assets.status === 'passed' || assets.status === 'pending') return null;
+  const missingSources = assets.local_sources_missing ?? assets.missing_sources ?? 0;
   return {
     id: 'review-assets',
     label: 'Review Asset Integrity',
-    reason: `${assets.missing_sources || 0} missing source(s), ${assets.unresolved_asset_fields || 0} unresolved asset field(s).`,
+    reason: `${missingSources} missing source(s), ${assets.unresolved_asset_fields || 0} unresolved asset field(s).`,
     command: `html-to-storyblok asset-dashboard --work-dir ${context.workDir}`,
     menu_action: 'report',
     priority: assets.status === 'failed' ? 'critical' : 'high',
@@ -148,8 +153,52 @@ function actionForAssetIntegrity(context) {
   };
 }
 
+function actionForAssetReferenceGraph(context) {
+  const graph = context.assetReferenceGraph;
+  if (!graph) return null;
+  if (graph.status === 'passed' || graph.status === 'pending') return null;
+  const summary = graph.summary || {};
+  return {
+    id: 'review-asset-graph',
+    label: 'Review Asset Reference Graph',
+    reason: `${summary.unresolved_story_asset_fields || 0} story asset field(s), ${summary.remote_unresolved_asset_fields || 0} remote draft asset field(s), and ${summary.ambiguous_story_asset_fields || 0} ambiguous reference(s) need review.`,
+    command: `html-to-storyblok asset-graph --work-dir ${context.workDir}`,
+    menu_action: 'report',
+    priority: graph.status === 'failed' ? 'critical' : 'high',
+    status: graph.status || 'needs_review'
+  };
+}
+
+function actionForRouteCollision(context) {
+  if (context.repositorySkipped) return null;
+  const collision = context.routeCollision;
+  if (!collision || !['blocked', 'warning'].includes(collision.status)) return null;
+  const command = `html-to-storyblok route-collisions --manifest ${context.manifestPath}${context.repoPath ? ` --repo ${context.repoPath}` : ' --repo <repo-path>'}`;
+  if (collision.status === 'blocked') {
+    return {
+      id: 'resolve-route-collisions',
+      label: 'Resolve Route Collisions',
+      reason: `${collision.blocked || collision.summary?.blocked || 0} imported route(s) are blocked by existing route files, dynamic route overlaps, duplicate paths, or unsafe targets.`,
+      command,
+      menu_action: 'report',
+      priority: 'critical',
+      status: 'blocked'
+    };
+  }
+  return {
+    id: 'review-route-rewrites',
+    label: 'Review Route Rewrite Warnings',
+    reason: `${collision.warnings || collision.summary?.warnings || 0} route warning(s) may affect deployed previews, usually Netlify redirects or rewrites.`,
+    command,
+    menu_action: 'report',
+    priority: 'high',
+    status: 'needs_review'
+  };
+}
+
 function actionForRouteHandoff(context) {
   if (context.repositorySkipped) return null;
+  if (context.routeCollision?.status === 'blocked') return null;
   if (context.routeHandoff && !['skipped', 'blocked'].includes(context.routeHandoff.status)) return null;
   if (!context.summary.route_previews && !context.manifest?.repository?.route_previews) return null;
   return {
