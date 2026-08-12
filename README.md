@@ -445,6 +445,14 @@ html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-a
 
 Use `--require-configured` when CI should fail if no deployed URL is present, and use `--require-storyblok-draft --integration-id <integration-id>` after the deployed site has the Storyblok preview token configured. That stricter mode requires each imported route to return a hidden `data-hts-storyblok-source="storyblok-draft"` marker instead of silently falling back to generated static content. Non-list live checks write `.tmp/html-to-storyblok/demo-sites-live-preview-report.md` by default; pass `--report-path <file>` to write it elsewhere or `--report false` to skip the markdown report.
 
+For a single handoff gate that combines local generated-framework validation with deployed preview validation, run the end-to-end demo deployment check:
+
+```sh
+html-to-storyblok demo-sites-e2e --generated --install --smoke --require-framework --require-live --integration-id acme-campaign-v1 --require-storyblok-draft
+```
+
+`demo-sites-e2e` runs the local `demo-sites` phase, runs the deployed `demo-sites-live-preview` phase, keeps their phase-specific reports, and writes a consolidated `.tmp/html-to-storyblok/demo-sites-e2e-report.md`. Use `--require-live` when missing deployed URLs should fail the gate, `--skip-local` or `--skip-live` to isolate one side while debugging, and `--local-report-path` / `--live-report-path` when CI needs deterministic artifact names. The command is read-only against deployed URLs and remains additive-only for temporary local demo output.
+
 ### 3. Check Storyblok access
 
 ```sh
@@ -1330,6 +1338,7 @@ npm run security:audit
 npm test
 npm run test:demo-sites-full:list
 npm run test:demo-sites-live-preview
+npm run test:demo-sites-e2e
 ```
 
 `npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, `scripts/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
@@ -1363,6 +1372,13 @@ html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-a
 HTS_DEMO_ASTRO_URL=https://your-astro-demo.netlify.app \
 npm run test:demo-sites-live-preview -- --site astro --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured
 html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured
+```
+
+To run the combined local plus deployed demo-site handoff gate:
+
+```sh
+npm run test:demo-sites-e2e -- --site astro --astro-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-live --require-storyblok-draft
+html-to-storyblok demo-sites-e2e --site astro --generated --install --smoke --require-framework --astro-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-live --require-storyblok-draft
 ```
 
 To run the opt-in live Storyblok sandbox test against a disposable integration namespace:

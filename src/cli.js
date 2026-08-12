@@ -20,7 +20,7 @@ import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
 import { renderRouteHandoffReport, wireRepositoryRoutes } from './route-handoff.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
-import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
+import { commandName, parseArgs, readJson, requireOption, writeJson, writeText } from './utils.js';
 import { diffIntegration, preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 import { applyManifest, applyStoryblokOnly, createPlanFromArgs, inferDuplicatesForManifest, readAndValidateManifest } from './workflow.js';
 
@@ -110,6 +110,12 @@ export async function main(argv) {
       await writeArtifact(workDir, 'demo-sites-live-preview-result.json', result);
       if (demoSitesResultFailed(result)) process.exitCode = 2;
       printJson = Boolean(args.json_summary);
+    } else if (command === 'demo-sites-e2e') {
+      result = await runDemoSitesE2EValidation(args, workDir, {
+        silent: Boolean(args.json_summary)
+      });
+      await writeArtifact(workDir, 'demo-sites-e2e-result.json', result);
+      if (demoSitesResultFailed(result)) process.exitCode = 2;
     } else if (command === 'completion') {
       console.log(renderShellCompletion(args.shell ? String(args.shell) : 'zsh'));
       result = { action: 'completion', shell: args.shell ? String(args.shell) : 'zsh' };
@@ -482,6 +488,7 @@ function normalizeCommand(command) {
     'sb-apply': 'storyblok-apply',
     'route-handoff': 'wire-routes',
     'live-demo-sites': 'demo-sites-live-preview',
+    'e2e-demo-sites': 'demo-sites-e2e',
     handoff: 'readiness',
     examples: 'examples'
   };
@@ -505,7 +512,7 @@ function redactMessage(message) {
 
 function errorCodeFor(error, command) {
   const message = String(error?.message || error || '');
-  if (command === 'demo-sites' || command === 'demo-sites-live-preview') return 'HTS_DEMO_SITES_VALIDATION';
+  if (command === 'demo-sites' || command === 'demo-sites-live-preview' || command === 'demo-sites-e2e') return 'HTS_DEMO_SITES_VALIDATION';
   if (/credential|token|space id|Management API/i.test(message)) return 'HTS_STORYBLOK_CREDENTIALS';
   if (/manifest failed|additive-only|Policy|violations/i.test(message)) return 'HTS_POLICY_VALIDATION';
   if (/Storyblok .* failed with 429|rate limit/i.test(message)) return 'HTS_STORYBLOK_RATE_LIMIT';
@@ -531,6 +538,11 @@ function summarizeCommandResult(command, result) {
     summary.sites = result.sites.length;
     summary.failed_sites = result.sites.filter((site) => site.status === 'failed').length;
     summary.preview_report = result.preview_report || undefined;
+  }
+  if (Array.isArray(result?.phases)) {
+    summary.phases = result.phases.length;
+    summary.failed_phases = result.phases.filter((phase) => phase.status === 'failed').length;
+    summary.partial = result.status === 'partial';
   }
   if (Array.isArray(result?.routes) && result.routes.every((route) => route && typeof route === 'object')) {
     summary.routes = result.routes.length;
@@ -588,6 +600,127 @@ async function runLiveDemoPreviewValidation(args, { silent = false } = {}) {
   return parsed;
 }
 
+async function runDemoSitesE2EValidation(args, workDir, { silent = false } = {}) {
+  const startedAt = Date.now();
+  const reportEnabled = !(args.report === false || args.report === 'false');
+  const phases = [];
+  let local = null;
+  let live = null;
+
+  if (!args.skip_local) {
+    local = await runDemoSitesValidation(childDemoSitesArgs(args, {
+      reportEnabled,
+      reportPath: args.local_report_path || path.join(workDir, 'demo-sites-preview-report.md')
+    }), { silent });
+    phases.push(createE2EPhase('local_demo_matrix', 'demo-sites', local));
+  }
+
+  if (!args.skip_live) {
+    live = await runLiveDemoPreviewValidation(childLivePreviewArgs(args, {
+      reportEnabled,
+      reportPath: args.live_report_path || path.join(workDir, 'demo-sites-live-preview-report.md')
+    }), { silent });
+    phases.push(createE2EPhase('live_deployment_preview', 'demo-sites-live-preview', live));
+  }
+
+  const result = {
+    action: 'test_demo_sites_e2e',
+    status: statusFromE2EPhases(phases),
+    integration_id: args.integration_id ? String(args.integration_id) : null,
+    routes: args.routes ? String(args.routes).split(',').map((route) => route.trim()).filter(Boolean) : undefined,
+    elapsed_ms: Date.now() - startedAt,
+    phases,
+    summary: summarizeE2E({ local, live }),
+    local,
+    live
+  };
+
+  if (reportEnabled) {
+    const reportPath = args.report_path
+      ? String(args.report_path)
+      : path.join(workDir, 'demo-sites-e2e-report.md');
+    result.markdown_report = reportPath;
+    await writeText(reportPath, renderDemoSitesE2EReport(result));
+    await recordEvidence(workDir, {
+      type: 'artifact_written',
+      artifact: reportPath
+    });
+  }
+
+  return result;
+}
+
+function childDemoSitesArgs(args, { reportEnabled, reportPath }) {
+  const child = { ...args };
+  delete child.report_path;
+  delete child.local_report_path;
+  delete child.live_report_path;
+  delete child.skip_local;
+  delete child.skip_live;
+  delete child.require_live;
+  if (reportEnabled) {
+    child.report_path = String(reportPath);
+  } else {
+    child.report = false;
+  }
+  return child;
+}
+
+function childLivePreviewArgs(args, { reportEnabled, reportPath }) {
+  const child = { ...args };
+  delete child.report_path;
+  delete child.local_report_path;
+  delete child.live_report_path;
+  delete child.skip_local;
+  delete child.skip_live;
+  if (child.require_live) child.require_configured = true;
+  delete child.require_live;
+  if (reportEnabled) {
+    child.report_path = String(reportPath);
+  } else {
+    child.report = false;
+  }
+  return child;
+}
+
+function createE2EPhase(name, command, result) {
+  return {
+    name,
+    command,
+    status: result?.status || statusFromResult(result),
+    report: result?.preview_report || null,
+    sites: Array.isArray(result?.sites) ? result.sites.length : 0,
+    failed_sites: Array.isArray(result?.sites) ? result.sites.filter((site) => site.status === 'failed').length : 0
+  };
+}
+
+function statusFromE2EPhases(phases) {
+  if (phases.length === 0) return 'skipped';
+  if (phases.some((phase) => phase.status === 'failed')) return 'failed';
+  if (phases.every((phase) => phase.status === 'listed')) return 'listed';
+  if (phases.some((phase) => ['skipped', 'partial'].includes(phase.status))) return 'partial';
+  return 'passed';
+}
+
+function summarizeE2E({ local, live }) {
+  const localSites = Array.isArray(local?.sites) ? local.sites : [];
+  const liveSites = Array.isArray(live?.sites) ? live.sites : [];
+  const liveRoutes = liveSites.flatMap((site) => Array.isArray(site.routes) ? site.routes : []);
+  return {
+    local_sites_checked: localSites.length,
+    local_failed_sites: localSites.filter((site) => site.status === 'failed').length,
+    generated_integrations_checked: localSites.filter((site) => site.generated_integration && site.generated_integration !== 'not_requested').length,
+    live_sites_checked: liveSites.length,
+    live_failed_sites: liveSites.filter((site) => site.status === 'failed').length,
+    live_routes_checked: liveRoutes.length,
+    live_failed_routes: liveRoutes.filter((route) => route.status === 'failed').length,
+    storyblok_draft_routes: liveRoutes.filter((route) => route.storyblok_draft_rendered).length,
+    generated_fallback_routes: liveRoutes.filter((route) => route.generated_fallback_rendered).length,
+    local_report: local?.preview_report || null,
+    live_report: live?.preview_report || null
+  };
+}
+
 async function runDelegatedScript(scriptArgs, args, { silent }) {
   const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const timeoutMs = args.timeout_ms ? Number(args.timeout_ms) : 10 * 60 * 1000;
@@ -630,6 +763,94 @@ function buildLiveDemoPreviewRunnerArgs(args) {
     appendValueArg(scriptArgs, args, `${site}_url`, `--${site}-url`);
   }
   return scriptArgs;
+}
+
+function renderDemoSitesE2EReport(result) {
+  return `# Demo Site End-to-End Deployment Evidence
+
+- Action: ${result.action}
+- Status: ${result.status}
+- Integration: ${result.integration_id || 'not supplied'}
+- Elapsed: ${result.elapsed_ms}ms
+- Local demo sites checked: ${result.summary.local_sites_checked}
+- Deployed demo sites checked: ${result.summary.live_sites_checked}
+- Live routes checked: ${result.summary.live_routes_checked}
+- Storyblok draft routes: ${result.summary.storyblok_draft_routes}
+- Generated fallback routes: ${result.summary.generated_fallback_routes}
+
+## Phase Summary
+
+${result.phases.map(renderE2EPhaseSummary).join('\n')}
+
+## Local Demo Matrix
+
+${renderE2ELocalSection(result.local)}
+
+## Live Deployment Preview
+
+${renderE2ELiveSection(result.live)}
+
+## Evidence Files
+
+- E2E report: ${result.markdown_report || 'pending'}
+- Local report: ${result.summary.local_report || 'not written'}
+- Live preview report: ${result.summary.live_report || 'not written'}
+
+## Next Actions
+
+${renderE2ENextActions(result)}
+`;
+}
+
+function renderE2EPhaseSummary(phase) {
+  return `- ${phase.name}: ${phase.status} (${phase.sites} sites, ${phase.failed_sites} failed)${phase.report ? ` report=${phase.report}` : ''}`;
+}
+
+function renderE2ELocalSection(local) {
+  if (!local) return 'Local demo matrix was skipped.';
+  const rows = (local.sites || []).map((site) => {
+    const generated = site.generated_integration || 'not_requested';
+    const smoke = site.smoke || 'not_requested';
+    return `- ${site.site}: ${site.status || 'passed'} framework=${site.framework || 'n/a'} generated=${generated} smoke=${smoke}`;
+  });
+  return rows.length ? rows.join('\n') : 'No local demo sites were checked.';
+}
+
+function renderE2ELiveSection(live) {
+  if (!live) return 'Live deployment preview was skipped.';
+  if (live.status === 'skipped') {
+    return `Live deployment preview was skipped: ${live.reason || 'no configured deployed URLs'}.`;
+  }
+  const rows = (live.sites || []).flatMap((site) => {
+    const header = `- ${site.site}: ${site.status} ${site.url || ''}`.trimEnd();
+    const routes = (site.routes || []).map((route) =>
+      `  - ${route.route}: ${route.status} HTTP ${route.http_status ?? 'n/a'} source=${route.storyblok_source || 'none'} slug=${route.storyblok_slug || 'none'}${route.reason ? ` reason=${route.reason}` : ''}`
+    );
+    return [header, ...routes];
+  });
+  return rows.length ? rows.join('\n') : 'No live deployed routes were checked.';
+}
+
+function renderE2ENextActions(result) {
+  if (result.status === 'failed') {
+    return [
+      '- Review failed phase rows above and the linked phase reports.',
+      '- Fix missing framework builds, deployed routes, or Storyblok draft markers before client handoff.',
+      '- Rerun with `--require-live --require-storyblok-draft --integration-id <id>` when deployment should be release-blocking.'
+    ].join('\n');
+  }
+  if (result.status === 'partial') {
+    return [
+      '- Configure deployed demo URLs with `HTS_DEMO_<SITE>_URL` or `--<site>-url`.',
+      '- Rerun with `--require-live` once Netlify previews are expected to be online.',
+      '- Use `--require-storyblok-draft --integration-id <id>` to prove live Storyblok draft rendering.'
+    ].join('\n');
+  }
+  return [
+    '- Attach this report to the project handoff evidence.',
+    '- Keep the local and live phase reports with the deployment record.',
+    '- Run visual regression checks before final client-facing approval.'
+  ].join('\n');
 }
 
 function appendBooleanArg(scriptArgs, args, key, flag) {
@@ -762,6 +983,8 @@ function renderShellCompletion(shell = 'zsh') {
     'demo-sites',
     'demo-sites-live-preview',
     'live-demo-sites',
+    'demo-sites-e2e',
+    'e2e-demo-sites',
     'settings',
     'env',
     'doctor',
@@ -829,6 +1052,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--base-url',
     '--url',
     '--require-configured',
+    '--require-live',
     '--require-storyblok-draft',
     '--require-storyblok',
     '--require-repository',
@@ -852,6 +1076,10 @@ function renderShellCompletion(shell = 'zsh') {
     '--require-framework',
     '--generated',
     '--keep-generated',
+    '--skip-local',
+    '--skip-live',
+    '--local-report-path',
+    '--live-report-path',
     '--report',
     '--report-path',
     '--json-summary',
@@ -909,6 +1137,7 @@ Usage:
   html-to-storyblok history [--limit 20]
   html-to-storyblok demo-sites [--list] [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--report-path <file>]
   html-to-storyblok demo-sites-live-preview [--list] [--site astro] [--base-url <url>] [--routes /,/about] [--integration-id <id>] [--require-storyblok-draft] [--require-configured] [--report-path <file>]
+  html-to-storyblok demo-sites-e2e [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--require-live] [--require-storyblok-draft] [--integration-id <id>] [--report-path <file>]
   html-to-storyblok settings [--show] [--set key=value]
   html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
   html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]
@@ -959,7 +1188,7 @@ Usage:
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
 Use --no-interactive for scriptable non-interactive execution.
 Use --json-summary for compact CI output.
-Aliases: route-handoff, handoff, live-demo-sites. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
+Aliases: route-handoff, handoff, live-demo-sites, e2e-demo-sites. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
 Run html-to-storyblok help <topic> for focused guidance.
