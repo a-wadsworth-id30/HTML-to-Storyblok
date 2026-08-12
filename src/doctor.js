@@ -221,10 +221,20 @@ function execFilePromise(execFileImpl, command, args) {
 }
 
 function accessCheck(name, access, fix, required = false) {
+  const sourceDetail = credentialSourceDetail(access);
   return {
     name,
     status: access.ready ? 'passed' : required ? 'failed' : 'warning',
-    detail: access.ready ? 'Configured' : `Missing ${access.required_variable_names.join(', ')}`,
+    detail: access.ready
+      ? `Configured${sourceDetail ? ` (${sourceDetail})` : ''}`
+      : `Missing ${access.required_variable_names.join(', ')}${sourceDetail ? `; found ${sourceDetail}` : ''}`,
     fix: access.ready ? '' : fix
   };
+}
+
+function credentialSourceDetail(access) {
+  return (access.credential_sources || [])
+    .filter((entry) => entry.configured)
+    .map((entry) => `${entry.variable} from ${entry.source}`)
+    .join('; ');
 }

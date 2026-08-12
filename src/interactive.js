@@ -5,7 +5,7 @@ import { CLI_BRANDING_LINES } from './branding.js';
 import { DEFAULT_CONFIG, loadConfig, parseSettingAssignment, profileNames, saveConfig, updateConfigValue, updateProfileValue } from './config.js';
 import { discoverRepositories, discoverTemplates, isRepository } from './discovery.js';
 import { createDoctorReport } from './doctor.js';
-import { loadEnvironment } from './env.js';
+import { cloneEnvironment, loadEnvironment, setEnvironmentSource } from './env.js';
 import { DEFAULT_WORK_DIR, ensureWorkDir, readEvidence, writeArtifact } from './evidence.js';
 import { readIntegrationHistory, recordIntegrationHistory } from './history.js';
 import { inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
@@ -1436,7 +1436,7 @@ async function createSessionEnvironment({ terminal, config, cwd, repoPath = null
 
 async function promptForStoryblokCredentials({ terminal, env, config, answers, required = false }) {
   if (!terminal.interactive) return env;
-  const nextEnv = { ...env };
+  const nextEnv = cloneEnvironment(env);
   const before = checkLiveAccess(nextEnv);
   const needsManagement = required || !before.storyblok.ready;
   const needsPreview = !before.storyblok_content.ready;
@@ -1450,7 +1450,10 @@ async function promptForStoryblokCredentials({ terminal, env, config, answers, r
       message: required ? 'Management API token' : 'Management API token (optional, press Enter to skip)',
       answers
     });
-    if (token) nextEnv.STORYBLOK_MANAGEMENT_TOKEN = token;
+    if (token) {
+      nextEnv.STORYBLOK_MANAGEMENT_TOKEN = token;
+      setEnvironmentSource(nextEnv, 'STORYBLOK_MANAGEMENT_TOKEN', 'session');
+    }
   }
   if (needsManagement && !hasAny(nextEnv, ['STORYBLOK_SPACE_ID', 'SB_SPACE_ID'])) {
     const spaceId = await promptInput(terminal, {
@@ -1458,7 +1461,10 @@ async function promptForStoryblokCredentials({ terminal, env, config, answers, r
       defaultValue: config.storyblok_space_id || '',
       answers
     });
-    if (spaceId) nextEnv.STORYBLOK_SPACE_ID = spaceId;
+    if (spaceId) {
+      nextEnv.STORYBLOK_SPACE_ID = spaceId;
+      setEnvironmentSource(nextEnv, 'STORYBLOK_SPACE_ID', 'session');
+    }
   }
   if (!nextEnv.STORYBLOK_REGION) {
     const region = await promptInput(terminal, {
@@ -1466,14 +1472,20 @@ async function promptForStoryblokCredentials({ terminal, env, config, answers, r
       defaultValue: config.storyblok_region || 'eu',
       answers
     });
-    if (region) nextEnv.STORYBLOK_REGION = region;
+    if (region) {
+      nextEnv.STORYBLOK_REGION = region;
+      setEnvironmentSource(nextEnv, 'STORYBLOK_REGION', 'session');
+    }
   }
   if (needsPreview && !hasAny(nextEnv, ['STORYBLOK_PREVIEW_TOKEN', 'STORYBLOK_PUBLIC_TOKEN', 'STORYBLOK_DELIVERY_TOKEN'])) {
     const previewToken = await promptSecret(terminal, {
       message: 'Preview API token (optional, press Enter to skip)',
       answers
     });
-    if (previewToken) nextEnv.STORYBLOK_PREVIEW_TOKEN = previewToken;
+    if (previewToken) {
+      nextEnv.STORYBLOK_PREVIEW_TOKEN = previewToken;
+      setEnvironmentSource(nextEnv, 'STORYBLOK_PREVIEW_TOKEN', 'session');
+    }
   }
 
   const after = checkLiveAccess(nextEnv);
@@ -2009,6 +2021,7 @@ function renderRepositorySummary(terminal, repository) {
 function renderStoryblokSummary(terminal, storyblok, config, env = process.env) {
   const access = checkLiveAccess(env);
   const region = storyblok.region || env.STORYBLOK_REGION || config.storyblok_region || 'eu';
+  const sourceRows = storyblokCredentialSourceRows(access);
   terminal.panel('Storyblok', [
     ['Management API', access.storyblok.ready || storyblok.management_api_available ? 'Available' : 'Not configured', access.storyblok.ready || storyblok.management_api_available ? 'success' : 'warning'],
     ['Preview API', access.storyblok_content.ready || storyblok.preview_api_available ? 'Available' : 'Not configured', access.storyblok_content.ready || storyblok.preview_api_available ? 'success' : 'warning'],
@@ -2022,6 +2035,23 @@ function renderStoryblokSummary(terminal, storyblok, config, env = process.env) 
     ['Presets', storyblok.presets ? count(storyblok.presets) : 'Not queried'],
     ['Assets', storyblok.assets ? count(storyblok.assets) : 'Not queried']
   ]);
+  terminal.panel('Credential Sources', sourceRows.length
+    ? sourceRows
+    : [['Sources', 'No Storyblok credentials configured', 'warning']]);
+}
+
+function storyblokCredentialSourceRows(access) {
+  return [
+    ...access.storyblok.credential_sources,
+    ...access.storyblok_content.credential_sources
+  ]
+    .filter((entry) => entry.configured)
+    .filter((entry, index, entries) => entries.findIndex((item) => item.variable === entry.variable) === index)
+    .map((entry) => [
+      entry.label,
+      `${entry.variable} from ${entry.source}`,
+      entry.source === 'session prompt' ? 'info' : 'success'
+    ]);
 }
 
 function renderStoryblokAuditDashboard(terminal, storyblok) {

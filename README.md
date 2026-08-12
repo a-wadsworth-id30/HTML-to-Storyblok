@@ -194,6 +194,7 @@ Credential handling:
 - Scriptable commands read credentials from shell environment variables and local `.env` / `.env.local` files.
 - Shell environment variables override `.env` values.
 - `.env` values are loaded from the current working directory and, when `--repo` or a selected repository is available, the target repository.
+- Credential readiness output shows safe source labels such as `shell`, `env file .env.local`, `settings profile`, or `session prompt`; it never prints token values.
 - Reports and evidence record variable names only, never secret values.
 
 Run environment and project readiness checks:
@@ -206,7 +207,7 @@ html-to-storyblok doctor --for netlify-preview
 html-to-storyblok doctor --for repo-only
 ```
 
-The default doctor checks Node.js, npm, Git, optional Netlify CLI availability for log snapshots, Storyblok credentials, Netlify credentials, GitHub/GitLab credentials, required folders, and repository health, then prints actionable fixes for warnings or failures. Use `--for` to run a task-aware profile so optional services do not look like blockers when they are unrelated to the current workflow:
+The default doctor checks Node.js, npm, Git, optional Netlify CLI availability for log snapshots, Storyblok credentials, Netlify credentials, GitHub/GitLab credentials, required folders, and repository health, then prints actionable fixes for warnings or failures. Credential checks include source labels for configured variables, such as `STORYBLOK_SPACE_ID from env file .env.local`, without exposing values. Use `--for` to run a task-aware profile so optional services do not look like blockers when they are unrelated to the current workflow:
 
 - `storyblok-only`: Node, npm, template folder, required Management API credentials, and optional Content API credentials.
 - `full-import`: Node, npm, Git, template folder, repository health, required Management API credentials, and optional Content API credentials.
@@ -1238,7 +1239,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, credential test screen, Storyblok-only test mode, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, multi-route isolated repository previews, review-only route proposal wrappers, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.

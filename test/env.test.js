@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { ENV_TEMPLATE, initEnvFile, loadEnvironment, parseDotEnv } from '../src/env.js';
+import { ENV_TEMPLATE, getEnvironmentSources, initEnvFile, loadEnvironment, parseDotEnv } from '../src/env.js';
 
 test('parseDotEnv handles comments, exports, quotes, and inline comments', () => {
   const parsed = parseDotEnv(`
@@ -61,6 +61,12 @@ test('loadEnvironment merges cwd and repository .env files without overriding sh
   assert.equal(result.env.NETLIFY_SITE_ID, 'local-site');
   assert.equal(result.files_loaded.length, 3);
   assert.deepEqual(result.variables_loaded, ['NETLIFY_SITE_ID', 'STORYBLOK_REGION', 'STORYBLOK_SPACE_ID']);
+  const sources = getEnvironmentSources(result.env);
+  assert.equal(sources.STORYBLOK_MANAGEMENT_TOKEN.source, 'shell');
+  assert.equal(sources.STORYBLOK_SPACE_ID.source, 'env_file');
+  assert.equal(path.basename(sources.STORYBLOK_SPACE_ID.file), '.env');
+  assert.equal(sources.NETLIFY_SITE_ID.source, 'env_file');
+  assert.equal(path.basename(sources.NETLIFY_SITE_ID.file), '.env.local');
 });
 
 test('loadEnvironment uses non-secret Storyblok profile defaults when env files omit them', async () => {
@@ -78,6 +84,9 @@ test('loadEnvironment uses non-secret Storyblok profile defaults when env files 
   assert.equal(result.env.STORYBLOK_REGION, 'us');
   assert.equal(result.env.STORYBLOK_SPACE_ID, 'profile-space');
   assert.deepEqual(result.files_loaded, []);
+  const sources = getEnvironmentSources(result.env);
+  assert.equal(sources.STORYBLOK_REGION.source, 'profile');
+  assert.equal(sources.STORYBLOK_SPACE_ID.source, 'profile');
 });
 
 test('ENV_TEMPLATE includes all supported sensitive integration variables as placeholders', () => {
