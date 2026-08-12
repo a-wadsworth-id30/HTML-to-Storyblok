@@ -304,6 +304,103 @@ test('buildSchemaPlan resolves template route links to generated draft stories',
     linktype: 'story',
     cached_url: 'multi-route-v1/contact'
   });
+  assert.ok(plan.link_resolution.resolved_story_links >= 5);
+  assert.equal(plan.link_resolution.unresolved_internal_story_links, 0);
+  assert.deepEqual(plan.link_resolution.planned_routes, [
+    'multi-route-v1/about',
+    'multi-route-v1/contact',
+    'multi-route-v1/gallery',
+    'multi-route-v1/home',
+    'multi-route-v1/services'
+  ]);
+});
+
+test('buildSchemaPlan resolves nested relative template links to generated draft stories', () => {
+  const plan = buildSchemaPlan({
+    integrationId: 'advanced-links-v1',
+    storyblokPrefix: 'hts_advanced_links_v1_',
+    repositoryNamespace: 'src/integrations/advanced-links-v1',
+    templatePath: 'templates/advanced-links',
+    inventory: {
+      page_inventory: [
+        multiRoutePage('index.html', 'Home page', [
+          { href: './services.html?ref=nav#plans', text: 'Services' },
+          { href: 'gallery/index.html#work', text: 'Gallery index' },
+          { href: '//cdn.example.com/file.js', text: 'CDN' },
+          { href: '?preview=true', text: 'Preview query' }
+        ]),
+        multiRoutePage('services.html', 'Services page'),
+        multiRoutePage('gallery/index.html', 'Gallery page'),
+        multiRoutePage('company/team.html', 'Team page', [
+          { href: '../services.html#plans', text: 'Relative services' },
+          { href: '../gallery/index.html?view=all#work', text: 'Relative gallery' },
+          { href: './team.html#people', text: 'Same page team' },
+          { href: '../index.html', text: 'Back home' },
+          { href: '#local', text: 'Local anchor' },
+          { href: 'mailto:hello@example.com', text: 'Email' }
+        ])
+      ],
+      asset_inventory: []
+    }
+  });
+
+  const homeStory = plan.draft_stories.find((story) => story.source_page === 'index.html');
+  const homeNavigation = homeStory.content.body.find((block) => block.component === 'hts_advanced_links_v1_navigation');
+  const homeLinksByLabel = Object.fromEntries(homeNavigation.items.map((item) => [item.label, item.link]));
+
+  assert.deepEqual(homeLinksByLabel.Services, {
+    linktype: 'story',
+    cached_url: 'advanced-links-v1/services',
+    anchor: 'plans'
+  });
+  assert.deepEqual(homeLinksByLabel['Gallery index'], {
+    linktype: 'story',
+    cached_url: 'advanced-links-v1/gallery/home',
+    anchor: 'work'
+  });
+  assert.deepEqual(homeLinksByLabel.CDN, {
+    linktype: 'url',
+    url: '//cdn.example.com/file.js'
+  });
+  assert.deepEqual(homeLinksByLabel['Preview query'], {
+    linktype: 'url',
+    url: '?preview=true'
+  });
+
+  const teamStory = plan.draft_stories.find((story) => story.source_page === 'company/team.html');
+  const teamNavigation = teamStory.content.body.find((block) => block.component === 'hts_advanced_links_v1_navigation');
+  const teamLinksByLabel = Object.fromEntries(teamNavigation.items.map((item) => [item.label, item.link]));
+
+  assert.deepEqual(teamLinksByLabel['Relative services'], {
+    linktype: 'story',
+    cached_url: 'advanced-links-v1/services',
+    anchor: 'plans'
+  });
+  assert.deepEqual(teamLinksByLabel['Relative gallery'], {
+    linktype: 'story',
+    cached_url: 'advanced-links-v1/gallery/home',
+    anchor: 'work'
+  });
+  assert.deepEqual(teamLinksByLabel['Same page team'], {
+    linktype: 'story',
+    cached_url: 'advanced-links-v1/company/team',
+    anchor: 'people'
+  });
+  assert.deepEqual(teamLinksByLabel['Back home'], {
+    linktype: 'story',
+    cached_url: 'advanced-links-v1/home'
+  });
+  assert.deepEqual(teamLinksByLabel['Local anchor'], {
+    linktype: 'url',
+    url: '#local'
+  });
+  assert.deepEqual(teamLinksByLabel.Email, {
+    linktype: 'url',
+    url: 'mailto:hello@example.com'
+  });
+
+  assert.equal(plan.link_resolution.resolved_story_links, 10);
+  assert.equal(plan.link_resolution.unresolved_internal_story_links, 0);
 });
 
 test('buildSchemaPlan applies route-specific draft story overrides to multi-page templates', () => {
