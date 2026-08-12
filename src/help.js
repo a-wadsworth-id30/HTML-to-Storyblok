@@ -156,6 +156,27 @@ const COMMAND_GUIDES = {
     ],
     next: ['demo-sites-live-preview', 'wire-routes', 'readiness']
   },
+  'client-review': {
+    title: 'Client Apply Review Gate',
+    purpose: 'Builds read-only evidence that a repository apply will stay isolated before an existing client site is touched.',
+    usage: [
+      'html-to-storyblok client-review --manifest <path> --repo <path> [--host-checks lint,typecheck,build] [--skip-host-checks] [--dry-run]'
+    ],
+    when: [
+      'Use before a real full apply to review planned repository writes, host route safety, host script discovery, and route handoff readiness.',
+      'Use after generate or apply --dry-run to see concrete route proposal handoff evidence.'
+    ],
+    evidence: ['Writes client-review-gate.json and client-review-gate-report.md under the work directory.'],
+    safety: [
+      'Read-only. It does not generate files, wire routes, mutate Storyblok, or run host scripts.',
+      'It treats route handoff blockers as review warnings unless the base repository preflight itself fails.'
+    ],
+    examples: [
+      'html-to-storyblok client-review --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site',
+      'html-to-storyblok apply-review --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site --host-checks lint,build'
+    ],
+    next: ['apply --dry-run', 'wire-routes', 'readiness']
+  },
   'asset-dashboard': {
     title: 'Asset Integrity Dashboard',
     purpose: 'Summarizes planned assets, local source hashes, Storyblok upload evidence, and unresolved draft asset fields.',

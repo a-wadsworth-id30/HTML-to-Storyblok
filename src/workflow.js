@@ -1,3 +1,4 @@
+import { createClientApplyReviewGate } from './client-review-gate.js';
 import { duplicateAll } from './duplicator.js';
 import { writeArtifact } from './evidence.js';
 import { generateIntegration } from './generator.js';
@@ -68,7 +69,16 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
   await progress({ label: 'Checking Repository Safety', current: 0, total: totalSteps });
   const repositoryPreflight = await preflightRepositoryIntegration(manifest, { repoPath, mode: dryRun ? 'dry-run' : 'apply' });
   await writeArtifact(workDir, 'apply-step-00-repository-preflight.json', repositoryPreflight);
+  const clientReviewGate = await createClientApplyReviewGate(manifest, {
+    repoPath,
+    mode: dryRun ? 'dry-run' : 'apply',
+    repositoryPreflight,
+    hostChecks: hostCheckScripts(args),
+    skipHostChecks: Boolean(args.skip_host_checks)
+  });
+  await writeArtifact(workDir, 'apply-step-00-client-review-gate.json', clientReviewGate);
   assertRepositoryPreflightPassed(repositoryPreflight);
+  assertClientReviewGatePassed(clientReviewGate);
   await progress({ label: 'Checking Storyblok Access', current: 0, total: totalSteps, detail: storyblokDetail });
   const storyblokPreflight = await preflightStoryblokIntegration(manifest, { dryRun, env });
   await writeArtifact(workDir, 'apply-step-00-storyblok-preflight.json', storyblokPreflight);
@@ -407,5 +417,15 @@ function assertRepositoryPreflightPassed(preflight) {
       .map((check) => check.name)
       .join(', ');
     throw new Error(`repository preflight failed${failed ? `: ${failed}` : ''}`);
+  }
+}
+
+function assertClientReviewGatePassed(gate) {
+  if (gate.status === 'failed') {
+    const failed = ensureArray(gate.checks)
+      .filter((check) => check.status === 'failed')
+      .map((check) => check.name)
+      .join(', ');
+    throw new Error(`client apply review gate failed${failed ? `: ${failed}` : ''}`);
   }
 }
