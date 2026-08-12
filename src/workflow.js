@@ -4,6 +4,7 @@ import { writeArtifact } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { buildOperations, createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
+import { createRemoteTransactionLedger } from './remote-transaction-ledger.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, createStoryblokStateCache, duplicateStoryblokComponents, getStoryblokConfig, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { ensureArray, readJson, requireOption } from './utils.js';
 import { preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from './validator.js';
@@ -116,31 +117,31 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
     action: 'storyblok_component_groups',
     results: await createStoryblokComponentGroups(manifest, { dryRun, env })
   };
-  await recordApplyStep(workDir, steps, 'apply-step-06-storyblok-component-groups.json', componentGroupsStep);
+  await recordRemoteApplyStep(workDir, steps, 'apply-step-06-storyblok-component-groups.json', componentGroupsStep, manifest, { dryRun, workflow: 'apply_manifest' });
   await progress({ label: 'Creating Storyblok Internal Tags', current: 7, total: totalSteps, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'apply-step-07-storyblok-internal-tags.json', {
+  await recordRemoteApplyStep(workDir, steps, 'apply-step-07-storyblok-internal-tags.json', {
     action: 'storyblok_internal_tags',
     results: await createStoryblokInternalTags(manifest, { dryRun, env })
-  });
+  }, manifest, { dryRun, workflow: 'apply_manifest' });
   await progress({ label: 'Creating Storyblok Components', current: 8, total: totalSteps, detail: storyblokDetail });
   const storyblokComponentsStep = {
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun, env, componentGroupResults: componentGroupsStep.results })
   };
-  await recordApplyStep(workDir, steps, 'apply-step-08-storyblok-components.json', storyblokComponentsStep);
+  await recordRemoteApplyStep(workDir, steps, 'apply-step-08-storyblok-components.json', storyblokComponentsStep, manifest, { dryRun, workflow: 'apply_manifest' });
   await progress({ label: 'Creating Storyblok Asset Folders', current: 9, total: totalSteps, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'apply-step-09-storyblok-asset-folders.json', {
+  await recordRemoteApplyStep(workDir, steps, 'apply-step-09-storyblok-asset-folders.json', {
     action: 'storyblok_asset_folders',
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
-  });
+  }, manifest, { dryRun, workflow: 'apply_manifest' });
   await progress({ label: 'Uploading Assets', current: 10, total: totalSteps, detail: storyblokDetail });
   const storyblokAssetsStep = {
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
   };
-  await recordApplyStep(workDir, steps, 'apply-step-10-storyblok-assets.json', storyblokAssetsStep);
+  await recordRemoteApplyStep(workDir, steps, 'apply-step-10-storyblok-assets.json', storyblokAssetsStep, manifest, { dryRun, workflow: 'apply_manifest' });
   await progress({ label: 'Creating Storyblok Presets', current: 11, total: totalSteps, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'apply-step-11-storyblok-presets.json', {
+  await recordRemoteApplyStep(workDir, steps, 'apply-step-11-storyblok-presets.json', {
     action: 'storyblok_presets',
     results: await createStoryblokPresets(manifest, {
       dryRun,
@@ -148,12 +149,12 @@ export async function applyManifest(manifest, args = {}, workDir, { onProgress =
       componentResults: storyblokComponentsStep.results,
       assetResults: storyblokAssetsStep.results
     })
-  });
+  }, manifest, { dryRun, workflow: 'apply_manifest' });
   await progress({ label: 'Creating Draft Stories', current: 12, total: totalSteps, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'apply-step-12-storyblok-draft-stories.json', {
+  await recordRemoteApplyStep(workDir, steps, 'apply-step-12-storyblok-draft-stories.json', {
     action: 'storyblok_draft_stories',
     results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
-  });
+  }, manifest, { dryRun, workflow: 'apply_manifest' });
   await progress({ label: 'Validating Storyblok Content', current: 13, total: totalSteps, detail: storyblokDetail });
   const storyblokContentValidation = await validateStoryblokDraftContent(manifest, { dryRun, env });
   await recordApplyStep(workDir, steps, 'apply-step-13-storyblok-content-validation.json', storyblokContentValidation);
@@ -203,41 +204,41 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
     action: 'storyblok_component_groups',
     results: await createStoryblokComponentGroups(manifest, { dryRun, env })
   };
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-01-component-groups.json', componentGroupsStep);
+  await recordRemoteApplyStep(workDir, steps, 'storyblok-apply-step-01-component-groups.json', componentGroupsStep, manifest, { dryRun, workflow: 'storyblok_only_apply' });
   await progress({ label: 'Creating Storyblok Internal Tags', current: 2, total: totalSteps, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-02-internal-tags.json', {
+  await recordRemoteApplyStep(workDir, steps, 'storyblok-apply-step-02-internal-tags.json', {
     action: 'storyblok_internal_tags',
     results: await createStoryblokInternalTags(manifest, { dryRun, env })
-  });
+  }, manifest, { dryRun, workflow: 'storyblok_only_apply' });
   await progress({ label: 'Creating Storyblok Components', current: 3, total: totalSteps, detail: storyblokDetail });
   const storyblokComponentsStep = {
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun, env, componentGroupResults: componentGroupsStep.results })
   };
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-03-components.json', storyblokComponentsStep);
+  await recordRemoteApplyStep(workDir, steps, 'storyblok-apply-step-03-components.json', storyblokComponentsStep, manifest, { dryRun, workflow: 'storyblok_only_apply' });
   await progress({ label: 'Duplicating Storyblok Components', current: 4, total: totalSteps, detail: storyblokDetail });
   const storyblokDuplicateComponentsStep = {
     action: 'storyblok_duplicate_components',
     results: await duplicateStoryblokComponents(manifest, { dryRun, env })
   };
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-04-duplicate-components.json', storyblokDuplicateComponentsStep);
+  await recordRemoteApplyStep(workDir, steps, 'storyblok-apply-step-04-duplicate-components.json', storyblokDuplicateComponentsStep, manifest, { dryRun, workflow: 'storyblok_only_apply' });
   const allComponentResults = [
     ...ensureArray(storyblokComponentsStep.results),
     ...ensureArray(storyblokDuplicateComponentsStep.results)
   ];
   await progress({ label: 'Creating Storyblok Asset Folders', current: 5, total: totalSteps, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-05-asset-folders.json', {
+  await recordRemoteApplyStep(workDir, steps, 'storyblok-apply-step-05-asset-folders.json', {
     action: 'storyblok_asset_folders',
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
-  });
+  }, manifest, { dryRun, workflow: 'storyblok_only_apply' });
   await progress({ label: 'Uploading Assets', current: 6, total: totalSteps, detail: storyblokDetail });
   const storyblokAssetsStep = {
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
   };
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-06-assets.json', storyblokAssetsStep);
+  await recordRemoteApplyStep(workDir, steps, 'storyblok-apply-step-06-assets.json', storyblokAssetsStep, manifest, { dryRun, workflow: 'storyblok_only_apply' });
   await progress({ label: 'Creating Storyblok Presets', current: 7, total: totalSteps, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-07-presets.json', {
+  await recordRemoteApplyStep(workDir, steps, 'storyblok-apply-step-07-presets.json', {
     action: 'storyblok_presets',
     results: await createStoryblokPresets(manifest, {
       dryRun,
@@ -245,12 +246,12 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
       componentResults: allComponentResults,
       assetResults: storyblokAssetsStep.results
     })
-  });
+  }, manifest, { dryRun, workflow: 'storyblok_only_apply' });
   await progress({ label: 'Creating Draft Stories', current: 8, total: totalSteps, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-08-draft-stories.json', {
+  await recordRemoteApplyStep(workDir, steps, 'storyblok-apply-step-08-draft-stories.json', {
     action: 'storyblok_draft_stories',
     results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
-  });
+  }, manifest, { dryRun, workflow: 'storyblok_only_apply' });
   await progress({ label: 'Validating Storyblok Content', current: 9, total: totalSteps, detail: storyblokDetail });
   const storyblokContentValidation = await validateStoryblokDraftContent(manifest, { dryRun, env });
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-09-content-validation.json', storyblokContentValidation);
@@ -285,6 +286,19 @@ async function recordApplyStep(workDir, steps, artifactName, step) {
   steps.push(step);
   await writeArtifact(workDir, artifactName, step);
   return step;
+}
+
+async function recordRemoteApplyStep(workDir, steps, artifactName, step, manifest, { dryRun, workflow }) {
+  const recorded = await recordApplyStep(workDir, steps, artifactName, step);
+  const ledger = createRemoteTransactionLedger(manifest, {
+    steps,
+    dryRun,
+    workflow
+  });
+  await writeArtifact(workDir, workflow === 'storyblok_only_apply'
+    ? 'storyblok-remote-transaction-ledger.json'
+    : 'remote-transaction-ledger.json', ledger);
+  return recorded;
 }
 
 function assertApplyPreflight(manifest, { dryRun, env }) {
