@@ -2,7 +2,12 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import test from 'node:test';
-import { buildPreviewSmokeTargets, evaluatePreviewSmokeHtml } from '../src/preview-smoke.js';
+import {
+  buildClientBundleSmokeTarget,
+  buildPreviewSmokeTargets,
+  evaluateClientBundleSmokeFiles,
+  evaluatePreviewSmokeHtml
+} from '../src/preview-smoke.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -92,4 +97,37 @@ test('preview smoke evidence marks Vite demo routes as client app shell checks',
   assert.equal(generatedRoute.render_mode, 'client_app_shell');
   assert.equal(result.status, 'passed');
   assert.ok(result.checks.some((check) => check.name === 'client_app_shell' && check.status === 'passed'));
+});
+
+test('client bundle smoke evidence validates generated React and Vue bundle inclusion', () => {
+  const target = buildClientBundleSmokeTarget({
+    site: 'vue',
+    generated: {
+      integration_id: 'demo-vue-generated-compile-v1'
+    }
+  });
+  const result = evaluateClientBundleSmokeFiles(target, [{
+    path: 'assets/index.js',
+    content: 'const integration="demo-vue-generated-compile-v1";const headline="Generated integration compile smoke";'
+  }]);
+
+  assert.equal(result.status, 'passed');
+  assert.deepEqual(result.matched_files, ['assets/index.js']);
+});
+
+test('client bundle smoke evidence fails when generated tokens are missing', () => {
+  const target = buildClientBundleSmokeTarget({
+    site: 'react',
+    generated: {
+      integration_id: 'demo-react-generated-compile-v1'
+    }
+  });
+  const result = evaluateClientBundleSmokeFiles(target, [{
+    path: 'assets/index.js',
+    content: 'const app="existing shell only";'
+  }]);
+
+  assert.equal(result.status, 'failed');
+  assert.match(result.reason, /integration_id_in_bundle/);
+  assert.match(result.reason, /generated_story_seed_in_bundle/);
 });

@@ -1,9 +1,14 @@
 import { spawn } from 'node:child_process';
-import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { generateIntegration } from '../src/generator.js';
 import { createIntegrationPlan } from '../src/planner.js';
-import { buildPreviewSmokeTargets, evaluatePreviewSmokeHtml } from '../src/preview-smoke.js';
+import {
+  buildClientBundleSmokeTarget,
+  buildPreviewSmokeTargets,
+  evaluateClientBundleSmokeFiles,
+  evaluatePreviewSmokeHtml
+} from '../src/preview-smoke.js';
 import { wireRepositoryRoutes } from '../src/route-handoff.js';
 import { preflightRepositoryIntegration, validateIntegration } from '../src/validator.js';
 
@@ -65,6 +70,13 @@ for (const site of selectedSites) {
     }
 
     await runStep(site, sitePath, 'npm run build:framework', ['npm', 'run', 'build:framework'], frameworkEnv(site));
+    const clientBundleEvidence = generated
+      ? await collectClientBundleSmokeEvidence(site, sitePath, generated)
+      : [];
+    const failedClientBundleEvidence = clientBundleEvidence.filter((entry) => entry.status === 'failed');
+    if (failedClientBundleEvidence.length > 0) {
+      throw new Error(`${site}: generated client bundle smoke failed: ${failedClientBundleEvidence.map((entry) => entry.reason).join('; ')}`);
+    }
 
     let smokeResult = { status: 'not_requested', routes: [] };
     if (smoke && packageJson.scripts?.['preview:framework'] && packageJson.demoPreviewUrl) {
@@ -77,6 +89,7 @@ for (const site of selectedSites) {
       framework: 'built',
       generated_integration: generated?.status || 'not_requested',
       generated_host_file: generated?.host_file || null,
+      client_bundle_evidence: clientBundleEvidence,
       smoke: smokeResult.status,
       preview_evidence: smokeResult.routes
     });
@@ -388,6 +401,40 @@ async function smokePreview(site, cwd, url, { generated = null } = {}) {
     child.kill('SIGTERM');
     await waitForExit(child);
   }
+}
+
+async function collectClientBundleSmokeEvidence(site, sitePath, generated) {
+  const target = buildClientBundleSmokeTarget({ site, generated });
+  if (!target) return [];
+  const startedAt = Date.now();
+  const files = await readBundleTextFiles(path.join(sitePath, 'dist'), {
+    root: path.join(sitePath, 'dist')
+  });
+  return [evaluateClientBundleSmokeFiles(target, files, { elapsedMs: Date.now() - startedAt })];
+}
+
+async function readBundleTextFiles(directory, { root = directory } = {}) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = [];
+  for (const entry of entries) {
+    const absolutePath = path.join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await readBundleTextFiles(absolutePath, { root }));
+      continue;
+    }
+    if (!entry.isFile() || !bundleTextFile(entry.name)) continue;
+    const details = await stat(absolutePath);
+    if (details.size > 2_000_000) continue;
+    files.push({
+      path: path.relative(root, absolutePath).replaceAll(path.sep, '/'),
+      content: await readFile(absolutePath, 'utf8')
+    });
+  }
+  return files;
+}
+
+function bundleTextFile(fileName) {
+  return /\.(?:html|js|mjs|css)$/i.test(fileName);
 }
 
 async function waitForUrl(url, timeoutMs) {
