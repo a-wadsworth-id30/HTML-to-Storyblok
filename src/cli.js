@@ -12,6 +12,7 @@ import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlif
 import { validatePlan } from './policy.js';
 import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
+import { wireRepositoryRoutes } from './route-handoff.js';
 import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { commandName, parseArgs, readJson, requireOption, writeJson } from './utils.js';
 import { diffIntegration, preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from './validator.js';
@@ -32,7 +33,8 @@ const MUTATING_COMMANDS = new Set([
   'storyblok-components',
   'storyblok-internal-tags',
   'storyblok-presets',
-  'upload-assets'
+  'upload-assets',
+  'wire-routes'
 ]);
 
 export async function main(argv) {
@@ -299,6 +301,15 @@ export async function main(argv) {
         dryRun: Boolean(args.dry_run)
       });
       await writeArtifact(workDir, 'generate-result.json', result);
+    } else if (command === 'wire-routes') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await wireRepositoryRoutes(manifest, {
+        repoPath: args.repo ? String(args.repo) : process.cwd(),
+        dryRun: Boolean(args.dry_run),
+        route: args.route ? String(args.route) : null
+      });
+      await writeArtifact(workDir, 'route-handoff-result.json', result);
+      if (result.status === 'blocked' || result.status === 'failed') process.exitCode = 2;
     } else if (command === 'duplicate') {
       const manifest = await readAndValidateManifest(args, workDir);
       result = await duplicateAll(manifest, {
@@ -400,6 +411,7 @@ function normalizeCommand(command) {
     'sb-preflight': 'storyblok-preflight',
     'sb-validate': 'validate-storyblok',
     'sb-apply': 'storyblok-apply',
+    'route-handoff': 'wire-routes',
     history: 'dashboard',
     examples: 'examples'
   };
@@ -444,6 +456,12 @@ function summarizeCommandResult(command, result) {
   if (result?.valid !== undefined) summary.plan_valid = Boolean(result.valid);
   if (result?.summary) summary.summary = result.summary;
   if (Array.isArray(result?.steps)) summary.steps = result.steps.length;
+  if (Array.isArray(result?.routes)) {
+    summary.routes = result.routes.length;
+    summary.blocked_routes = result.routes.filter((entry) => entry.status === 'blocked').length;
+    summary.created_routes = result.routes.filter((entry) => entry.status === 'created').length;
+    summary.would_create_routes = result.routes.filter((entry) => entry.status === 'would_create').length;
+  }
   if (Array.isArray(result?.resources)) {
     summary.resources = result.resources.length;
     summary.failed_resources = result.resources.filter((entry) => ['drifted', 'blocked'].includes(entry.status)).length;
@@ -484,6 +502,7 @@ function createCommandExamples(manifest, { workDir, repoPath, templatePath }) {
       `html-to-storyblok storyblok-verify --manifest ${manifestPath}`,
       `html-to-storyblok repository-preflight --manifest ${manifestPath} --repo ${repoPath}`,
       `html-to-storyblok apply --manifest ${manifestPath} --repo ${repoPath} --template ${templatePath} --dry-run`,
+      `html-to-storyblok wire-routes --manifest ${manifestPath} --repo ${repoPath} --dry-run`,
       `html-to-storyblok rollback-preview --manifest ${manifestPath} --repo ${repoPath}`,
       `html-to-storyblok report --work-dir ${workDir} --html`
     ]
@@ -551,6 +570,8 @@ function renderShellCompletion(shell = 'zsh') {
     'validate',
     'build',
     'generate',
+    'wire-routes',
+    'route-handoff',
     'duplicate',
     'storyblok-component-groups',
     'storyblok-internal-tags',
@@ -572,6 +593,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--repo',
     '--template',
     '--framework',
+    '--route',
     '--work-dir',
     '--dry-run',
     '--remote',
@@ -652,6 +674,7 @@ Usage:
   html-to-storyblok validate --manifest <path> --repo <path>
   html-to-storyblok build --repo <path> [--script build] [--dry-run]
   html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+  html-to-storyblok wire-routes --manifest <path> --repo <path> [--route home|about|/path] [--dry-run]
   html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
   html-to-storyblok storyblok-component-groups --manifest <path> [--dry-run]
   html-to-storyblok storyblok-internal-tags --manifest <path> [--dry-run]
@@ -671,7 +694,7 @@ Usage:
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
 Use --no-interactive for scriptable non-interactive execution.
 Use --json-summary for compact CI output.
-Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
+Aliases: route-handoff. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
 `);

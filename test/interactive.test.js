@@ -7,7 +7,9 @@ import test from 'node:test';
 import { main } from '../src/cli.js';
 import { loadConfig, parseSettingAssignment, saveConfig, updateConfigValue, updateProfileValue } from '../src/config.js';
 import { discoverRepositories, discoverTemplates } from '../src/discovery.js';
+import { generateIntegration } from '../src/generator.js';
 import { createDashboardModel, runInteractiveApp, runSettings } from '../src/interactive.js';
+import { createIntegrationPlan } from '../src/planner.js';
 import { createDefaultManifest } from '../src/policy.js';
 import { pathExists } from '../src/utils.js';
 
@@ -286,6 +288,48 @@ test('interactive resume can edit generated Storyblok field mapping', async () =
   assert.equal(field.type, 'textarea');
   assert.equal(field.display_name, 'Hero Headline');
   assert.match(output.text(), /Field Mapping/);
+});
+
+test('interactive resume can preview and wire repository routes safely', async () => {
+  const root = await createFixtureWorkspace();
+  const workDir = path.join(root, 'work');
+  const repoPath = path.join(root, 'client-site');
+  await mkdir(workDir, { recursive: true });
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    templatePath: path.join(root, 'templates/acme-homepage'),
+    framework: 'astro'
+  });
+  await writeFile(path.join(workDir, 'integration-manifest.json'), JSON.stringify(manifest, null, 2));
+  await generateIntegration(manifest, {
+    repoPath,
+    templatePath: path.join(root, 'templates/acme-homepage'),
+    framework: 'astro'
+  });
+
+  const output = new CaptureOutput({ isTTY: true });
+  const result = await runInteractiveApp({
+    args: {
+      config: path.join(root, 'config.json'),
+      work_dir: workDir
+    },
+    input: { isTTY: true },
+    output,
+    cwd: root,
+    answers: [
+      'resume',
+      'wire-routes',
+      repoPath,
+      'yes',
+      'exit'
+    ]
+  });
+
+  assert.equal(result.action, 'wire_routes');
+  assert.equal(result.status, 'passed');
+  assert.equal(await pathExists(path.join(repoPath, 'src/pages/index.astro')), true);
+  assert.match(output.text(), /Route Handoff/);
+  assert.match(output.text(), /Host Route Files/);
 });
 
 test('interactive app returns to the home screen after a completed action', async () => {
