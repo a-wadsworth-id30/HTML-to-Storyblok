@@ -162,6 +162,48 @@ test('wireRepositoryRoutes generates live draft fetchers for Next and Nuxt route
   assert.match(nuxtRoute, /HTS_STORYBLOK_STORY_SLUG = "nuxt-campaign-v1\/services"/);
 });
 
+test('wireRepositoryRoutes gives manual handoff guidance for React and Vue routes', async () => {
+  const reactRepoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-route-handoff-react-'));
+  const reactManifest = await createIntegrationPlan({
+    integrationId: 'react-campaign-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'react'
+  });
+  await generateIntegration(reactManifest, {
+    repoPath: reactRepoPath,
+    templatePath: 'templates/acme-campaign',
+    framework: 'react'
+  });
+
+  const reactResult = await wireRepositoryRoutes(reactManifest, { repoPath: reactRepoPath, dryRun: true, route: 'home' });
+  assert.equal(reactResult.status, 'skipped');
+  assert.equal(reactResult.summary.skipped, 1);
+  assert.equal(reactResult.manual_handoff.required, true);
+  assert.deepEqual(reactResult.manual_handoff.frameworks, ['react']);
+  assert.match(reactResult.routes[0].manual_handoff.reason, /React route registration depends/);
+  assert.match(reactResult.routes[0].manual_handoff.route_proposal_file, /route-proposals\/home\/page\.jsx/);
+  assert.ok(reactResult.routes[0].manual_handoff.steps.some((step) => /never expose Management API tokens/.test(step)));
+
+  const vueRepoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-route-handoff-vue-'));
+  const vueManifest = await createIntegrationPlan({
+    integrationId: 'vue-campaign-v1',
+    templatePath: 'templates/acme-campaign',
+    framework: 'vue'
+  });
+  await generateIntegration(vueManifest, {
+    repoPath: vueRepoPath,
+    templatePath: 'templates/acme-campaign',
+    framework: 'vue'
+  });
+
+  const vueResult = await wireRepositoryRoutes(vueManifest, { repoPath: vueRepoPath, dryRun: true, route: '/services' });
+  assert.equal(vueResult.status, 'skipped');
+  assert.equal(vueResult.manual_handoff.required, true);
+  assert.deepEqual(vueResult.manual_handoff.frameworks, ['vue']);
+  assert.match(vueResult.routes[0].manual_handoff.reason, /Vue route registration depends/);
+  assert.match(vueResult.routes[0].manual_handoff.route_proposal_file, /route-proposals\/services\/Page\.vue/);
+});
+
 async function captureStdout(callback) {
   const originalLog = console.log;
   let output = '';

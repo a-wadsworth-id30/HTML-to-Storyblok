@@ -461,7 +461,9 @@ function summarizeCommandResult(command, result) {
     summary.blocked_routes = result.routes.filter((entry) => entry.status === 'blocked').length;
     summary.created_routes = result.routes.filter((entry) => entry.status === 'created').length;
     summary.would_create_routes = result.routes.filter((entry) => entry.status === 'would_create').length;
+    summary.manual_handoff_routes = result.routes.filter((entry) => entry.manual_handoff).length;
   }
+  if (result?.manual_handoff?.required) summary.manual_handoff_required = true;
   if (Array.isArray(result?.resources)) {
     summary.resources = result.resources.length;
     summary.failed_resources = result.resources.filter((entry) => ['drifted', 'blocked'].includes(entry.status)).length;
