@@ -66,6 +66,7 @@ test('next-action model surfaces unresolved Storyblok links and route handoff', 
 
   assert.equal(model.actions.some((action) => action.id === 'review-story-links'), true);
   assert.equal(model.actions.some((action) => action.id === 'platform-readiness'), true);
+  assert.equal(model.actions.some((action) => action.id === 'route-checklist'), true);
   assert.equal(model.actions.some((action) => action.id === 'wire-routes'), true);
 });
 
@@ -181,6 +182,35 @@ test('next-action model blocks route exposure when platform readiness fails', ()
   assert.equal(model.primary.priority, 'critical');
   assert.match(model.primary.command, /platform-readiness/);
   assert.match(model.primary.reason, /2 platform readiness check/);
+});
+
+test('next-action model surfaces manual route checklist reviews', () => {
+  const model = createNextActionModel({
+    manifest: {
+      integration_id: 'acme-v1',
+      repository: {
+        route_previews: [{ slug: 'home' }]
+      }
+    },
+    report: {
+      work_dir: '.tmp/html-to-storyblok',
+      latest_validation: { status: 'passed' },
+      latest_route_handoff_checklist: {
+        status: 'manual_required',
+        manual_routes: 2
+      },
+      latest_route_handoff: null,
+      asset_integrity: { status: 'passed' },
+      commands_failed: [],
+      artifacts: []
+    },
+    repoPath: '../client-site'
+  });
+
+  const action = model.actions.find((entry) => entry.id === 'review-route-checklist');
+  assert.equal(action.status, 'needs_review');
+  assert.match(action.reason, /2 route/);
+  assert.match(action.command, /route-checklist/);
 });
 
 test('next-action model recommends rewrite review for route collision warnings', () => {

@@ -476,6 +476,7 @@ export async function readHandoffArtifacts(workDir) {
     client_review_gate: await readOptionalJson(path.join(workDir, 'client-review-gate.json')),
     platform_readiness: await readOptionalJson(path.join(workDir, 'platform-readiness.json')),
     route_collision_analysis: await readOptionalJson(path.join(workDir, 'route-collision-analysis.json')),
+    route_handoff_checklist: await readOptionalJson(path.join(workDir, 'route-handoff-checklist.json')),
     route_handoff: await readOptionalJson(path.join(workDir, 'route-handoff-result.json')),
     asset_reference_graph: await readOptionalJson(path.join(workDir, 'asset-reference-graph.json')),
     remote_transaction_ledger: await readOptionalJson(path.join(workDir, 'remote-transaction-ledger.json')),

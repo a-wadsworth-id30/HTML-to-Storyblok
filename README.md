@@ -883,6 +883,10 @@ html-to-storyblok platform-readiness \
   --manifest .tmp/html-to-storyblok/integration-manifest.json \
   --repo ../client-site
 
+html-to-storyblok route-checklist \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site
+
 html-to-storyblok route-collisions \
   --manifest .tmp/html-to-storyblok/integration-manifest.json \
   --repo ../client-site
@@ -894,6 +898,8 @@ html-to-storyblok wire-routes \
 ```
 
 `platform-readiness` is read-only. It writes `.tmp/html-to-storyblok/platform-readiness.json` and `.tmp/html-to-storyblok/platform-readiness-report.md`, checking that generated adapter evidence exists for the detected framework, every imported route has a preview and route proposal wrapper, the adapter still proves additive-only route policy, route collision analysis is clear enough to continue, host build/check scripts are discoverable, and the deployed site is expected to use a Storyblok Content API token rather than a Management API token. Astro, Next, and Nuxt are reported as automatic route-file handoff targets; React, Vue, and static projects are reported as manual host-router handoff targets. Add `--require-automatic-routes` when this should be a CI-blocking gate.
+
+`route-checklist` is read-only. It writes `.tmp/html-to-storyblok/route-handoff-checklist.json` and `.tmp/html-to-storyblok/route-handoff-checklist.md`, combining platform readiness, route proposal evidence, route collision status, dry-run route handoff status, per-route acceptance criteria, manual React/Vue/static router steps, Content API token reminders, and browser smoke-test expectations. Use it before `wire-routes` or before handing a React/Vue/static route registration task to the client project owner. `route-handoff-checklist`, `routing-checklist`, and `route-guide` are aliases.
 
 `route-collisions` is read-only. It writes `.tmp/html-to-storyblok/route-collision-analysis.json` and `.tmp/html-to-storyblok/route-collision-analysis-report.md`, scanning Astro, Next, Nuxt, and common `pages`/`app` route files, duplicate planned imported paths, dynamic/catch-all route overlaps, and Netlify `_redirects` / `netlify.toml` rewrite rules. Exact route files, dynamic route overlaps, duplicate imported paths, and unsafe host route targets block automatic wiring. Netlify rewrite/redirect overlaps are warnings because they may mask deployed routes even though the CLI does not edit Netlify configuration.
 
@@ -1315,6 +1321,7 @@ html-to-storyblok validate --manifest <path> --repo <path>
 html-to-storyblok build --repo <path> [--script build] [--dry-run]
 html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
 html-to-storyblok platform-readiness --manifest <path> --repo <path> [--route home|about|/path] [--require-automatic-routes]
+html-to-storyblok route-checklist --manifest <path> --repo <path> [--route home|about|/path]
 html-to-storyblok route-collisions --manifest <path> --repo <path> [--route home|about|/path]
 html-to-storyblok wire-routes --manifest <path> --repo <path> [--route home|about|/path] [--dry-run]
 html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
@@ -1336,7 +1343,7 @@ html-to-storyblok asset-dashboard
 html-to-storyblok asset-graph
 ```
 
-Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `route-analyzer`, `route-analysis`, and `route-collision-analysis` are aliases for `route-collisions`; `platform-check`, `adapter-readiness`, and `framework-readiness` are aliases for `platform-readiness`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `handoff-index`, `evidence`, and `project-evidence` are aliases for `evidence-index`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`; `asset-map` is an alias for `asset-graph`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
+Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `route-analyzer`, `route-analysis`, and `route-collision-analysis` are aliases for `route-collisions`; `route-handoff-checklist`, `routing-checklist`, and `route-guide` are aliases for `route-checklist`; `platform-check`, `adapter-readiness`, and `framework-readiness` are aliases for `platform-readiness`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `handoff-index`, `evidence`, and `project-evidence` are aliases for `evidence-index`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`; `asset-map` is an alias for `asset-graph`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
 
 ## Policy
 
@@ -1389,7 +1396,7 @@ html-to-storyblok report
 Implemented:
 
 - Interactive wizard with the ID30 startup banner, first-run onboarding readiness panel, dedicated `onboarding` command, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness and quality scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, evidence-driven next-action recommendations, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, handoff evidence indexes, production handoff packs, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
-- Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, Storyblok field hydration for hinted text, rich text, asset, link, and form fields, safe Storyblok `_editable` marker preservation for generated previews, route SEO metadata extraction from template head tags, multi-route isolated repository previews, review-only route proposal wrappers, read-only platform readiness evidence, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching and route metadata fallback, and local JavaScript isolation.
+- Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, Storyblok field hydration for hinted text, rich text, asset, link, and form fields, safe Storyblok `_editable` marker preservation for generated previews, route SEO metadata extraction from template head tags, multi-route isolated repository previews, review-only route proposal wrappers, read-only platform readiness and route handoff checklists, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching and route metadata fallback, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
