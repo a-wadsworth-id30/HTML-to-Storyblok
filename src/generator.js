@@ -101,6 +101,7 @@ function summarizeRoutePreviews(files, namespace) {
     slug: route.slug,
     suggested_site_path: route.suggested_site_path,
     storyblok_slug: route.storyblok_slug,
+    seo: route.seo || {},
     preview_file: route.preview_file,
     route_proposal_file: route.route_proposal_file,
     registration_policy: route.registration_policy

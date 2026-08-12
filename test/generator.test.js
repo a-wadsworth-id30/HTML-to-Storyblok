@@ -240,6 +240,7 @@ test('generate writes isolated route previews for every template page without to
   assert.deepEqual(result.route_previews.map((route) => route.suggested_site_path), ['/', '/about', '/contact', '/gallery', '/services']);
   assert.equal(result.route_previews[0].preview_file, 'src/integrations/acme-campaign-v1/routes/home/template.html');
   assert.equal(result.route_previews[0].route_proposal_file, 'src/integrations/acme-campaign-v1/route-proposals/home/route.js');
+  assert.equal(result.route_previews[0].seo.title, 'HTML-to-Storyblok Integration Agent');
 
   const routeManifest = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/routes/manifest.json'), 'utf8'));
   assert.deepEqual(routeManifest.routes.map((route) => route.slug), ['home', 'about', 'contact', 'gallery', 'services']);
@@ -256,15 +257,19 @@ test('generate writes isolated route previews for every template page without to
   assert.deepEqual(adapterPlan.routes.map((route) => route.suggested_site_path), ['/', '/about', '/contact', '/gallery', '/services']);
   assert.equal(adapterPlan.routes[0].storyblok_slug, 'acme-campaign-v1/home');
   assert.equal(adapterPlan.routes[0].route_proposal_file, 'src/integrations/acme-campaign-v1/route-proposals/home/route.js');
+  assert.equal(adapterPlan.routes[0].seo.title, 'HTML-to-Storyblok Integration Agent');
+  assert.equal(adapterPlan.routes[0].seo.description, 'A five-route sample template for testing HTML-to-Storyblok imports.');
   assert.equal(adapterPlan.route_proposals.host_routes_modified, false);
 
   const proposalManifest = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/route-proposals/manifest.json'), 'utf8'));
   assert.equal(proposalManifest.additive_only, true);
   assert.equal(proposalManifest.routes[0].proposal_file, 'src/integrations/acme-campaign-v1/route-proposals/home/route.js');
+  assert.equal(proposalManifest.routes[0].seo.title, 'HTML-to-Storyblok Integration Agent');
 
   const homeProposal = await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/route-proposals/home/route.js'), 'utf8');
   assert.match(homeProposal, /renderHtsRouteProposal/);
   assert.match(homeProposal, /'\.\.\/\.\.\/routes\/home\/template-html\.js'/);
+  assert.match(homeProposal, /"description": "A five-route sample template for testing HTML-to-Storyblok imports\."/);
 
   const guide = await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/INTEGRATION_GUIDE.md'), 'utf8');
   assert.match(guide, /Host routes modified: no/);

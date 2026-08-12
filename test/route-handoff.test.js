@@ -143,6 +143,10 @@ test('wireRepositoryRoutes generates live draft fetchers for Next and Nuxt route
   assert.match(nextRoute, /await htsFetchStoryblokDraft\(\)/);
   assert.match(nextRoute, /STORYBLOK_PREVIEW_TOKEN/);
   assert.match(nextRoute, /HTS_STORYBLOK_STORY_SLUG = "next-campaign-v1\/home"/);
+  assert.match(nextRoute, /HTS_ROUTE_SEO = Object\.freeze/);
+  assert.match(nextRoute, /"title": "HTML-to-Storyblok Integration Agent"/);
+  assert.match(nextRoute, /export async function generateMetadata\(\)/);
+  assert.match(nextRoute, /htsNextRouteMetadata\(htsResolveStoryblokSeo\(story, HTS_ROUTE_SEO\)\)/);
   assert.match(nextRoute, /data-hts-storyblok-source=\{htsStoryblokSource\}/);
   assert.match(nextRoute, /data-hts-storyblok-slug=\{HTS_STORYBLOK_STORY_SLUG\}/);
 
@@ -164,6 +168,9 @@ test('wireRepositoryRoutes generates live draft fetchers for Next and Nuxt route
   assert.match(nuxtRoute, /if \(import\.meta\.client\) return null/);
   assert.match(nuxtRoute, /STORYBLOK_PREVIEW_TOKEN/);
   assert.match(nuxtRoute, /HTS_STORYBLOK_STORY_SLUG = "nuxt-campaign-v1\/services"/);
+  assert.match(nuxtRoute, /"title": "HTML-to-Storyblok Services"/);
+  assert.match(nuxtRoute, /useSeoMeta\(\{/);
+  assert.match(nuxtRoute, /canonical/);
   assert.match(nuxtRoute, /:data-hts-storyblok-source="story \? 'storyblok-draft' : 'generated-fallback'"/);
   assert.match(nuxtRoute, /:data-hts-storyblok-slug="HTS_STORYBLOK_STORY_SLUG"/);
 });

@@ -1975,7 +1975,8 @@ function draftStoryPayload(story, target, content) {
       slug: target.slug,
       content,
       is_startpage: Boolean(story.is_startpage),
-      parent_id: target.parent_id
+      parent_id: target.parent_id,
+      ...(story.meta_data && Object.keys(story.meta_data).length > 0 ? { meta_data: story.meta_data } : {})
     },
     publish: false
   };
