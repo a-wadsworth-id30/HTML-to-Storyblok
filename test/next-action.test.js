@@ -78,7 +78,7 @@ test('next-action model prioritizes failures and asset integrity blockers', () =
       latest_validation: { status: 'passed' },
       asset_integrity: {
         status: 'failed',
-        missing_sources: 1,
+        local_sources_missing: 1,
         unresolved_asset_fields: 2
       },
       commands_failed: [
@@ -94,4 +94,87 @@ test('next-action model prioritizes failures and asset integrity blockers', () =
   assert.equal(model.status, 'attention');
   assert.equal(model.primary.id, 'recover-failure');
   assert.equal(model.actions.some((action) => action.id === 'review-assets' && action.priority === 'critical'), true);
+  assert.match(model.actions.find((action) => action.id === 'review-assets').reason, /1 missing source/);
+});
+
+test('next-action model surfaces asset reference graph blockers', () => {
+  const model = createNextActionModel({
+    report: {
+      work_dir: '.tmp/html-to-storyblok',
+      latest_validation: { status: 'passed' },
+      asset_integrity: { status: 'passed' },
+      asset_reference_graph: {
+        status: 'failed',
+        summary: {
+          unresolved_story_asset_fields: 2,
+          remote_unresolved_asset_fields: 1,
+          ambiguous_story_asset_fields: 1
+        }
+      },
+      commands_failed: [],
+      artifacts: []
+    }
+  });
+
+  const action = model.actions.find((entry) => entry.id === 'review-asset-graph');
+  assert.equal(action.priority, 'critical');
+  assert.match(action.command, /asset-graph/);
+  assert.match(action.reason, /2 story asset field/);
+});
+
+test('next-action model prioritizes route collision blockers before route handoff', () => {
+  const model = createNextActionModel({
+    manifest: {
+      integration_id: 'acme-v1',
+      repository: {
+        route_previews: [{ slug: 'home' }]
+      }
+    },
+    report: {
+      work_dir: '.tmp/html-to-storyblok',
+      latest_validation: { status: 'passed' },
+      latest_route_collision_analysis: {
+        status: 'blocked',
+        blocked: 1,
+        warnings: 0
+      },
+      latest_route_handoff: null,
+      asset_integrity: { status: 'passed' },
+      commands_failed: [],
+      artifacts: []
+    },
+    repoPath: '../client-site'
+  });
+
+  assert.equal(model.primary.id, 'resolve-route-collisions');
+  assert.equal(model.actions.some((action) => action.id === 'wire-routes'), false);
+  assert.match(model.primary.command, /route-collisions/);
+  assert.match(model.primary.command, /--repo \.\.\/client-site/);
+});
+
+test('next-action model recommends rewrite review for route collision warnings', () => {
+  const model = createNextActionModel({
+    manifest: {
+      integration_id: 'acme-v1',
+      repository: {
+        route_previews: [{ slug: 'home' }]
+      }
+    },
+    report: {
+      work_dir: '.tmp/html-to-storyblok',
+      latest_validation: { status: 'passed' },
+      latest_route_collision_analysis: {
+        status: 'warning',
+        blocked: 0,
+        warnings: 2
+      },
+      latest_route_handoff: null,
+      asset_integrity: { status: 'passed' },
+      commands_failed: [],
+      artifacts: []
+    }
+  });
+
+  assert.equal(model.actions.some((action) => action.id === 'review-route-rewrites'), true);
+  assert.equal(model.actions.some((action) => action.id === 'wire-routes'), true);
 });
