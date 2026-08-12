@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { buildPreviewSmokeTargets, evaluatePreviewSmokeHtml } from '../src/preview-smoke.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -27,4 +28,68 @@ test('full demo-site runner keeps static validation dependency-free', async () =
   assert.match(stdout, /demo build check passed: hts-demo-static/);
   assert.match(stdout, /"site": "static"/);
   assert.match(stdout, /"status": "lightweight_only"/);
+});
+
+test('preview smoke evidence validates server-rendered generated route markers', () => {
+  const targets = buildPreviewSmokeTargets({
+    baseUrl: 'http://127.0.0.1:4402/',
+    site: 'next',
+    generated: {
+      integration_id: 'demo-next-generated-compile-v1',
+      smoke_route: '/about',
+      storyblok_slug: 'demo-next-generated-compile-v1/about'
+    }
+  });
+  const generatedRoute = targets.find((target) => target.name === 'generated_route');
+
+  assert.equal(generatedRoute.url, 'http://127.0.0.1:4402/about');
+  const result = evaluatePreviewSmokeHtml(generatedRoute, {
+    responseOk: true,
+    httpStatus: 200,
+    html: '<!doctype html><html><body><span data-hts-storyblok-source="generated-fallback" data-hts-storyblok-slug="demo-next-generated-compile-v1/about"></span><main data-integration="demo-next-generated-compile-v1"></main></body></html>'
+  });
+
+  assert.equal(result.status, 'passed');
+  assert.ok(result.checks.some((check) => check.name === 'storyblok_slug_marker' && check.status === 'passed'));
+});
+
+test('preview smoke evidence fails server-rendered generated route marker drift', () => {
+  const generatedRoute = buildPreviewSmokeTargets({
+    baseUrl: 'http://127.0.0.1:4401/',
+    site: 'astro',
+    generated: {
+      integration_id: 'demo-astro-generated-compile-v1',
+      smoke_route: '/about',
+      storyblok_slug: 'demo-astro-generated-compile-v1/about'
+    }
+  }).find((target) => target.name === 'generated_route');
+  const result = evaluatePreviewSmokeHtml(generatedRoute, {
+    responseOk: true,
+    httpStatus: 200,
+    html: '<!doctype html><html><body><main data-integration="demo-astro-generated-compile-v1"></main></body></html>'
+  });
+
+  assert.equal(result.status, 'failed');
+  assert.match(result.reason, /storyblok_source_marker/);
+});
+
+test('preview smoke evidence marks Vite demo routes as client app shell checks', () => {
+  const generatedRoute = buildPreviewSmokeTargets({
+    baseUrl: 'http://127.0.0.1:4405/',
+    site: 'react',
+    generated: {
+      integration_id: 'demo-react-generated-compile-v1',
+      smoke_route: '/',
+      storyblok_slug: 'demo-react-generated-compile-v1/home'
+    }
+  }).find((target) => target.name === 'generated_route');
+  const result = evaluatePreviewSmokeHtml(generatedRoute, {
+    responseOk: true,
+    httpStatus: 200,
+    html: '<!doctype html><html><body><div id="root"></div><script type="module" src="/assets/index.js"></script></body></html>'
+  });
+
+  assert.equal(generatedRoute.render_mode, 'client_app_shell');
+  assert.equal(result.status, 'passed');
+  assert.ok(result.checks.some((check) => check.name === 'client_app_shell' && check.status === 'passed'));
 });

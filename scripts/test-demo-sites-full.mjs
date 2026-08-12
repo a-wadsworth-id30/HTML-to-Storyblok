@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { generateIntegration } from '../src/generator.js';
 import { createIntegrationPlan } from '../src/planner.js';
+import { buildPreviewSmokeTargets, evaluatePreviewSmokeHtml } from '../src/preview-smoke.js';
 import { wireRepositoryRoutes } from '../src/route-handoff.js';
 import { preflightRepositoryIntegration, validateIntegration } from '../src/validator.js';
 
@@ -65,9 +66,9 @@ for (const site of selectedSites) {
 
     await runStep(site, sitePath, 'npm run build:framework', ['npm', 'run', 'build:framework'], frameworkEnv(site));
 
-    let smokeResult = 'not_requested';
+    let smokeResult = { status: 'not_requested', routes: [] };
     if (smoke && packageJson.scripts?.['preview:framework'] && packageJson.demoPreviewUrl) {
-      smokeResult = await smokePreview(site, sitePath, packageJson.demoPreviewUrl);
+      smokeResult = await smokePreview(site, sitePath, packageJson.demoPreviewUrl, { generated });
     }
 
     summaries.push({
@@ -76,7 +77,8 @@ for (const site of selectedSites) {
       framework: 'built',
       generated_integration: generated?.status || 'not_requested',
       generated_host_file: generated?.host_file || null,
-      smoke: smokeResult
+      smoke: smokeResult.status,
+      preview_evidence: smokeResult.routes
     });
   } finally {
     if (generated && !args.keep_generated) {
@@ -148,6 +150,8 @@ async function prepareGeneratedIntegration(site, sitePath, packageJson) {
       integration_id: integrationId,
       namespace: manifest.repository_namespace,
       host_file: host.path,
+      smoke_route: host.smoke_route,
+      storyblok_slug: host.storyblok_slug,
       host_original: host.original
     };
   } catch (error) {
@@ -172,6 +176,8 @@ async function writeGeneratedHostRoute(site, sitePath, integrationId, manifest) 
     const route = result.routes.find((entry) => entry.status === 'created');
     return {
       path: route.host_route_file,
+      smoke_route: route.suggested_site_path,
+      storyblok_slug: route.storyblok_slug,
       original: null
     };
   }
@@ -183,6 +189,8 @@ async function writeGeneratedHostRoute(site, sitePath, integrationId, manifest) 
   await writeFile(fullPath, host.content);
   return {
     path: host.path,
+    smoke_route: host.smoke_route,
+    storyblok_slug: host.storyblok_slug,
     original
   };
 }
@@ -229,6 +237,8 @@ const story = { content: { headline: 'Generated integration compile smoke' } };
   if (site === 'vue') {
     return {
       path: 'src/App.vue',
+      smoke_route: '/',
+      storyblok_slug: `${integrationId}/home`,
       content: `<script setup>
 import ImportedRoute from './integrations/${integrationId}/route-proposals/home/Page.vue';
 
@@ -244,6 +254,8 @@ const story = { content: { headline: 'Generated integration compile smoke' } };
   if (site === 'react') {
     return {
       path: 'src/App.jsx',
+      smoke_route: '/',
+      storyblok_slug: `${integrationId}/home`,
       content: `import ImportedRoute from './integrations/${integrationId}/route-proposals/home/page.jsx';
 
 export function App() {
@@ -326,8 +338,9 @@ function run(command, { cwd, env = process.env, timeoutMs = 180000 } = {}) {
   });
 }
 
-async function smokePreview(site, cwd, url) {
+async function smokePreview(site, cwd, url, { generated = null } = {}) {
   process.stdout.write(`[${site}] npm run preview:framework\n`);
+  await assertPreviewUrlIdle(url);
   let output = '';
   const child = spawn('npm', ['run', 'preview:framework'], {
     cwd,
@@ -349,12 +362,26 @@ async function smokePreview(site, cwd, url) {
 
   try {
     await waitForUrl(url, 60000);
-    const response = await fetch(url);
-    const text = await response.text();
-    if (!response.ok || !/<html|<!doctype html/i.test(text)) {
-      throw new Error(`${site}: preview smoke failed for ${url}`);
+    const routes = [];
+    for (const target of buildPreviewSmokeTargets({ baseUrl: url, site, generated })) {
+      const startedAt = Date.now();
+      const response = await fetch(target.url);
+      const text = await response.text();
+      routes.push(evaluatePreviewSmokeHtml(target, {
+        responseOk: response.ok,
+        httpStatus: response.status,
+        html: text,
+        elapsedMs: Date.now() - startedAt
+      }));
     }
-    return 'passed';
+    const failed = routes.filter((route) => route.status === 'failed');
+    if (failed.length > 0) {
+      throw new Error(`${site}: preview smoke failed for ${failed.map((route) => route.route).join(', ')}: ${failed.map((route) => route.reason).join('; ')}`);
+    }
+    return {
+      status: 'passed',
+      routes
+    };
   } catch (error) {
     throw new Error(`${error.message}\nPreview output:\n${output.trim() || '(no preview output captured)'}`);
   } finally {
@@ -377,6 +404,26 @@ async function waitForUrl(url, timeoutMs) {
     await sleep(500);
   }
   throw new Error(`preview server did not become ready at ${url}: ${lastError?.message || 'timeout'}`);
+}
+
+async function assertPreviewUrlIdle(url) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 500);
+  try {
+    const response = await fetch(url, {
+      headers: { Accept: 'text/html,application/xhtml+xml' },
+      signal: controller.signal
+    });
+    if (response) {
+      throw new Error(`preview URL ${url} already responded with HTTP ${response.status} before this smoke test started; stop the existing preview server or change the demo preview port.`);
+    }
+  } catch (error) {
+    if (error.name === 'AbortError') return;
+    if (/fetch failed|ECONNREFUSED|connection refused/i.test(error.message)) return;
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 function waitForExit(child) {
