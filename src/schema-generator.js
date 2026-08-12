@@ -87,10 +87,16 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
     source: primaryPage.page || null
   }, ...componentMap.values()];
 
+  const routeMap = buildStoryRouteMap({
+    definitionsByPage,
+    integrationId,
+    multiPage: definitionsByPage.length > 1
+  });
   const draftStories = buildDraftStories({
     integrationId,
     rootName,
-    definitionsByPage
+    definitionsByPage,
+    routeMap
   });
 
   const plan = {
@@ -99,6 +105,7 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
     draft_story: draftStories[0],
     draft_stories: draftStories,
     mapping,
+    link_resolution: summarizeLinkResolution({ draftStories, integrationId }),
     repository_assets: buildRepositoryAssetPlan({ inventory, templatePath, repositoryNamespace }),
     asset_folders: buildAssetFolderPlan({ inventory, integrationId }),
     storyblok_assets: buildStoryblokAssetPlan({ inventory, templatePath, integrationId })
@@ -484,13 +491,8 @@ function nestableComponent(definition, schema) {
   };
 }
 
-function buildDraftStories({ integrationId, rootName, definitionsByPage }) {
+function buildDraftStories({ integrationId, rootName, definitionsByPage, routeMap = null }) {
   const multiPage = definitionsByPage.length > 1;
-  const routeMap = buildStoryRouteMap({
-    definitionsByPage,
-    integrationId,
-    multiPage
-  });
   return definitionsByPage.map(({ page, definitions }) => buildDraftStory({
     integrationId,
     rootName,
@@ -542,7 +544,7 @@ function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
     const cta = selectPrimaryCtaLink(primaryPage.links || []);
     if (cta) {
       block.cta_label = cta.text || 'Learn more';
-      block.cta_link = toStoryblokLink(cta.href, routeMap);
+      block.cta_link = toStoryblokLink(cta.href, routeMap, primaryPage);
     }
   }
   if (definition.key === 'navigation') {
@@ -550,7 +552,7 @@ function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
       _uid: stableUid(integrationId, `navigation-item-${index}-${link.href}`),
       component: definition.technical_name.replace(/navigation$/, 'navigation_item'),
       label: link.text || link.href || `Item ${index + 1}`,
-      link: toStoryblokLink(link.href, routeMap)
+      link: toStoryblokLink(link.href, routeMap, primaryPage)
     }));
   }
   if (definition.key === 'feature_grid') {
@@ -612,7 +614,7 @@ function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
       summary: plan.summary,
       features: plan.features.join('\n'),
       cta_label: links[index]?.text || '',
-      cta_link: links[index]?.href ? toStoryblokLink(links[index].href, routeMap) : emptyStoryblokLink(),
+      cta_link: links[index]?.href ? toStoryblokLink(links[index].href, routeMap, primaryPage) : emptyStoryblokLink(),
       featured: index === 0
     }));
   }
@@ -644,7 +646,7 @@ function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
       role: member.role,
       bio: richTextDocument(member.bio),
       image: draftImage(member.image),
-      link: member.link ? toStoryblokLink(member.link.href, routeMap) : emptyStoryblokLink()
+      link: member.link ? toStoryblokLink(member.link.href, routeMap, primaryPage) : emptyStoryblokLink()
     }));
   }
   if (definition.key === 'cta_group') {
@@ -657,7 +659,7 @@ function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
         _uid: stableUid(integrationId, `cta-item-${index}-${link.href}`),
         component: definition.technical_name.replace(/cta_group$/, 'cta_item'),
         label: link.text || link.href || `CTA ${index + 1}`,
-        link: toStoryblokLink(link.href, routeMap),
+        link: toStoryblokLink(link.href, routeMap, primaryPage),
         style: index === 0 ? 'primary' : 'secondary'
       }));
   }
@@ -688,7 +690,7 @@ function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
       _uid: stableUid(integrationId, `header-link-${index}-${link.href}`),
       component: definition.technical_name.replace(/header$/, 'navigation_item'),
       label: link.text || link.href || `Link ${index + 1}`,
-      link: toStoryblokLink(link.href, routeMap)
+      link: toStoryblokLink(link.href, routeMap, primaryPage)
     }));
   }
   if (definition.key === 'content_section' || definition.key === 'section' || definition.key === 'footer') {
@@ -704,7 +706,7 @@ function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
         : selectPrimaryCtaLink(primaryPage.links || []);
       if (cta) {
         block.cta_label = cta.text || 'Learn more';
-        block.cta_link = toStoryblokLink(cta.href, routeMap);
+        block.cta_link = toStoryblokLink(cta.href, routeMap, primaryPage);
       }
     }
   }
@@ -874,9 +876,10 @@ function linkField(description) {
   };
 }
 
-function toStoryblokLink(href = '', routeMap = null) {
+function toStoryblokLink(href = '', routeMap = null, currentPage = null) {
   const value = String(href || '').trim();
-  const routeLink = resolveStoryRouteLink(value, routeMap);
+  if (!value) return emptyStoryblokLink();
+  const routeLink = resolveStoryRouteLink(value, routeMap, currentPage);
   if (routeLink) {
     return {
       linktype: 'story',
@@ -884,18 +887,22 @@ function toStoryblokLink(href = '', routeMap = null) {
       ...(routeLink.anchor ? { anchor: routeLink.anchor } : {})
     };
   }
+  if (value.startsWith('//')) return { linktype: 'url', url: value };
   if (/^[a-z][a-z0-9+.-]*:/i.test(value)) return { linktype: 'url', url: value };
   if (value.startsWith('#')) return { linktype: 'url', url: value };
+  if (value.startsWith('?')) return { linktype: 'url', url: value };
   return { linktype: 'story', cached_url: value.replace(/^\//, '') };
 }
 
-function resolveStoryRouteLink(href, routeMap) {
-  if (!routeMap || !href || href.startsWith('#') || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
-  const [withoutAnchor, anchor = ''] = href.split('#', 2);
-  const [withoutQuery] = withoutAnchor.split('?', 1);
-  const alias = normalizeRouteAlias(withoutQuery);
-  const cachedUrl = routeMap.get(alias);
-  return cachedUrl ? { cached_url: cachedUrl, anchor } : null;
+function resolveStoryRouteLink(href, routeMap, currentPage = null) {
+  if (!routeMap || !href || href.startsWith('#') || href.startsWith('?') || href.startsWith('//') || /^[a-z][a-z0-9+.-]*:/i.test(href)) return null;
+  const { pathname, anchor } = splitTemplateHref(href);
+  if (!pathname) return null;
+  for (const alias of routeAliasCandidatesForHref(pathname, currentPage)) {
+    const cachedUrl = routeMap.get(alias);
+    if (cachedUrl) return { cached_url: cachedUrl, anchor };
+  }
+  return null;
 }
 
 function buildStoryRouteMap({ definitionsByPage, integrationId, multiPage }) {
@@ -904,7 +911,7 @@ function buildStoryRouteMap({ definitionsByPage, integrationId, multiPage }) {
     const route = routeForPage(page);
     const storySlug = storySlugForRoute(integrationId, route);
     for (const alias of routeAliasesForPage(page, route)) {
-      routeMap.set(alias, storySlug);
+      if (!routeMap.has(alias)) routeMap.set(alias, storySlug);
     }
   }
   return routeMap;
@@ -927,12 +934,70 @@ function routeAliasesForPage(page = {}, route = routeForPage(page)) {
   add(path.basename(source).replace(/\.[^.]+$/, ''));
   add(route.slug);
   add(route.path);
+  if (/\/index\.html?$/i.test(source.replaceAll('\\', '/'))) {
+    add(source.replaceAll('\\', '/').replace(/\/index\.html?$/i, ''));
+  }
   if (route.slug === 'home') {
     add('/');
     add('/home');
     add('home');
     add('/index.html');
     add('index.html');
+  }
+  return [...aliases];
+}
+
+function splitTemplateHref(href = '') {
+  const value = String(href || '').trim();
+  const hashIndex = value.indexOf('#');
+  const beforeHash = hashIndex >= 0 ? value.slice(0, hashIndex) : value;
+  const anchor = hashIndex >= 0 ? value.slice(hashIndex + 1) : '';
+  const queryIndex = beforeHash.indexOf('?');
+  const pathname = queryIndex >= 0 ? beforeHash.slice(0, queryIndex) : beforeHash;
+  return {
+    pathname: pathname.replaceAll('\\', '/'),
+    anchor
+  };
+}
+
+function routeAliasCandidatesForHref(pathname = '', currentPage = null) {
+  const raw = String(pathname || '').replaceAll('\\', '/').trim();
+  const candidates = [];
+  const add = (value) => {
+    for (const alias of expandedRouteAliases(value)) {
+      if (alias && !candidates.includes(alias)) candidates.push(alias);
+    }
+  };
+
+  add(raw);
+  if (!raw.startsWith('/')) {
+    add(path.posix.normalize(path.posix.join(currentPageDirectory(currentPage), raw)));
+  }
+
+  return candidates;
+}
+
+function currentPageDirectory(page = null) {
+  const source = String(page?.page || '').replaceAll('\\', '/');
+  if (!source || source === 'index.html') return '/';
+  const directory = path.posix.dirname(source);
+  return directory && directory !== '.' ? `/${directory}` : '/';
+}
+
+function expandedRouteAliases(value = '') {
+  const clean = String(value || '').replaceAll('\\', '/').trim();
+  const aliases = new Set();
+  const add = (entry) => {
+    const alias = normalizeRouteAlias(entry);
+    if (alias) aliases.add(alias);
+  };
+  add(clean);
+  add(clean.replace(/\/+$/g, ''));
+  if (/\/index(?:\.html?)?$/i.test(clean)) add(clean.replace(/\/index(?:\.html?)?$/i, ''));
+  if (/\/home(?:\.html?)?$/i.test(clean)) add(clean.replace(/\/home(?:\.html?)?$/i, ''));
+  if (!/\.[a-z0-9]+$/i.test(clean)) {
+    add(`${clean}/index.html`);
+    add(`${clean}.html`);
   }
   return [...aliases];
 }
@@ -1013,6 +1078,45 @@ function routeForPage(page = {}) {
   };
 }
 
+function summarizeLinkResolution({ draftStories = [], integrationId }) {
+  const plannedSlugs = new Set(draftStories.map((story) => String(story.slug || '')));
+  const links = collectStoryblokLinks(draftStories);
+  const storyLinks = links.filter((link) => link.linktype === 'story');
+  const urlLinks = links.filter((link) => link.linktype === 'url');
+  const plannedStoryLinks = storyLinks.filter((link) => plannedSlugs.has(link.cached_url || ''));
+  const unresolvedInternalStoryLinks = storyLinks
+    .filter((link) => link.cached_url && !plannedSlugs.has(link.cached_url))
+    .map((link) => link.cached_url);
+  const anchorLinks = storyLinks.filter((link) => link.anchor);
+
+  return {
+    total_links: links.length,
+    story_links: storyLinks.length,
+    url_links: urlLinks.length,
+    resolved_story_links: plannedStoryLinks.length,
+    unresolved_internal_story_links: unresolvedInternalStoryLinks.length,
+    unresolved_internal_story_link_targets: [...new Set(unresolvedInternalStoryLinks)].sort(),
+    anchor_links: anchorLinks.length,
+    planned_routes: [...plannedSlugs].sort(),
+    namespace: integrationId
+  };
+}
+
+function collectStoryblokLinks(value, links = []) {
+  if (!value || typeof value !== 'object') return links;
+  if (isStoryblokLinkValue(value)) links.push(value);
+  if (Array.isArray(value)) {
+    for (const entry of value) collectStoryblokLinks(entry, links);
+    return links;
+  }
+  for (const entry of Object.values(value)) collectStoryblokLinks(entry, links);
+  return links;
+}
+
+function isStoryblokLinkValue(value) {
+  return Boolean(value && typeof value === 'object' && typeof value.linktype === 'string' && ('url' in value || 'cached_url' in value || 'anchor' in value));
+}
+
 function kebabCase(value) {
   return String(value)
     .replace(/([a-z0-9])([A-Z])/g, '$1-$2')
@@ -1091,7 +1195,7 @@ function draftExplicitFieldValues(primaryPage, existingValues = {}, routeMap = n
     const fieldName = safeFieldName(hint.field_hint);
     if (!fieldName || Object.hasOwn(existingValues, fieldName) || Object.hasOwn(values, fieldName)) continue;
     const field = fieldForHint(hint);
-    values[fieldName] = draftValueForHint(hint, field, routeMap);
+    values[fieldName] = draftValueForHint(hint, field, routeMap, primaryPage);
   }
   return values;
 }
@@ -1370,9 +1474,9 @@ function fieldForInputHint(input = {}, label) {
   return textField(`Explicit template field: ${label}`);
 }
 
-function draftValueForHint(hint, field, routeMap = null) {
+function draftValueForHint(hint, field, routeMap = null, primaryPage = null) {
   if (field.type === 'asset') return draftImage(hint.image);
-  if (field.type === 'multilink') return toStoryblokLink(hint.link?.href || '', routeMap);
+  if (field.type === 'multilink') return toStoryblokLink(hint.link?.href || '', routeMap, primaryPage);
   if (field.type === 'boolean') return Boolean(hint.input?.checked);
   if (field.type === 'option') {
     return hint.input?.value || field.options?.[0]?.value || '';
