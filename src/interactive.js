@@ -260,7 +260,12 @@ export async function runDoctorCommand({
     interactive: false
   });
   const session = await loadEnvironment({ cwd, repoPath: config.default_repository || null, env, config });
-  const report = await createDoctorReport({ cwd, config, env: session.env });
+  const report = await createDoctorReport({
+    cwd,
+    config,
+    env: session.env,
+    target: args.for ? String(args.for) : args.workflow ? String(args.workflow) : args.mode ? String(args.mode) : 'all'
+  });
   renderDoctor(terminal, report);
   return report;
 }
@@ -1762,7 +1767,10 @@ function renderProfiles(terminal, config) {
 }
 
 function renderDoctor(terminal, report) {
-  terminal.header('HTML -> Storyblok Doctor', 'Environment and project readiness');
+  terminal.header('HTML -> Storyblok Doctor', report.description || 'Environment and project readiness');
+  terminal.panel('Doctor Mode', [
+    ['Target', report.target || 'all', 'info']
+  ]);
   for (const check of report.checks) {
     terminal.status(`${check.name}: ${check.detail}`, check.status === 'passed' ? 'success' : check.status === 'failed' ? 'error' : 'warning');
     if (check.fix && check.status !== 'passed') terminal.line(terminal.style('dim', `  fix: ${check.fix}`));
