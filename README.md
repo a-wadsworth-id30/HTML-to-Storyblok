@@ -1337,6 +1337,7 @@ npm run typecheck
 npm run security:audit
 npm test
 npm run test:demo-sites-full:list
+npm run test:demo-sites-apply
 npm run test:demo-sites-live-preview
 npm run test:demo-sites-e2e
 ```
@@ -1344,6 +1345,14 @@ npm run test:demo-sites-e2e
 `npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, `scripts/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
 
 The test suite includes a temp-directory end-to-end CLI workflow test that exercises the production command path without requiring live Storyblok, Netlify, GitHub, or GitLab credentials.
+
+To validate that the repository side of the real apply pipeline remains additive-only across every supported demo framework, run:
+
+```sh
+npm run test:demo-sites-apply
+```
+
+This copies the static, Astro, Next, Nuxt, Vue, and React demo sites into temporary repositories, runs `applyManifest` with remote Storyblok operations disabled, verifies generated route proposals and adapter plans, runs host build checks, and confirms existing app entry files remain byte-for-byte unchanged.
 
 To validate the demo sites with real framework compilers and preview smoke checks, run:
 
