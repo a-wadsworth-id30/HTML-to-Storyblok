@@ -619,6 +619,8 @@ function buildLiveDemoPreviewRunnerArgs(args) {
   appendValueArg(scriptArgs, args, 'fixture', '--fixture');
   appendValueArg(scriptArgs, args, 'base_url', '--base-url');
   appendValueArg(scriptArgs, args, 'url', '--url');
+  appendValueArg(scriptArgs, args, 'report', '--report');
+  appendValueArg(scriptArgs, args, 'report_path', '--report-path');
   for (const site of ['static', 'astro', 'next', 'nuxt', 'vue', 'react']) {
     appendValueArg(scriptArgs, args, `${site}_url`, `--${site}-url`);
   }
@@ -843,6 +845,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--require-framework',
     '--generated',
     '--keep-generated',
+    '--report',
     '--report-path',
     '--json-summary',
     '--html',
@@ -892,7 +895,7 @@ Usage:
   html-to-storyblok dashboard
   html-to-storyblok history [--limit 20]
   html-to-storyblok demo-sites [--list] [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--report-path <file>]
-  html-to-storyblok demo-sites-live-preview [--list] [--site astro] [--base-url <url>] [--routes /,/about] [--integration-id <id>] [--require-storyblok-draft] [--require-configured]
+  html-to-storyblok demo-sites-live-preview [--list] [--site astro] [--base-url <url>] [--routes /,/about] [--integration-id <id>] [--require-storyblok-draft] [--require-configured] [--report-path <file>]
   html-to-storyblok settings [--show] [--set key=value]
   html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
   html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]
