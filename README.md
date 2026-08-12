@@ -101,7 +101,7 @@ If an interactive action fails, the wizard stays open and shows a recovery menu.
 
 When you only want to test the Storyblok side before a client repository is available, choose `Test Storyblok Only` from the home screen, or choose `Skip Repository - Storyblok only test` when the create flow asks for a repository. This path still inspects the template, derives the same namespaced component schema, validates the additive-only plan, dry-runs all Storyblok operations, and can optionally run the real Storyblok apply. It does not generate repository files, inspect a repository, change routes, or require `--repo`.
 
-If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI offers to resume the previous integration or start a new one. The resume screen shows the integration ID, latest status, completed apply steps, validation state, failed step if any, and the recommended next action. From the continue workflow you can also review or edit generated Storyblok links, review or edit generated schema field types and labels, run one Storyblok apply step at a time, preview apply changes, and show rollback targets before applying.
+If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI offers to resume the previous integration or start a new one. The resume screen shows the integration ID, latest status, completed apply steps, validation state, failed step if any, and the recommended next action. From the continue workflow you can also review or edit generated Storyblok links, review or edit generated schema field types and labels, run one Storyblok apply step at a time, preview apply changes, wire missing host route files from generated route proposals, and show rollback targets before applying.
 
 `Import History` scans recent evidence and report artifacts so you can see the latest integration ID, validation status, completed steps, and generated reports without opening JSON files. `Live Sandbox Test` guides a disposable Storyblok-only test against a namespaced integration ID, validates the drafts when a Content API token is available, and can roll back generated remote resources.
 
@@ -694,7 +694,18 @@ src/integrations/<integration-id>/
       page.astro | page.jsx | Page.vue | route.js
 ```
 
-Route preview files use route-relative local asset paths, so a preview under `routes/home/` resolves copied template assets from the generated integration folder instead of relying on the root preview path. Dry-run and completion output now lists the generated route preview file and route proposal wrapper for each imported route. The generated `adapter-plan.json`, `INTEGRATION_GUIDE.md`, and `route-proposals/` files provide framework-specific import examples, route-to-story mappings, review-only route wrapper modules, suggested host-route file names, and required checks before wiring the import into a real route. These files are not registered with the host application's router. They are isolated preview/import targets that an existing site can review or wire manually after validation.
+Route preview files use route-relative local asset paths, so a preview under `routes/home/` resolves copied template assets from the generated integration folder instead of relying on the root preview path. Dry-run and completion output now lists the generated route preview file and route proposal wrapper for each imported route. The generated `adapter-plan.json`, `INTEGRATION_GUIDE.md`, and `route-proposals/` files provide framework-specific import examples, route-to-story mappings, review-only route wrapper modules, suggested host-route file names, and required checks before wiring the import into a real route. `generate` and `apply` do not register these routes with the host application. After review, `wire-routes` can explicitly create missing Astro, Next, or Nuxt host route files from those proposals; it refuses existing host route files and writes nothing when a collision is detected.
+
+Preview or run the safe route handoff:
+
+```sh
+html-to-storyblok wire-routes \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site \
+  --dry-run
+```
+
+Omit `--dry-run` only after reviewing the generated route proposal wrappers and running repository validation. The command is additive-only: it creates new host route files such as `src/pages/about.astro`, `src/app/about/page.jsx`, or `pages/about.vue` only when they do not already exist. Generic React/Vue router projects and static templates are reported as manual-review targets because route registration depends on the host router configuration.
 
 Supported framework output modes are:
 
@@ -1100,6 +1111,7 @@ html-to-storyblok repository-preflight --manifest <path> --repo <path>
 html-to-storyblok validate --manifest <path> --repo <path>
 html-to-storyblok build --repo <path> [--script build] [--dry-run]
 html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
+html-to-storyblok wire-routes --manifest <path> --repo <path> [--route home|about|/path] [--dry-run]
 html-to-storyblok duplicate --manifest <path> --repo <path> [--dry-run]
 html-to-storyblok storyblok-component-groups --manifest <path> [--dry-run]
 html-to-storyblok storyblok-internal-tags --manifest <path> [--dry-run]
@@ -1117,7 +1129,7 @@ html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration
 html-to-storyblok report [--view] [--html]
 ```
 
-Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
+Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
 
 ## Policy
 
@@ -1169,8 +1181,8 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, credential test screen, Storyblok-only test mode, resume dashboard, import history, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
-- Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, multi-route isolated repository previews, review-only route proposal wrappers, and local JavaScript isolation.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, credential test screen, Storyblok-only test mode, resume dashboard, import history, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, multi-route isolated repository previews, review-only route proposal wrappers, opt-in additive host route handoff for Astro/Next/Nuxt, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
 - Opt-in frontend and Storyblok duplication candidate inference with dependency graph copying, style dependency namespacing, local JSON data copying, static asset copy planning, import/URL rewrites, skipped-candidate diagnostics, manifest validation, and duplicated-output validation.
@@ -1187,12 +1199,12 @@ Implemented:
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
-- Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, and repository conversion now writes isolated preview files for every route under `src/integrations/<integration-id>/routes/`, plus an adapter plan, guide, and `route-proposals/` wrappers for manual host wiring. These route previews and proposal wrappers are deliberately not registered with the host site router automatically.
+- Multi-page templates are inspected route by route, and the bundled fixture now contains five HTML routes. Storyblok planning creates one namespaced draft story per route, and repository conversion now writes isolated preview files for every route under `src/integrations/<integration-id>/routes/`, plus an adapter plan, guide, and `route-proposals/` wrappers. These route previews and proposal wrappers are deliberately not registered by `generate` or `apply`; `wire-routes` is the explicit opt-in handoff and only creates missing Astro/Next/Nuxt route files.
 - The default demo-site build checks validate generated integration shape, framework-specific preview files, route manifests, and existing-file safety without installing full Astro/Next/Nuxt/Vue/React dependency trees. The opt-in generated demo runner can temporarily wire generated route proposals and compile them through the real Astro/Next/Nuxt/Vue/React framework builds. Before wiring an import into a real client route, still run that client repository's own install and browser checks.
 - Netlify raw deploy logs are not exposed through the Netlify REST verification path. Use `--include-logs` with `netlify-cli` installed, or use the Netlify UI for full deploy output; `html-to-storyblok doctor` reports whether the CLI is available.
 - Optional Storyblok audit collections such as approvals, branches, workflow stages, or activities may be unavailable depending on the Storyblok plan, space features, token scope, and region. The audit records unavailable collections instead of treating them as a failed import.
 - Live Storyblok, Netlify, GitHub, and GitLab calls require credentials from the shell environment, `.env` / `.env.local`, or the interactive session; use `html-to-storyblok check-access` to verify readiness.
-- No command modifies existing registries, routes, dependencies, Storyblok resources, or Netlify configuration.
+- No command overwrites existing registries, routes, dependencies, Storyblok resources, or Netlify configuration. `wire-routes` can create new missing host route files only after preview and collision checks.
 
 ## Validation
 

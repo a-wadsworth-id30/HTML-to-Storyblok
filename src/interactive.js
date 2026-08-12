@@ -12,6 +12,7 @@ import { createIntegrationPlan } from './planner.js';
 import { storyblokPrefixForIntegrationId, validatePlan } from './policy.js';
 import { createReport, writeHtmlReport, writeMarkdownReport } from './reporter.js';
 import { createRollbackPreview } from './rollback.js';
+import { wireRepositoryRoutes } from './route-handoff.js';
 import { createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, inspectStoryblokContentStory, inspectStoryblokSpace, preflightStoryblokIntegration, reconcileStoryblokManifest, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { confirm, createTerminal, promptInput, promptSecret, selectOption } from './terminal-ui.js';
 import { ensureArray, pathExists, readJson } from './utils.js';
@@ -812,6 +813,7 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
       { label: 'Preview Apply Diff', value: 'preview-diff' },
       { label: 'Show Rollback Preview', value: 'rollback-preview' },
       { label: 'Validate Local Output', value: 'validate' },
+      { label: 'Wire Repository Routes', value: 'wire-routes' },
       { label: 'View Latest Report', value: 'report' },
       { label: 'Back', value: 'back' }
     ],
@@ -878,6 +880,33 @@ async function runContinueExistingIntegration({ terminal, args, config, workDir,
   const templatePath = manifest.template?.source_path;
   const framework = frameworkValue(manifest.template?.framework, config.preferred_framework);
   let sessionEnv = await createSessionEnvironment({ terminal, config, cwd, repoPath });
+
+  if (action === 'wire-routes') {
+    const preview = await terminal.task('Preview Route Handoff', async () => wireRepositoryRoutes(manifest, {
+      repoPath,
+      dryRun: true
+    }));
+    await writeArtifact(workDir, 'route-handoff-preview.json', preview);
+    renderRouteHandoffSummary(terminal, preview);
+    if (preview.status === 'blocked') {
+      return { action: 'wire_routes', status: 'blocked', manifest, validation, repo_path: repoPath, preview };
+    }
+    const proceed = await confirm(terminal, {
+      message: 'Create these host route files?',
+      defaultValue: false,
+      answers
+    });
+    if (!proceed) {
+      return { action: 'wire_routes', status: 'dry_run_complete', manifest, validation, repo_path: repoPath, preview };
+    }
+    const result = await terminal.task('Wire Repository Routes', async () => wireRepositoryRoutes(manifest, {
+      repoPath,
+      dryRun: false
+    }));
+    await writeArtifact(workDir, 'route-handoff-result.json', result);
+    renderRouteHandoffSummary(terminal, result);
+    return { action: 'wire_routes', status: result.status, manifest, validation, repo_path: repoPath, preview, result };
+  }
 
   if (action === 'validate') {
     const localValidation = await terminal.task('Validate Local Output', async () => validateIntegration(manifest, { repoPath }));
@@ -1758,6 +1787,32 @@ function renderApplyPreviewDiff(terminal, result) {
     ['Story Links', `${summary.resolved_story_links} resolved / ${summary.unresolved_story_links} unresolved`, summary.unresolved_story_links ? 'warning' : 'success']
   ]);
   renderRepositoryRoutePreviews(terminal, result);
+}
+
+function renderRouteHandoffSummary(terminal, result) {
+  const summary = result.summary || {};
+  terminal.panel('Route Handoff', [
+    ['Status', result.status, result.status === 'blocked' ? 'error' : result.status === 'skipped' ? 'warning' : 'success'],
+    ['Policy', result.policy || 'additive-only-route-handoff', 'success'],
+    ['Dry Run', result.dry_run ? 'Yes' : 'No', result.dry_run ? 'warning' : 'success'],
+    ['Would Create', summary.would_create || 0, summary.would_create ? 'success' : 'warning'],
+    ['Created', summary.created || 0, summary.created ? 'success' : 'warning'],
+    ['Blocked', summary.blocked || 0, summary.blocked ? 'error' : 'success'],
+    ['Skipped', summary.skipped || 0, summary.skipped ? 'warning' : 'success']
+  ]);
+  const routes = ensureArray(result.routes).slice(0, 10);
+  if (routes.length > 0) {
+    terminal.panel('Host Route Files', routes.map((entry) => [
+      entry.host_route_file || entry.slug,
+      entry.status === 'blocked' ? entry.reason : entry.route_proposal_file || entry.reason || entry.status,
+      entry.status === 'blocked' ? 'error' : entry.status === 'skipped' ? 'warning' : 'success'
+    ]));
+  }
+  if (result.reason) {
+    terminal.panel('Route Handoff Note', [
+      ['Reason', result.reason, result.status === 'blocked' ? 'error' : 'warning']
+    ]);
+  }
 }
 
 function renderStoryblokOnlyPlanSummary(terminal, manifest) {
