@@ -1904,6 +1904,121 @@ test('verifyStoryblokManagementState hydrates story summaries before root compon
   restoreFetch();
 });
 
+test('verifyStoryblokManagementState compares remote draft story content with Storyblok metadata ignored', async () => {
+  mockFetch((url) => {
+    const story = {
+      id: 99,
+      uuid: 'story-uuid',
+      slug: 'home',
+      full_slug: 'acme-homepage-v1/home',
+      published_at: null,
+      content: {
+        _uid: 'remote-root-uid',
+        component: 'hts_acme_homepage_v1_template_page',
+        body: [
+          {
+            _uid: 'remote-hero-uid',
+            _editable: '<!--#storyblok#{}-->',
+            component: 'hts_acme_homepage_v1_hero',
+            headline: 'Expected headline'
+          }
+        ]
+      }
+    };
+    if (url.includes('/component_groups/')) return { component_groups: [] };
+    if (url.includes('/internal_tags/')) return { internal_tags: [] };
+    if (url.includes('/components/')) return { components: [] };
+    if (url.includes('/asset_folders/')) return { asset_folders: [] };
+    if (url.includes('/assets?')) return { assets: [] };
+    if (url.includes('/presets/')) return { presets: [] };
+    if (url.includes('/stories?by_slugs=')) return { stories: [story] };
+    if (url.includes('/stories')) return { stories: [story] };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await verifyStoryblokManagementState({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [{
+        slug: 'acme-homepage-v1/home',
+        content: {
+          component: 'hts_acme_homepage_v1_template_page',
+          body: [
+            {
+              component: 'hts_acme_homepage_v1_hero',
+              headline: 'Expected headline'
+            }
+          ]
+        }
+      }]
+    }
+  }, { env: storyblokEnv() });
+
+  const contentCheckResult = result.stories[0].checks.find((check) => check.name === 'remote_story_content_matches_manifest');
+  assert.equal(result.status, 'passed');
+  assert.equal(result.summary.content_drifted_stories, 0);
+  assert.equal(contentCheckResult.status, 'passed');
+  assert.equal(contentCheckResult.details.metadata_only_difference, true);
+  restoreFetch();
+});
+
+test('verifyStoryblokManagementState detects remote draft story content drift', async () => {
+  mockFetch((url) => {
+    const story = {
+      id: 99,
+      uuid: 'story-uuid',
+      slug: 'home',
+      full_slug: 'acme-homepage-v1/home',
+      published_at: null,
+      content: {
+        component: 'hts_acme_homepage_v1_template_page',
+        body: [
+          {
+            component: 'hts_acme_homepage_v1_hero',
+            headline: 'Changed headline'
+          }
+        ]
+      }
+    };
+    if (url.includes('/component_groups/')) return { component_groups: [] };
+    if (url.includes('/internal_tags/')) return { internal_tags: [] };
+    if (url.includes('/components/')) return { components: [] };
+    if (url.includes('/asset_folders/')) return { asset_folders: [] };
+    if (url.includes('/assets?')) return { assets: [] };
+    if (url.includes('/presets/')) return { presets: [] };
+    if (url.includes('/stories?by_slugs=')) return { stories: [story] };
+    if (url.includes('/stories')) return { stories: [story] };
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await verifyStoryblokManagementState({
+    integration_id: 'acme-homepage-v1',
+    storyblok_prefix: 'hts_acme_homepage_v1_',
+    storyblok: {
+      stories_to_create: [{
+        slug: 'acme-homepage-v1/home',
+        content: {
+          component: 'hts_acme_homepage_v1_template_page',
+          body: [
+            {
+              component: 'hts_acme_homepage_v1_hero',
+              headline: 'Expected headline'
+            }
+          ]
+        }
+      }]
+    }
+  }, { env: storyblokEnv() });
+
+  const contentCheckResult = result.stories[0].checks.find((check) => check.name === 'remote_story_content_matches_manifest');
+  assert.equal(result.status, 'failed');
+  assert.equal(result.summary.content_drifted_stories, 1);
+  assert.equal(contentCheckResult.status, 'failed');
+  assert.match(contentCheckResult.details.reason, /headline/);
+  restoreFetch();
+});
+
 test('verifyStoryblokManagementState detects unresolved generated links and local asset fields', async () => {
   mockFetch((url) => {
     const story = {

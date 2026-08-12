@@ -1063,7 +1063,7 @@ html-to-storyblok storyblok-verify \
   --manifest .tmp/html-to-storyblok/integration-manifest.json
 ```
 
-This combines reconcile with story-level checks for unpublished imported drafts, namespaced root and nested components, generated story links with UUID metadata, generated links that target planned routes, and asset fields that have been hydrated to uploaded Storyblok assets rather than local template paths. Management verification hydrates planned component and story summaries through single-resource Management API reads when list responses omit schema or story content, and component schema checks compare the intended contract while ignoring Storyblok-generated editor metadata.
+This combines reconcile with story-level checks for unpublished imported drafts, namespaced root and nested components, generated story links with UUID metadata, generated links that target planned routes, asset fields that have been hydrated to uploaded Storyblok assets rather than local template paths, and remote draft-story content matching the hydrated manifest. Management verification hydrates planned component and story summaries through single-resource Management API reads when list responses omit schema or story content. Component schema and draft-story content checks compare the intended contract while ignoring Storyblok-generated editor metadata; genuine content drift is reported in `summary.content_drifted_stories`.
 
 To capture Storyblok activity evidence for the current integration:
 

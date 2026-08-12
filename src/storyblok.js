@@ -1217,6 +1217,7 @@ async function buildStoryblokReconciliation(manifest, config, remote) {
     },
     hydratedComponents: components,
     hydratedStories: stories,
+    assetMap,
     remote
   };
 }
@@ -1261,8 +1262,8 @@ export async function verifyStoryblokManagementState(manifest, {
   }
 
   const remote = await loadCachedRemoteStoryblokState(config, stateCache, { refresh: refreshRemoteState });
-  const { reconcile, hydratedStories } = await buildStoryblokReconciliation(manifest, config, remote);
-  const stories = await verifyManagementStories(manifest, config, { remoteStories: hydratedStories });
+  const { reconcile, hydratedStories, assetMap } = await buildStoryblokReconciliation(manifest, config, remote);
+  const stories = await verifyManagementStories(manifest, config, { remoteStories: hydratedStories, assetMap });
   const storyFailures = stories.filter((story) => story.status === 'failed').length;
   return {
     action: 'verify_storyblok_management_state',
@@ -1279,7 +1280,8 @@ export async function verifyStoryblokManagementState(manifest, {
       story_checks: stories.length,
       failed_story_checks: storyFailures,
       unresolved_generated_story_links: stories.reduce((total, story) => total + ensureArray(story.unresolved_generated_story_links).length, 0),
-      unresolved_asset_fields: stories.reduce((total, story) => total + ensureArray(story.unresolved_asset_fields).length, 0)
+      unresolved_asset_fields: stories.reduce((total, story) => total + ensureArray(story.unresolved_asset_fields).length, 0),
+      content_drifted_stories: stories.reduce((total, story) => total + ensureArray(story.content_drift).length, 0)
     }
   };
 }
@@ -2624,18 +2626,43 @@ function assertStoryMatches(existing, intended) {
   if (existing.published_at) {
     throw new Error(`Storyblok story collision is published and cannot be reused safely: ${existing.full_slug || intended.slug}`);
   }
-  const exact = sameJson(existing.content || {}, intended.content || {});
-  if (exact) return { exact: true, metadata_only_difference: false };
-  const existingComparable = comparableStoryContent(existing.content || {});
-  const intendedComparable = comparableStoryContent(intended.content || {});
-  if (sha256Json(existingComparable) !== sha256Json(intendedComparable)) {
-    const mismatch = firstJsonMismatch(existingComparable, intendedComparable) || 'unknown mismatch';
-    throw new Error(`Storyblok draft story drift detected for ${intended.slug}; existing story does not match the manifest (${mismatch}).`);
+  const comparison = compareStoryContent(existing.content || {}, intended.content || {});
+  if (!comparison.matches) {
+    throw new Error(`Storyblok draft story drift detected for ${intended.slug}; existing story does not match the manifest (${comparison.mismatch || 'unknown mismatch'}).`);
   }
   return {
+    exact: comparison.exact,
+    metadata_only_difference: comparison.metadata_only_difference,
+    repairable_link_metadata_difference: comparison.repairable_link_metadata_difference
+  };
+}
+
+function compareStoryContent(existingContent, intendedContent) {
+  const exact = sameJson(existingContent || {}, intendedContent || {});
+  if (exact) {
+    return {
+      matches: true,
+      exact: true,
+      metadata_only_difference: false,
+      repairable_link_metadata_difference: false
+    };
+  }
+  const existingComparable = comparableStoryContent(existingContent || {});
+  const intendedComparable = comparableStoryContent(intendedContent || {});
+  if (sha256Json(existingComparable) !== sha256Json(intendedComparable)) {
+    return {
+      matches: false,
+      exact: false,
+      metadata_only_difference: false,
+      repairable_link_metadata_difference: false,
+      mismatch: firstJsonMismatch(existingComparable, intendedComparable) || 'unknown mismatch'
+    };
+  }
+  return {
+    matches: true,
     exact: false,
     metadata_only_difference: true,
-    repairable_link_metadata_difference: hasRepairableStoryLinkMetadataDifference(existing.content || {}, intended.content || {})
+    repairable_link_metadata_difference: hasRepairableStoryLinkMetadataDifference(existingContent || {}, intendedContent || {})
   };
 }
 
@@ -3080,18 +3107,20 @@ function summarizeContentValidation(results) {
   }), emptyContentValidationSummary());
 }
 
-async function verifyManagementStories(manifest, config, { remoteStories = null } = {}) {
+async function verifyManagementStories(manifest, config, { remoteStories = null, assetMap = new Map() } = {}) {
   const stories = ensureArray(manifest.storyblok?.stories_to_create);
   const plannedSlugs = new Set(stories.map((story) => normalizeStoryLinkKey(story.slug || story.full_slug)));
   const remoteStoryMap = remoteStories ? createRemoteStoryMap(remoteStories) : null;
+  const storyReferences = remoteStoryMap ? createManagementStoryReferenceMap(stories, remoteStoryMap) : new Map();
+  const intendedContentMap = createIntendedStoryContentMap(stories, assetMap, storyReferences);
   return mapConcurrent(
     stories,
-    (story) => verifyManagementStory(manifest, config, story, plannedSlugs, remoteStoryMap),
+    (story) => verifyManagementStory(manifest, config, story, plannedSlugs, remoteStoryMap, intendedContentMap),
     { concurrency: config.readConcurrency }
   );
 }
 
-async function verifyManagementStory(manifest, config, story, plannedSlugs, remoteStoryMap = null) {
+async function verifyManagementStory(manifest, config, story, plannedSlugs, remoteStoryMap = null, intendedContentMap = new Map()) {
   const slug = story.slug || story.full_slug;
   try {
     const existing = remoteStoryMap
@@ -3126,6 +3155,7 @@ async function verifyManagementStory(manifest, config, story, plannedSlugs, remo
       const filename = String(asset.filename || '');
       return !asset.id || !filename || filename.startsWith('.') || filename.startsWith('/') || filename.includes('/templates/');
     });
+    const contentMatchCheck = managementStoryContentCheck(existing, intendedContentMap.get(normalizeStoryLinkKey(slug)), slug);
     const checks = [
       contentCheck('management_story_exists', true, existing.full_slug || slug),
       contentCheck('story_is_unpublished_draft', !existing.published_at, existing.published_at || null),
@@ -3133,7 +3163,8 @@ async function verifyManagementStory(manifest, config, story, plannedSlugs, remo
       contentCheck('all_components_namespaced', unnamespacedComponents.length === 0, unnamespacedComponents),
       contentCheck('generated_story_links_have_uuid', unresolvedGeneratedLinks.length === 0, unresolvedGeneratedLinks.map((link) => link.cached_url || link.url)),
       contentCheck('generated_story_links_target_planned_routes', generatedLinksOutsidePlan.length === 0, generatedLinksOutsidePlan.map((link) => link.cached_url || link.url)),
-      contentCheck('asset_fields_are_uploaded_storyblok_assets', unresolvedAssetFields.length === 0, unresolvedAssetFields.map((asset) => asset.filename || asset.id || 'asset_field'))
+      contentCheck('asset_fields_are_uploaded_storyblok_assets', unresolvedAssetFields.length === 0, unresolvedAssetFields.map((asset) => asset.filename || asset.id || 'asset_field')),
+      contentMatchCheck
     ];
     return {
       slug,
@@ -3145,7 +3176,8 @@ async function verifyManagementStory(manifest, config, story, plannedSlugs, remo
       asset_fields: assetFields.length,
       unresolved_generated_story_links: unresolvedGeneratedLinks.map((link) => link.cached_url || link.url),
       generated_links_outside_plan: generatedLinksOutsidePlan.map((link) => link.cached_url || link.url),
-      unresolved_asset_fields: unresolvedAssetFields.map((asset) => asset.filename || asset.id || 'asset_field')
+      unresolved_asset_fields: unresolvedAssetFields.map((asset) => asset.filename || asset.id || 'asset_field'),
+      content_drift: contentMatchCheck.status === 'failed' ? [contentMatchCheck.details?.reason || contentMatchCheck.details || 'remote story content differs from manifest'] : []
     };
   } catch (error) {
     return {
@@ -3156,9 +3188,57 @@ async function verifyManagementStory(manifest, config, story, plannedSlugs, remo
         contentCheck('management_story_fetch', false, error.message || String(error))
       ],
       unresolved_generated_story_links: [],
-      unresolved_asset_fields: []
+      unresolved_asset_fields: [],
+      content_drift: []
     };
   }
+}
+
+function createManagementStoryReferenceMap(stories, remoteStoryMap) {
+  return createStoryReferenceMap(stories
+    .map((story) => ({
+      story,
+      target: plannedStoryTarget(story),
+      remote: remoteStoryMap.get(normalizeStoryLinkKey(story.slug || story.full_slug)) || null
+    }))
+    .filter((entry) => entry.remote));
+}
+
+function createIntendedStoryContentMap(stories, assetMap, storyReferences) {
+  const contentMap = new Map();
+  for (const story of stories) {
+    if (!storyHasPlannedDraftContent(story)) continue;
+    const content = hydrateStoryLinks(hydrateStoryAssets(story.content || {
+      component: story.component,
+      body: ensureArray(story.body)
+    }, assetMap), storyReferences);
+    contentMap.set(normalizeStoryLinkKey(story.slug || story.full_slug), content);
+  }
+  return contentMap;
+}
+
+function storyHasPlannedDraftContent(story) {
+  return Boolean(story?.content || story?.component || story?.body);
+}
+
+function managementStoryContentCheck(existing, intendedContent, slug) {
+  if (!intendedContent) {
+    return contentCheck('remote_story_content_matches_manifest', true, {
+      comparison: 'skipped',
+      reason: 'manifest story content was not supplied'
+    });
+  }
+  const comparison = compareStoryContent(existing.content || {}, intendedContent || {});
+  if (!comparison.matches) {
+    return contentCheck('remote_story_content_matches_manifest', false, {
+      reason: `Storyblok draft story drift detected for ${slug}; existing story does not match the manifest (${comparison.mismatch || 'unknown mismatch'}).`
+    });
+  }
+  return contentCheck('remote_story_content_matches_manifest', true, {
+    exact: comparison.exact,
+    metadata_only_difference: comparison.metadata_only_difference,
+    repairable_link_metadata_difference: comparison.repairable_link_metadata_difference
+  });
 }
 
 function createRemoteStoryMap(stories) {
@@ -3182,7 +3262,8 @@ function emptyManagementVerificationSummary() {
     story_checks: 0,
     failed_story_checks: 0,
     unresolved_generated_story_links: 0,
-    unresolved_asset_fields: 0
+    unresolved_asset_fields: 0,
+    content_drifted_stories: 0
   };
 }
 
