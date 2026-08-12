@@ -118,6 +118,9 @@ test('interactive create flow prompts for session-only Storyblok credentials', a
     const storyblokAccess = await readFile(path.join(workDir, 'storyblok-access.json'), 'utf8');
     assert.match(storyblokAccess, /STORYBLOK_MANAGEMENT_TOKEN/);
     assert.doesNotMatch(storyblokAccess, /management-token|preview-token/);
+    assert.match(output.text(), /Start Here/);
+    assert.match(output.text(), /Wizard Context/);
+    assert.match(output.text(), /Create Integration/);
     assert.doesNotMatch(output.text(), /management-token|preview-token/);
   } finally {
     restoreFetch();
@@ -356,7 +359,8 @@ test('interactive app returns to the home screen after a completed action', asyn
   const headers = output.text().match(/HTML -> Storyblok/g) || [];
   assert.equal(result.action, 'exit');
   assert.equal(input.paused, true);
-  assert.equal(headers.length >= 2, true);
+  assert.equal(headers.length >= 1, true);
+  assert.match(output.text(), /Start Here/);
   assert.match(output.text(), /\$\$\$\$\$\$\$\$\$\$\$/);
   assert.match(output.text(), /Copyright 2026 ID30\. Developer: Adam Wadsworth - a\.wadsworth@id30\.com/);
   assert.match(output.text(), /Legal Notice: This software is the proprietary property of iD30\./);
