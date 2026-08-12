@@ -214,6 +214,17 @@ The default doctor checks Node.js, npm, Git, optional Netlify CLI availability f
 - `netlify-preview`: Node, npm, Git, repository health, Netlify credentials, and optional Netlify CLI support.
 - `repo-only`: Node, npm, Git, template folder, and repository health only.
 
+Create a client handoff readiness report:
+
+```sh
+html-to-storyblok readiness \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site \
+  --template templates/acme-campaign
+```
+
+`readiness` is read-only. It validates the additive-only manifest, scores the template intake, inspects the repository, runs repository preflight in safe dry-run mode, checks credential sources, performs Storyblok preflight, optionally reconciles remote Storyblok state with `--remote`, builds a rollback preview, and writes `.tmp/html-to-storyblok/readiness-report.md`. Use `--require-storyblok` or `--require-repository` when missing credentials or repository context should fail the handoff gate instead of appearing as warnings. `handoff` is an alias for the same command.
+
 Open the interactive report viewer:
 
 ```sh
@@ -1184,6 +1195,7 @@ html-to-storyblok inspect-storyblok-content --slug <slug> [--version draft|publi
 html-to-storyblok inspect-netlify --repo <path>
 html-to-storyblok check-access
 html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
+html-to-storyblok readiness --manifest <path> [--repo <path>] [--template <path>] [--remote] [--require-storyblok] [--require-repository]
 html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--schema-overrides <json>] [--repo <path>] [--infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
 html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
 html-to-storyblok validate-plan --manifest <path> [--severity all|error|warning]
@@ -1216,7 +1228,7 @@ html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration
 html-to-storyblok report [--view] [--html]
 ```
 
-Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
+Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `handoff` is an alias for `readiness`; `live-demo-sites` is an alias for `demo-sites-live-preview`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
 
 ## Policy
 
@@ -1268,7 +1280,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, Storyblok field hydration for hinted text, rich text, asset, link, and form fields, safe Storyblok `_editable` marker preservation for generated previews, route SEO metadata extraction from template head tags, multi-route isolated repository previews, review-only route proposal wrappers, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching and route metadata fallback, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.

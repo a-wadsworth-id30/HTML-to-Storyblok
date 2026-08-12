@@ -14,6 +14,7 @@ import { runDashboard, runDoctorCommand, runInteractiveApp, runReportViewer, run
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlify.js';
 import { validatePlan } from './policy.js';
+import { createReadinessHandoff } from './readiness.js';
 import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
 import { wireRepositoryRoutes } from './route-handoff.js';
@@ -183,6 +184,20 @@ export async function main(argv) {
           env
         });
       await writeArtifact(workDir, 'netlify-preview.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'readiness') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createReadinessHandoff({
+        manifest,
+        repoPath: args.repo ? String(args.repo) : null,
+        templatePath: args.template ? String(args.template) : manifest.template?.source_path || null,
+        workDir,
+        env,
+        remote: Boolean(args.remote),
+        requireStoryblok: Boolean(args.require_storyblok),
+        requireRepository: Boolean(args.require_repository)
+      });
+      await writeArtifact(workDir, 'readiness-result.json', result);
       if (result.status === 'failed') process.exitCode = 2;
     } else if (command === 'check-access') {
       result = checkLiveAccess(env);
@@ -462,6 +477,7 @@ function normalizeCommand(command) {
     'sb-apply': 'storyblok-apply',
     'route-handoff': 'wire-routes',
     'live-demo-sites': 'demo-sites-live-preview',
+    handoff: 'readiness',
     examples: 'examples'
   };
   return aliases[command] || command;
@@ -752,6 +768,8 @@ function renderShellCompletion(shell = 'zsh') {
     'inspect-netlify',
     'check-access',
     'netlify-preview',
+    'readiness',
+    'handoff',
     'plan',
     'infer-duplicates',
     'validate-plan',
@@ -803,6 +821,8 @@ function renderShellCompletion(shell = 'zsh') {
     '--url',
     '--require-configured',
     '--require-storyblok-draft',
+    '--require-storyblok',
+    '--require-repository',
     '--integration-id',
     '--fixture',
     '--static-url',
@@ -887,6 +907,7 @@ Usage:
   html-to-storyblok inspect-netlify --repo <path>
   html-to-storyblok check-access
   html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
+  html-to-storyblok readiness --manifest <path> [--repo <path>] [--template <path>] [--remote] [--require-storyblok] [--require-repository]
   html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--repository-namespace <path>] [--template <path>] [--schema-overrides <json>] [--repo <path>] [--infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
   html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
   html-to-storyblok validate-plan --manifest <path>
@@ -922,7 +943,7 @@ Usage:
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
 Use --no-interactive for scriptable non-interactive execution.
 Use --json-summary for compact CI output.
-Aliases: route-handoff. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
+Aliases: route-handoff, handoff, live-demo-sites. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
 `);
