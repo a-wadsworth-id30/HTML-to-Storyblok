@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { createIntegrationPlan } from '../src/planner.js';
-import { applyManifest } from '../src/workflow.js';
+import { applyManifest, applyStoryblokOnly } from '../src/workflow.js';
 
 test('applyManifest preflights Storyblok credentials before writing local files', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-workflow-preflight-repo-'));
@@ -30,6 +30,62 @@ test('applyManifest preflights Storyblok credentials before writing local files'
     stat(path.join(repoPath, 'src/integrations/acme-homepage-v1/template.html')),
     /ENOENT/
   );
+});
+
+test('applyStoryblokOnly runs planned Storyblok component duplication', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-storyblok-only-duplication-work-'));
+  const manifest = await createIntegrationPlan({
+    integrationId: 'acme-homepage-v1',
+    storyblokPrefix: 'hts_acme_homepage_v1_',
+    templatePath: 'test/fixtures/basic-template',
+    framework: 'static'
+  });
+  manifest.storyblok.component_groups_to_create = [];
+  manifest.storyblok.internal_tags_to_create = [];
+  manifest.storyblok.components_to_create = [];
+  manifest.storyblok.asset_folders_to_create = [];
+  manifest.storyblok.assets_to_create = [];
+  manifest.storyblok.presets_to_create = [];
+  manifest.storyblok.stories_to_create = [];
+  manifest.storyblok.components_to_duplicate = [{
+    source_technical_name: 'hero',
+    technical_name: 'hts_acme_homepage_v1_hero',
+    display_name: 'Hero',
+    source_schema: {
+      id: 101,
+      name: 'hero',
+      display_name: 'Hero',
+      is_nestable: true,
+      schema: {
+        headline: { type: 'text' }
+      },
+      preview_field: 'headline'
+    }
+  }];
+  const progress = [];
+
+  const result = await applyStoryblokOnly(manifest, {
+    dry_run: true,
+    env: {}
+  }, workDir, {
+    onProgress: (event) => progress.push(event)
+  });
+
+  const duplicateStep = result.steps.find((step) => step.action === 'storyblok_duplicate_components');
+  const artifact = JSON.parse(await readFile(path.join(workDir, 'storyblok-apply-step-04-duplicate-components.json'), 'utf8'));
+
+  assert.equal(result.action, 'apply_storyblok_only');
+  assert.equal(result.steps.length, 11);
+  assert.equal(duplicateStep.results[0].action, 'duplicate_storyblok_component');
+  assert.equal(duplicateStep.results[0].technical_name, 'hts_acme_homepage_v1_hero');
+  assert.equal(duplicateStep.results[0].payload.component.name, 'hts_acme_homepage_v1_hero');
+  assert.equal(artifact.results[0].source_schema_hash, duplicateStep.results[0].source_schema_hash);
+  assert.ok(progress.some((event) =>
+    event.label === 'Duplicating Storyblok Components' &&
+    event.current === 4 &&
+    event.total === 12
+  ));
+  assert.deepEqual(progress.at(-1), { label: 'Done', current: 12, total: 12 });
 });
 
 test('applyManifest refuses failing host baseline checks before writing generated files', async () => {
