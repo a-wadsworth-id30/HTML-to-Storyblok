@@ -22,6 +22,7 @@ export async function createReport(workDir) {
   const latestRouteCollisionAnalysis = latestSummary(artifactSummaries, ['route_collision_analysis']);
   const latestPlatformReadiness = latestSummary(artifactSummaries, ['platform_readiness']);
   const latestClientReviewGate = latestSummary(artifactSummaries, ['client_review_gate']);
+  const latestEvidenceIndex = latestSummary(artifactSummaries, ['handoff_evidence_index']);
   const latestRemoteTransactionLedger = latestSummary(artifactSummaries, ['remote_transaction_ledger']);
   const latestTemplateQuality = latestSummary(artifactSummaries, ['template_quality']);
   const latestRollback = latestSummary(artifactSummaries, ['rollback', 'rollback_preview']);
@@ -52,6 +53,7 @@ export async function createReport(workDir) {
     latest_route_collision_analysis: latestRouteCollisionAnalysis,
     latest_platform_readiness: latestPlatformReadiness,
     latest_client_review_gate: latestClientReviewGate,
+    latest_evidence_index: latestEvidenceIndex,
     latest_remote_transaction_ledger: latestRemoteTransactionLedger,
     latest_template_quality: latestTemplateQuality,
     latest_rollback: latestRollback,
@@ -66,6 +68,7 @@ export async function createReport(workDir) {
       client_review_ready: !latestClientReviewGate || latestClientReviewGate.status !== 'failed',
       route_collision_safe: !latestRouteCollisionAnalysis || latestRouteCollisionAnalysis.status !== 'blocked',
       platform_ready: !latestPlatformReadiness || !['blocked', 'failed'].includes(latestPlatformReadiness.status),
+      handoff_evidence_ready: !latestEvidenceIndex || latestEvidenceIndex.status !== 'attention',
       remote_transaction_ledger_valid: !latestRemoteTransactionLedger || latestRemoteTransactionLedger.status !== 'failed',
       deploy_preview_verified: latestNetlify?.status === 'passed',
       command_argument_redaction: 'token-like argument keys are redacted in evidence',
@@ -101,6 +104,7 @@ export function renderMarkdownReport(report) {
   const latestRouteCollisionAnalysis = report.latest_route_collision_analysis?.status || 'not run';
   const latestPlatformReadiness = report.latest_platform_readiness?.status || 'not run';
   const latestClientReviewGate = report.latest_client_review_gate?.status || 'not run';
+  const latestEvidenceIndex = report.latest_evidence_index?.status || 'not run';
   const latestRemoteTransactionLedger = report.latest_remote_transaction_ledger?.status || 'not run';
   const latestTemplateQuality = report.latest_template_quality
     ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
@@ -137,6 +141,7 @@ export function renderMarkdownReport(report) {
 - Latest route collision analysis: ${latestRouteCollisionAnalysis}
 - Latest platform readiness: ${latestPlatformReadiness}
 - Latest client review gate: ${latestClientReviewGate}
+- Latest handoff evidence index: ${latestEvidenceIndex}
 - Latest remote transaction ledger: ${latestRemoteTransactionLedger}
 - Latest template quality: ${latestTemplateQuality}
 - Latest rollback: ${latestRollback}
@@ -151,6 +156,7 @@ export function renderMarkdownReport(report) {
 - Client review ready: ${report.safety_confirmation.client_review_ready ? 'yes' : 'no'}
 - Route collision safe: ${report.safety_confirmation.route_collision_safe ? 'yes' : 'no'}
 - Platform ready: ${report.safety_confirmation.platform_ready ? 'yes' : 'no'}
+- Handoff evidence ready: ${report.safety_confirmation.handoff_evidence_ready ? 'yes' : 'no'}
 - Remote transaction ledger valid: ${report.safety_confirmation.remote_transaction_ledger_valid ? 'yes' : 'no'}
 - Deploy preview verified: ${report.safety_confirmation.deploy_preview_verified ? 'yes' : 'no'}
 - Unresolved failures: ${report.safety_confirmation.unresolved_failures}
@@ -192,6 +198,7 @@ export function renderHtmlReport(report) {
   const latestRouteCollisionAnalysis = report.latest_route_collision_analysis?.status || 'not run';
   const latestPlatformReadiness = report.latest_platform_readiness?.status || 'not run';
   const latestClientReviewGate = report.latest_client_review_gate?.status || 'not run';
+  const latestEvidenceIndex = report.latest_evidence_index?.status || 'not run';
   const latestRemoteTransactionLedger = report.latest_remote_transaction_ledger?.status || 'not run';
   const latestTemplateQuality = report.latest_template_quality
     ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
@@ -249,6 +256,7 @@ export function renderHtmlReport(report) {
       <p><strong>Latest route collision analysis:</strong> ${escapeHtml(latestRouteCollisionAnalysis)}</p>
       <p><strong>Latest platform readiness:</strong> ${escapeHtml(latestPlatformReadiness)}</p>
       <p><strong>Latest client review gate:</strong> ${escapeHtml(latestClientReviewGate)}</p>
+      <p><strong>Latest handoff evidence index:</strong> ${escapeHtml(latestEvidenceIndex)}</p>
       <p><strong>Latest remote transaction ledger:</strong> ${escapeHtml(latestRemoteTransactionLedger)}</p>
       <p><strong>Latest template quality:</strong> ${escapeHtml(latestTemplateQuality)}</p>
       <p><strong>Latest rollback:</strong> ${escapeHtml(latestRollback)}</p>
@@ -263,6 +271,7 @@ export function renderHtmlReport(report) {
         <li class="${report.safety_confirmation.asset_integrity_valid ? 'ok' : 'warn'}">Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.client_review_ready ? 'ok' : 'warn'}">Client review ready: ${report.safety_confirmation.client_review_ready ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.platform_ready ? 'ok' : 'warn'}">Platform ready: ${report.safety_confirmation.platform_ready ? 'yes' : 'no'}</li>
+        <li class="${report.safety_confirmation.handoff_evidence_ready ? 'ok' : 'warn'}">Handoff evidence ready: ${report.safety_confirmation.handoff_evidence_ready ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.remote_transaction_ledger_valid ? 'ok' : 'warn'}">Remote transaction ledger valid: ${report.safety_confirmation.remote_transaction_ledger_valid ? 'yes' : 'no'}</li>
         <li>Secret handling: ${escapeHtml(report.safety_confirmation.command_argument_redaction)}</li>
       </ul>
@@ -320,6 +329,13 @@ async function summarizeArtifact(artifact) {
   if (name === 'platform-readiness-report.md') {
     return {
       type: 'platform_readiness_report',
+      artifact,
+      status: 'recorded'
+    };
+  }
+  if (name === 'handoff-evidence-index.md') {
+    return {
+      type: 'handoff_evidence_index_report',
       artifact,
       status: 'recorded'
     };
@@ -416,6 +432,9 @@ async function summarizeArtifact(artifact) {
     }
     if (name === 'platform-readiness.json' || name.endsWith('platform-readiness.json')) {
       return summarizePlatformReadiness(data, artifact);
+    }
+    if (name === 'handoff-evidence-index.json' || name.endsWith('handoff-evidence-index.json')) {
+      return summarizeHandoffEvidenceIndex(data, artifact);
     }
     if (name === 'client-review-gate.json' || name.endsWith('client-review-gate.json')) {
       return summarizeClientReviewGate(data, artifact);
@@ -674,6 +693,24 @@ function summarizePlatformReadiness(data, artifact) {
     route_previews_available: data.summary?.route_previews_available || 0,
     route_proposals_available: data.summary?.route_proposals_available || 0,
     host_scripts_available: data.summary?.host_scripts_available || 0,
+    markdown_report: data.markdown_report || null
+  };
+}
+
+function summarizeHandoffEvidenceIndex(data, artifact) {
+  return {
+    type: 'handoff_evidence_index',
+    artifact,
+    status: data.status || 'recorded',
+    integration_id: data.integration_id || null,
+    required_total: data.summary?.required_total || 0,
+    required_available: data.summary?.required_available || 0,
+    required_missing: data.summary?.required_missing || 0,
+    checklist_done: data.summary?.checklist_done || 0,
+    checklist_blocked: data.summary?.checklist_blocked || 0,
+    storyblok_draft_links: data.summary?.storyblok_draft_links || 0,
+    route_previews: data.summary?.route_previews || 0,
+    next_commands: ensureArray(data.next_commands).length,
     markdown_report: data.markdown_report || null
   };
 }

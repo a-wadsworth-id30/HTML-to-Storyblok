@@ -249,6 +249,16 @@ html-to-storyblok readiness \
 
 `readiness` is read-only. It validates the additive-only manifest, scores the template intake, inspects the repository, runs repository preflight in safe dry-run mode, checks credential sources, performs Storyblok preflight, optionally reconciles remote Storyblok state with `--remote`, builds a rollback preview, and writes `.tmp/html-to-storyblok/readiness-report.md`. Use `--require-storyblok` or `--require-repository` when missing credentials or repository context should fail the handoff gate instead of appearing as warnings. `handoff` is an alias for the same command.
 
+Create a compact handoff evidence index:
+
+```sh
+html-to-storyblok evidence-index \
+  --manifest .tmp/html-to-storyblok/integration-manifest.json \
+  --repo ../client-site
+```
+
+`evidence-index` is read-only apart from writing `.tmp/html-to-storyblok/handoff-evidence-index.md` and `.tmp/html-to-storyblok/handoff-evidence-index.json`. It gives project managers and reviewers one concise index of required evidence files, Storyblok draft editor links, route preview files, route/platform handoff state, rollback evidence, deployed preview evidence, sign-off checklist status, and next commands. Use it before status updates or client handoff when you need to answer "what evidence do we have and what is missing?" without opening every JSON artifact. `handoff-index`, `evidence`, and `project-evidence` are aliases.
+
 Create the final production handoff pack:
 
 ```sh
@@ -1287,6 +1297,7 @@ html-to-storyblok inspect-netlify --repo <path>
 html-to-storyblok check-access
 html-to-storyblok netlify-preview --site-id <site-id> [--branch <branch>] [--verify] [--wait] [--include-logs]
 html-to-storyblok readiness --manifest <path> [--repo <path>] [--template <path>] [--remote] [--require-storyblok] [--require-repository]
+html-to-storyblok evidence-index --manifest <path> [--repo <path>]
 html-to-storyblok handoff-pack --manifest <path> [--repo <path>] [--template <path>] [--remote] [--skip-readiness]
 html-to-storyblok plan --integration-id <id> [--storyblok-prefix <derived_prefix>] [--template <path>] [--schema-overrides <json>] [--repo <path>] [--infer-duplicates] [--framework auto|astro|react|next|vue|nuxt|static]
 html-to-storyblok infer-duplicates --manifest <path> --repo <path> [--storyblok-inspection <path>] [--write-manifest]
@@ -1325,7 +1336,7 @@ html-to-storyblok asset-dashboard
 html-to-storyblok asset-graph
 ```
 
-Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `route-analyzer`, `route-analysis`, and `route-collision-analysis` are aliases for `route-collisions`; `platform-check`, `adapter-readiness`, and `framework-readiness` are aliases for `platform-readiness`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`; `asset-map` is an alias for `asset-graph`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
+Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `route-analyzer`, `route-analysis`, and `route-collision-analysis` are aliases for `route-collisions`; `platform-check`, `adapter-readiness`, and `framework-readiness` are aliases for `platform-readiness`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `handoff-index`, `evidence`, and `project-evidence` are aliases for `evidence-index`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`; `asset-map` is an alias for `asset-graph`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
 
 ## Policy
 
@@ -1377,7 +1388,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, first-run onboarding readiness panel, dedicated `onboarding` command, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness and quality scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, evidence-driven next-action recommendations, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, production handoff packs, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, first-run onboarding readiness panel, dedicated `onboarding` command, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness and quality scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, evidence-driven next-action recommendations, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, handoff evidence indexes, production handoff packs, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, Storyblok field hydration for hinted text, rich text, asset, link, and form fields, safe Storyblok `_editable` marker preservation for generated previews, route SEO metadata extraction from template head tags, multi-route isolated repository previews, review-only route proposal wrappers, read-only platform readiness evidence, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching and route metadata fallback, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.

@@ -465,7 +465,7 @@ function renderReviewLinksMarkdown(reviewLinks) {
   ].join('\n');
 }
 
-async function readHandoffArtifacts(workDir) {
+export async function readHandoffArtifacts(workDir) {
   return {
     apply_result: await readOptionalJson(path.join(workDir, 'apply-result.json')),
     storyblok_apply_result: await readOptionalJson(path.join(workDir, 'storyblok-apply-result.json')),
@@ -473,7 +473,11 @@ async function readHandoffArtifacts(workDir) {
     storyblok_content_validation: await readOptionalJson(path.join(workDir, 'storyblok-content-validation.json')),
     storyblok_management_verification: await readOptionalJson(path.join(workDir, 'storyblok-management-verification.json')),
     netlify_preview: await readOptionalJson(path.join(workDir, 'netlify-preview.json')),
+    client_review_gate: await readOptionalJson(path.join(workDir, 'client-review-gate.json')),
+    platform_readiness: await readOptionalJson(path.join(workDir, 'platform-readiness.json')),
+    route_collision_analysis: await readOptionalJson(path.join(workDir, 'route-collision-analysis.json')),
     route_handoff: await readOptionalJson(path.join(workDir, 'route-handoff-result.json')),
+    asset_reference_graph: await readOptionalJson(path.join(workDir, 'asset-reference-graph.json')),
     remote_transaction_ledger: await readOptionalJson(path.join(workDir, 'remote-transaction-ledger.json')),
     storyblok_remote_transaction_ledger: await readOptionalJson(path.join(workDir, 'storyblok-remote-transaction-ledger.json')),
     rollback_preview: await readOptionalJson(path.join(workDir, 'rollback-preview.json')),
@@ -488,7 +492,7 @@ async function readOptionalJson(filePath) {
   return readJson(filePath);
 }
 
-function collectDraftEditorLinks(result) {
+export function collectDraftEditorLinks(result) {
   return ensureArray(result?.steps)
     .flatMap((step) => ensureArray(step?.results))
     .filter((entry) => entry?.action === 'create_draft_story' && entry.editor_url)
@@ -498,7 +502,7 @@ function collectDraftEditorLinks(result) {
     }));
 }
 
-function collectRepositoryRoutePreviews(result) {
+export function collectRepositoryRoutePreviews(result) {
   return ensureArray(result?.steps)
     .flatMap((step) => ensureArray(step?.route_previews))
     .filter((route) => route?.slug)
