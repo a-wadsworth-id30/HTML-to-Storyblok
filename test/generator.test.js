@@ -172,28 +172,37 @@ test('generate renders Storyblok fields through the shared HTML module', async (
 
   const { renderTemplateHtml } = await import(pathToFileURL(path.join(repoPath, 'src/integrations/react-template-v1/template-html.js')).href);
   const rendered = renderTemplateHtml({
+    _editable: '<!--#storyblok#{"name":"hts_react_template_v1_template_page","uid":"root"}-->',
     headline: 'Live Storyblok headline',
-    body: [{
-      component: 'hts_react_template_v1_hero',
-      intro_copy: {
-        type: 'doc',
-        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Live rich text intro.' }] }]
+    body: [
+      {
+        _editable: '<!--#storyblok#{"name":"hts_react_template_v1_hero","uid":"hero"}-->',
+        component: 'hts_react_template_v1_hero',
+        intro_copy: {
+          type: 'doc',
+          content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Live rich text intro.' }] }]
+        },
+        hero_image: {
+          fieldtype: 'asset',
+          filename: 'https://a.storyblok.com/f/123/live-hero.svg',
+          alt: 'Live hero alt'
+        },
+        primary_cta: {
+          linktype: 'story',
+          cached_url: 'demo/contact'
+        },
+        lead_email: 'hello@example.com',
+        accept_updates: true,
+        preferred_package: 'Scale'
       },
-      hero_image: {
-        fieldtype: 'asset',
-        filename: 'https://a.storyblok.com/f/123/live-hero.svg',
-        alt: 'Live hero alt'
-      },
-      primary_cta: {
-        linktype: 'story',
-        cached_url: 'demo/contact'
-      },
-      lead_email: 'hello@example.com',
-      accept_updates: true,
-      preferred_package: 'Scale'
-    }]
+      {
+        _editable: '<script>alert("bad")</script>',
+        component: 'hts_react_template_v1_bad'
+      }
+    ]
   });
 
+  assert.match(rendered, /^<!--#storyblok#\{"name":"hts_react_template_v1_template_page","uid":"root"\}--><!--#storyblok#\{"name":"hts_react_template_v1_hero","uid":"hero"\}--><main/);
   assert.match(rendered, /id="hts-react-template-v1-email"/);
   assert.match(rendered, /for="hts-react-template-v1-email"/);
   assert.match(rendered, /href="#hts-react-template-v1-email"/);
@@ -213,6 +222,7 @@ test('generate renders Storyblok fields through the shared HTML module', async (
   assert.match(rendered, /<my-widget class="hts-react-template-v1-widget" custom-attr="demo" data-mode="compact"><\/my-widget>/);
   assert.doesNotMatch(jsx, /onclick/);
   assert.doesNotMatch(rendered, /onclick/);
+  assert.doesNotMatch(rendered, /<script>alert/);
 });
 
 test('generate writes isolated route previews for every template page without touching app routes', async () => {
