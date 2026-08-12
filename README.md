@@ -397,7 +397,13 @@ To compile the generated route proposal handoff inside the real demo framework c
 npm run test:demo-sites-generated
 ```
 
-This temporarily wires a generated route proposal into each demo site, runs the real Astro, Next, Nuxt, Vue, and React framework builds, starts preview servers, checks HTTP HTML responses, and records per-route smoke evidence before restoring the demo files. For Astro, Next, and Nuxt, the generated route smoke check verifies the imported route URL, integration root, `data-hts-storyblok-source` marker, and Storyblok slug marker. React and Vue Vite demos are reported as client app shell checks by HTTP fetch, then backed by compiled bundle evidence proving the generated integration ID and Storyblok seed content were included in the built client bundle. The runner writes a readable `.tmp/html-to-storyblok/demo-sites-preview-report.md` by default; pass `--report-path <file>` to write it elsewhere or `--report false` to skip it. Use browser smoke or visual regression checks for final client handoff.
+The same validation is also available through the CLI:
+
+```sh
+html-to-storyblok demo-sites --generated --install --smoke --require-framework
+```
+
+This temporarily wires a generated route proposal into each demo site, runs the real Astro, Next, Nuxt, Vue, and React framework builds, starts preview servers, checks HTTP HTML responses, and records per-route smoke evidence before restoring the demo files. For Astro, Next, and Nuxt, the generated route smoke check verifies the imported route URL, integration root, `data-hts-storyblok-source` marker, and Storyblok slug marker. React and Vue Vite demos are reported as client app shell checks by HTTP fetch, then backed by compiled bundle evidence proving the generated integration ID and Storyblok seed content were included in the built client bundle. The runner writes a readable `.tmp/html-to-storyblok/demo-sites-preview-report.md` by default; pass `--report-path <file>` to write it elsewhere or `--report false` to skip it. Use `html-to-storyblok demo-sites --list` to inspect the configured local demo targets. Use browser smoke or visual regression checks for final client handoff.
 
 After demo sites are deployed, run the live preview smoke checker against their public URLs:
 
@@ -1303,6 +1309,7 @@ To validate the demo sites with real framework compilers and preview smoke check
 
 ```sh
 npm run test:demo-sites-full:install
+html-to-storyblok demo-sites --install --smoke --require-framework
 ```
 
 This installs each demo site's dependencies, runs its dependency-light build contract, runs the real framework build where available, starts the framework preview server, and fetches the configured preview URL. It is intentionally opt-in because it downloads Astro, Next, Nuxt, Vue, React, Vite, and Storyblok framework packages.
@@ -1311,6 +1318,7 @@ To also compile generated route proposal handoffs through each real framework co
 
 ```sh
 npm run test:demo-sites-generated
+html-to-storyblok demo-sites --generated --install --smoke --require-framework
 ```
 
 To check deployed demo sites and catch missing Netlify routes or Storyblok preview-token issues:

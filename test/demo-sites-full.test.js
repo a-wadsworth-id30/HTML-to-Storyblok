@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
+import { main } from '../src/cli.js';
 import {
   buildClientBundleSmokeTarget,
   buildPreviewSmokeTargets,
@@ -26,6 +27,25 @@ test('full demo-site runner lists framework validation targets', async () => {
   assert.ok(result.sites.some((site) => site.site === 'next' && site.preview_url === 'http://127.0.0.1:4402/'));
   assert.ok(result.sites.some((site) => site.site === 'static' && !site.framework_build));
   assert.ok(result.sites.some((site) => site.site === 'static' && !site.generated_integration_compile));
+});
+
+test('demo-sites CLI command delegates to the full runner', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-demo-sites-cli-'));
+  const output = await captureStdout(() => main([
+    'node',
+    'html-to-storyblok',
+    'demo-sites',
+    '--list',
+    '--work-dir',
+    workDir,
+    '--no-interactive'
+  ]));
+  const result = parseRunnerJson(output);
+  const artifact = JSON.parse(await readFile(path.join(workDir, 'demo-sites-validation-result.json'), 'utf8'));
+
+  assert.equal(result.action, 'test_demo_sites_full');
+  assert.equal(artifact.action, 'test_demo_sites_full');
+  assert.ok(result.sites.some((site) => site.site === 'astro' && site.generated_integration_compile));
 });
 
 test('full demo-site runner keeps static validation dependency-free', async () => {
@@ -151,4 +171,21 @@ function parseRunnerJson(output) {
   const index = output.indexOf(marker);
   assert.notEqual(index, -1);
   return JSON.parse(output.slice(index));
+}
+
+async function captureStdout(callback) {
+  const originalWrite = process.stdout.write;
+  let output = '';
+  process.stdout.write = (chunk, encoding, done) => {
+    output += Buffer.isBuffer(chunk) ? chunk.toString(typeof encoding === 'string' ? encoding : 'utf8') : String(chunk);
+    if (typeof encoding === 'function') encoding();
+    if (typeof done === 'function') done();
+    return true;
+  };
+  try {
+    await callback();
+    return output;
+  } finally {
+    process.stdout.write = originalWrite;
+  }
 }

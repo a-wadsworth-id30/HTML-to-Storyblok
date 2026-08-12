@@ -1,3 +1,6 @@
+import { spawn } from 'node:child_process';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { checkLiveAccess } from './access.js';
 import { CLI_BRANDING_LINES } from './branding.js';
 import { duplicateAll } from './duplicator.js';
@@ -88,6 +91,13 @@ export async function main(argv) {
       result = await readIntegrationHistory(workDir, {
         limit: args.limit ? Number(args.limit) : undefined
       });
+    } else if (command === 'demo-sites') {
+      result = await runDemoSitesValidation(args, {
+        silent: Boolean(args.json_summary)
+      });
+      await writeArtifact(workDir, 'demo-sites-validation-result.json', result);
+      if (demoSitesResultFailed(result)) process.exitCode = 2;
+      printJson = Boolean(args.json_summary);
     } else if (command === 'completion') {
       console.log(renderShellCompletion(args.shell ? String(args.shell) : 'zsh'));
       result = { action: 'completion', shell: args.shell ? String(args.shell) : 'zsh' };
@@ -466,6 +476,7 @@ function redactMessage(message) {
 
 function errorCodeFor(error, command) {
   const message = String(error?.message || error || '');
+  if (command === 'demo-sites') return 'HTS_DEMO_SITES_VALIDATION';
   if (/credential|token|space id|Management API/i.test(message)) return 'HTS_STORYBLOK_CREDENTIALS';
   if (/manifest failed|additive-only|Policy|violations/i.test(message)) return 'HTS_POLICY_VALIDATION';
   if (/Storyblok .* failed with 429|rate limit/i.test(message)) return 'HTS_STORYBLOK_RATE_LIMIT';
@@ -487,6 +498,11 @@ function summarizeCommandResult(command, result) {
   if (result?.valid !== undefined) summary.plan_valid = Boolean(result.valid);
   if (result?.summary) summary.summary = result.summary;
   if (Array.isArray(result?.steps)) summary.steps = result.steps.length;
+  if (Array.isArray(result?.sites)) {
+    summary.sites = result.sites.length;
+    summary.failed_sites = result.sites.filter((site) => site.status === 'failed').length;
+    summary.preview_report = result.preview_report || undefined;
+  }
   if (Array.isArray(result?.routes)) {
     summary.routes = result.routes.length;
     summary.blocked_routes = result.routes.filter((entry) => entry.status === 'blocked').length;
@@ -512,9 +528,111 @@ function statusFromResult(result) {
   if (!result) return 'unknown';
   if (result.valid === false) return 'failed';
   if (result.valid === true) return 'passed';
+  if (Array.isArray(result.sites)) return demoSitesResultFailed(result) ? 'failed' : 'passed';
   if (Array.isArray(result.resources) && result.resources.some((entry) => ['drifted', 'blocked'].includes(entry.status))) return 'failed';
   if (Array.isArray(result.steps) && result.steps.some((step) => step.status === 'failed')) return 'failed';
   return 'recorded';
+}
+
+async function runDemoSitesValidation(args, { silent = false } = {}) {
+  const scriptArgs = buildDemoSitesRunnerArgs(args);
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+  const timeoutMs = args.timeout_ms ? Number(args.timeout_ms) : 10 * 60 * 1000;
+  const execution = await runNodeScript(scriptArgs, {
+    cwd: repoRoot,
+    timeoutMs,
+    silent
+  });
+
+  const parsed = parseDemoSitesRunnerOutput(execution.stdout, execution.stderr);
+  if (execution.exitCode !== 0) {
+    parsed.status ||= 'failed';
+    parsed.exit_code = execution.exitCode;
+  }
+  return parsed;
+}
+
+function buildDemoSitesRunnerArgs(args) {
+  const scriptArgs = ['scripts/test-demo-sites-full.mjs'];
+  appendBooleanArg(scriptArgs, args, 'list', '--list');
+  appendValueArg(scriptArgs, args, 'site', '--site');
+  appendBooleanArg(scriptArgs, args, 'install', '--install');
+  appendBooleanArg(scriptArgs, args, 'smoke', '--smoke');
+  appendBooleanArg(scriptArgs, args, 'require_framework', '--require-framework');
+  if (args.generated || args.generated_integration) scriptArgs.push('--generated');
+  appendBooleanArg(scriptArgs, args, 'keep_generated', '--keep-generated');
+  appendValueArg(scriptArgs, args, 'report', '--report');
+  appendValueArg(scriptArgs, args, 'report_path', '--report-path');
+  return scriptArgs;
+}
+
+function appendBooleanArg(scriptArgs, args, key, flag) {
+  if (args[key]) scriptArgs.push(flag);
+}
+
+function appendValueArg(scriptArgs, args, key, flag) {
+  if (args[key] !== undefined && args[key] !== true) {
+    scriptArgs.push(flag, String(args[key]));
+  }
+}
+
+function runNodeScript(scriptArgs, { cwd, timeoutMs, silent }) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, scriptArgs, {
+      cwd,
+      env: process.env,
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+    let stdout = '';
+    let stderr = '';
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, timeoutMs);
+
+    child.stdout.on('data', (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (!silent) process.stdout.write(text);
+    });
+    child.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      if (!silent) process.stderr.write(text);
+    });
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (exitCode, signal) => {
+      clearTimeout(timer);
+      if (timedOut) {
+        reject(new Error(`${scriptArgs.join(' ')} timed out after ${timeoutMs}ms`));
+        return;
+      }
+      resolve({ stdout, stderr, exitCode: exitCode ?? (signal ? 1 : 0) });
+    });
+  });
+}
+
+function parseDemoSitesRunnerOutput(output, diagnostics = '') {
+  const marker = '{\n  "action": "test_demo_sites_full"';
+  const index = output.lastIndexOf(marker);
+  if (index === -1) {
+    throw new Error(`demo-sites validation did not return a JSON result: ${tailText(diagnostics || output)}`);
+  }
+  return JSON.parse(output.slice(index));
+}
+
+function tailText(text, limit = 2000) {
+  const value = String(text || '').trim();
+  return value.length > limit ? value.slice(-limit) : value;
+}
+
+function demoSitesResultFailed(result) {
+  if (result?.status === 'failed') return true;
+  return Array.isArray(result?.sites) && result.sites.some((site) => site.status === 'failed');
 }
 
 function createCommandExamples(manifest, { workDir, repoPath, templatePath }) {
@@ -571,6 +689,7 @@ function renderShellCompletion(shell = 'zsh') {
   const commands = [
     'dashboard',
     'history',
+    'demo-sites',
     'settings',
     'env',
     'doctor',
@@ -630,6 +749,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--template',
     '--framework',
     '--route',
+    '--site',
     '--work-dir',
     '--dry-run',
     '--remote',
@@ -637,6 +757,12 @@ function renderShellCompletion(shell = 'zsh') {
     '--audit',
     '--since',
     '--limit',
+    '--install',
+    '--smoke',
+    '--require-framework',
+    '--generated',
+    '--keep-generated',
+    '--report-path',
     '--json-summary',
     '--html',
     '--search',
@@ -684,6 +810,7 @@ Usage:
   html-to-storyblok
   html-to-storyblok dashboard
   html-to-storyblok history [--limit 20]
+  html-to-storyblok demo-sites [--list] [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--report-path <file>]
   html-to-storyblok settings [--show] [--set key=value]
   html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
   html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]
