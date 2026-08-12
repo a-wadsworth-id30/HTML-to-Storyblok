@@ -10,6 +10,25 @@ const COMMAND_GUIDES = {
     safety: ['Uses the same additive-only planner, validator, and apply pipeline as the power-user commands.'],
     examples: ['html-to-storyblok']
   },
+  onboarding: {
+    title: 'First-Time Onboarding',
+    purpose: 'Explains what is configured, what is missing, and which workflow is safest to run next.',
+    usage: ['html-to-storyblok onboarding [--work-dir .tmp/html-to-storyblok]'],
+    when: [
+      'Use this on a new workstation or before handing the CLI to someone who has not run an import before.',
+      'Use it when the interactive wizard says setup is incomplete and you want a concise checklist.'
+    ],
+    evidence: ['Writes onboarding-guide.json under the work directory with redacted readiness evidence.'],
+    safety: [
+      'Read-only. It does not create Storyblok resources, modify repositories, or store secrets.',
+      'It reports credential source labels only, never token values.'
+    ],
+    examples: [
+      'html-to-storyblok onboarding',
+      'html-to-storyblok onboarding --work-dir .tmp/html-to-storyblok'
+    ],
+    next: ['settings', 'env', 'doctor', 'interactive']
+  },
   doctor: {
     title: 'Doctor',
     purpose: 'Checks the local machine, credentials, repository, and service readiness before an import.',
