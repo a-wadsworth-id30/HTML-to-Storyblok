@@ -11,7 +11,7 @@ import { openDraftPullRequest } from './github.js';
 import { openDraftMergeRequest } from './gitlab.js';
 import { helpTopicNames, renderHelpTopic } from './help.js';
 import { readIntegrationHistory, recordIntegrationHistory } from './history.js';
-import { runDashboard, runDoctorCommand, runInteractiveApp, runReportViewer, runSettings } from './interactive.js';
+import { runDashboard, runDoctorCommand, runInteractiveApp, runOnboardingCommand, runReportViewer, runSettings } from './interactive.js';
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlify.js';
 import { validatePlan } from './policy.js';
@@ -80,6 +80,9 @@ export async function main(argv) {
   try {
     if (command === 'interactive') {
       result = await runInteractiveApp({ args });
+      printJson = false;
+    } else if (command === 'onboarding') {
+      result = await runOnboardingCommand({ args });
       printJson = false;
     } else if (command === 'dashboard') {
       result = await runDashboard({ args });
@@ -1010,6 +1013,7 @@ function validationSeverity(violation) {
 function renderShellCompletion(shell = 'zsh') {
   const commands = [
     'help',
+    'onboarding',
     'dashboard',
     'history',
     'demo-sites',
@@ -1176,6 +1180,7 @@ ${CLI_BRANDING_LINES.join('\n')}
 Usage:
   html-to-storyblok
   html-to-storyblok help <topic>
+  html-to-storyblok onboarding
   html-to-storyblok dashboard
   html-to-storyblok history [--limit 20]
   html-to-storyblok demo-sites [--list] [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--report-path <file>]

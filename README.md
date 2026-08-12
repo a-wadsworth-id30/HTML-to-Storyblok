@@ -59,6 +59,8 @@ html-to-storyblok
 
 Interactive startup displays the compact ID30 ASCII banner in `ascii-art.txt`, converted from `id30-logo.svg`, followed by the ID30 developer credit and proprietary-use legal notice. Non-interactive help output also includes the same branding and legal notice.
 
+On a new or incomplete workstation, the CLI now shows a first-run readiness panel before the goal picker. This panel checks safe local defaults, template discovery, nearby repository discovery, Storyblok Management API readiness, Storyblok Preview API readiness, Netlify readiness, and GitHub/GitLab review automation readiness. It recommends the safest next action without printing or storing secrets.
+
 Interactive mode opens with a goal picker so first-time users can choose the outcome they want before seeing the full command-style menu:
 
 ```text
@@ -77,6 +79,7 @@ What are you trying to do?
 
 ❯ Import Template Into Existing Site
   Test Storyblok Only
+  First-Time Setup Guide
   Resume Failed Or Previous Import
   Validate Existing Import
   Set Up Or Test Credentials
@@ -142,6 +145,14 @@ View a human-readable project dashboard:
 ```sh
 html-to-storyblok dashboard
 ```
+
+Review first-run setup guidance at any time:
+
+```sh
+html-to-storyblok onboarding
+```
+
+This writes `.tmp/html-to-storyblok/onboarding-guide.json` and prints a concise checklist covering configuration, discovered templates, discovered repositories, credential source labels, workflow readiness, and recommended next steps. It is read-only and never writes secret values.
 
 View the scriptable multi-integration ledger:
 
@@ -1227,6 +1238,7 @@ Remote rollback deletes only manifest-owned namespaced component folders, intern
 
 ```sh
 html-to-storyblok
+html-to-storyblok onboarding
 html-to-storyblok dashboard
 html-to-storyblok settings [--show] [--set key=value] [--profile <name>]
 html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
@@ -1330,7 +1342,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness and quality scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, first-run onboarding readiness panel, dedicated `onboarding` command, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness and quality scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, Storyblok field hydration for hinted text, rich text, asset, link, and form fields, safe Storyblok `_editable` marker preservation for generated previews, route SEO metadata extraction from template head tags, multi-route isolated repository previews, review-only route proposal wrappers, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching and route metadata fallback, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.

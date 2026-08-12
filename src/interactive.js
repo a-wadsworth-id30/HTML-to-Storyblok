@@ -20,6 +20,7 @@ import { confirm, createTerminal, promptInput, promptSecret, selectOption } from
 import { ensureArray, pathExists, readJson } from './utils.js';
 import { validateIntegration } from './validator.js';
 import { applyManifest, applyStoryblokOnly } from './workflow.js';
+import { createOnboardingGuide, renderOnboardingText } from './onboarding.js';
 
 const MANIFEST_NAME = 'integration-manifest.json';
 const VALIDATION_NAME = 'plan-validation.json';
@@ -274,6 +275,42 @@ export async function runDoctorCommand({
   return report;
 }
 
+export async function runOnboardingCommand({
+  args = {},
+  input,
+  output,
+  cwd = process.cwd(),
+  env = process.env
+} = {}) {
+  const config = await loadConfig({ configPath: args.config ? String(args.config) : undefined });
+  const terminal = createTerminal({
+    input,
+    output,
+    colorMode: args.color ? String(args.color) : config.color_mode,
+    interactive: false
+  });
+  const workDir = String(args.work_dir || config.default_output_folder || DEFAULT_WORK_DIR);
+  await ensureWorkDir(workDir);
+  const session = await loadEnvironment({
+    cwd,
+    repoPath: config.default_repository || null,
+    env,
+    config
+  });
+  const guide = await createOnboardingGuide({
+    cwd,
+    config,
+    env: session.env,
+    configExists: await pathExists(config.config_path),
+    workDir,
+    filesLoaded: session.files_loaded
+  });
+  await writeArtifact(workDir, 'onboarding-guide.json', guide);
+  terminal.line(renderOnboardingText(guide).trimEnd());
+  terminal.close();
+  return guide;
+}
+
 export async function runReportViewer({
   args = {},
   input,
@@ -342,10 +379,15 @@ export async function createDashboardModel({
 
 async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) {
   let showGoalPicker = terminal.interactive;
+  let onboardingPanelShown = false;
   while (true) {
     const context = { terminal, args, config, workDir, answers, cwd };
     if (showGoalPicker) {
       showGoalPicker = false;
+      if (!onboardingPanelShown) {
+        onboardingPanelShown = true;
+        await maybeRenderFirstRunGuide({ terminal, config, workDir, cwd });
+      }
       const goalAction = await runGoalPicker({ terminal, answers });
       if (!goalAction || goalAction === 'exit') return { action: 'exit' };
       if (goalAction !== 'menu') {
@@ -383,6 +425,7 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
       choices: [
         { label: 'Create New Integration', value: 'create' },
         { label: 'Test Storyblok Only', value: 'storyblok-only' },
+        { label: 'First-Time Setup Guide', value: 'onboarding' },
         { label: 'Continue Existing Integration', value: 'continue' },
         { label: 'Validate Integration', value: 'validate' },
         { label: 'Review Storyblok', value: 'storyblok' },
@@ -435,6 +478,7 @@ async function runGoalPicker({ terminal, answers }) {
     choices: [
       { label: 'Import Template Into Existing Site', value: 'create' },
       { label: 'Test Storyblok Only', value: 'storyblok-only' },
+      { label: 'First-Time Setup Guide', value: 'onboarding' },
       { label: 'Resume Failed Or Previous Import', value: 'continue' },
       { label: 'Validate Existing Import', value: 'validate' },
       { label: 'Set Up Or Test Credentials', value: 'credentials' },
@@ -450,6 +494,7 @@ async function runHomeAction(action, context) {
   const { terminal, args, config, workDir, answers, cwd } = context;
   if (action === 'create') return runCreateIntegration({ terminal, args, config, workDir, answers, cwd });
   if (action === 'storyblok-only') return runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd });
+  if (action === 'onboarding') return runOnboardingScreen({ terminal, config, workDir, cwd });
   if (action === 'continue') return runContinueExistingIntegration({ terminal, args, config, workDir, answers, cwd });
   if (action === 'validate') return runValidateExistingPlan({ terminal, workDir });
   if (action === 'storyblok') return runReviewStoryblok({ terminal, args, config, workDir, answers, cwd });
@@ -461,6 +506,88 @@ async function runHomeAction(action, context) {
   if (action === 'sandbox') return runLiveSandboxWizard({ terminal, answers });
   if (action === 'settings') return runSettings({ args, input: terminal.input, output: terminal.output, answers, closeTerminal: false });
   return { action: 'unknown', status: 'ignored' };
+}
+
+async function maybeRenderFirstRunGuide({ terminal, config, workDir, cwd }) {
+  if (!terminal.interactive) return null;
+  const session = await loadEnvironment({
+    cwd,
+    repoPath: config.default_repository || null,
+    config
+  });
+  const guide = await createOnboardingGuide({
+    cwd,
+    config,
+    env: session.env,
+    configExists: await pathExists(config.config_path),
+    workDir,
+    filesLoaded: session.files_loaded
+  });
+  if (!guide.first_run) return guide;
+  renderOnboardingGuide(terminal, guide, {
+    compact: true,
+    title: 'First Run Readiness'
+  });
+  return guide;
+}
+
+async function runOnboardingScreen({ terminal, config, workDir, cwd }) {
+  const session = await loadEnvironment({
+    cwd,
+    repoPath: config.default_repository || null,
+    config
+  });
+  const guide = await createOnboardingGuide({
+    cwd,
+    config,
+    env: session.env,
+    configExists: await pathExists(config.config_path),
+    workDir,
+    filesLoaded: session.files_loaded
+  });
+  await writeArtifact(workDir, 'onboarding-guide.json', guide);
+  renderOnboardingGuide(terminal, guide, {
+    compact: false,
+    title: 'First-Time Setup Guide'
+  });
+  return { action: 'onboarding', status: guide.status, guide };
+}
+
+function renderOnboardingGuide(terminal, guide, {
+  compact = false,
+  title = 'First-Time Setup Guide'
+} = {}) {
+  terminal.header(title, 'Readiness, evidence, and the safest next action');
+  terminal.panel('Setup Status', [
+    ['Status', labelForStatus(guide.status), guide.status === 'ready' ? 'success' : guide.status === 'partial' ? 'warning' : 'error'],
+    ['Recommended', guide.recommended_action, guide.status === 'ready' ? 'success' : 'info'],
+    ['Config', guide.config.exists ? 'Configured' : 'Not created', guide.config.exists ? 'success' : 'warning'],
+    ['Templates', `${guide.discovery.templates_found}`, guide.discovery.templates_found ? 'success' : 'error'],
+    ['Repositories', `${guide.discovery.repositories_found}`, guide.discovery.repositories_found ? 'success' : 'warning'],
+    ['Secrets', 'Never stored or printed', 'success']
+  ]);
+  terminal.panel('Credentials', [
+    ['Storyblok Management', guide.credentials.storyblok_management_ready ? 'Ready' : 'Missing', guide.credentials.storyblok_management_ready ? 'success' : 'error'],
+    ['Storyblok Preview', guide.credentials.storyblok_preview_ready ? 'Ready' : 'Missing', guide.credentials.storyblok_preview_ready ? 'success' : 'warning'],
+    ['Netlify', guide.credentials.netlify_ready ? 'Ready' : 'Missing', guide.credentials.netlify_ready ? 'success' : 'warning'],
+    ['GitHub', guide.credentials.github_ready ? 'Ready' : 'Missing', guide.credentials.github_ready ? 'success' : 'warning'],
+    ['GitLab', guide.credentials.gitlab_ready ? 'Ready' : 'Missing', guide.credentials.gitlab_ready ? 'success' : 'warning']
+  ]);
+  if (!compact) {
+    terminal.panel('Workflow Readiness', guide.workflows.map((workflow) => [
+      workflow.label,
+      workflow.detail,
+      workflow.ready ? 'success' : 'warning'
+    ]));
+    terminal.panel('Configuration', [
+      ['Config Path', guide.config.path || 'default', guide.config.exists ? 'success' : 'warning'],
+      ['Templates Folder', guide.config.templates_folder, guide.discovery.templates_found ? 'success' : 'warning'],
+      ['Default Repository', guide.config.default_repository || 'Select during wizard', guide.config.default_repository ? 'success' : 'warning'],
+      ['Storyblok Region', guide.config.storyblok_region || 'eu', 'info'],
+      ['Output Folder', guide.config.output_folder, guide.config.output_folder_exists ? 'success' : 'info']
+    ]);
+  }
+  terminal.panel('Next Steps', guide.next_steps.map((step, index) => `${index + 1}. ${step}`));
 }
 
 async function runFailureRecovery({ terminal, args, config, workDir, answers, cwd, action, error, retry }) {
