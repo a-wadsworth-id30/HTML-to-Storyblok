@@ -753,8 +753,12 @@ function buildLiveDemoPreviewRunnerArgs(args) {
   appendValueArg(scriptArgs, args, 'timeout_ms', '--timeout-ms');
   appendBooleanArg(scriptArgs, args, 'require_configured', '--require-configured');
   appendBooleanArg(scriptArgs, args, 'require_storyblok_draft', '--require-storyblok-draft');
+  appendBooleanArg(scriptArgs, args, 'visual', '--visual');
+  appendBooleanArg(scriptArgs, args, 'visual_regression', '--visual-regression');
   appendValueArg(scriptArgs, args, 'integration_id', '--integration-id');
   appendValueArg(scriptArgs, args, 'fixture', '--fixture');
+  appendValueArg(scriptArgs, args, 'visual_baseline', '--visual-baseline');
+  appendValueArg(scriptArgs, args, 'write_visual_baseline', '--write-visual-baseline');
   appendValueArg(scriptArgs, args, 'base_url', '--base-url');
   appendValueArg(scriptArgs, args, 'url', '--url');
   appendValueArg(scriptArgs, args, 'report', '--report');
@@ -1054,6 +1058,10 @@ function renderShellCompletion(shell = 'zsh') {
     '--require-configured',
     '--require-live',
     '--require-storyblok-draft',
+    '--visual',
+    '--visual-regression',
+    '--visual-baseline',
+    '--write-visual-baseline',
     '--require-storyblok',
     '--require-repository',
     '--integration-id',
@@ -1136,8 +1144,8 @@ Usage:
   html-to-storyblok dashboard
   html-to-storyblok history [--limit 20]
   html-to-storyblok demo-sites [--list] [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--report-path <file>]
-  html-to-storyblok demo-sites-live-preview [--list] [--site astro] [--base-url <url>] [--routes /,/about] [--integration-id <id>] [--require-storyblok-draft] [--require-configured] [--report-path <file>]
-  html-to-storyblok demo-sites-e2e [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--require-live] [--require-storyblok-draft] [--integration-id <id>] [--report-path <file>]
+  html-to-storyblok demo-sites-live-preview [--list] [--site astro] [--base-url <url>] [--routes /,/about] [--integration-id <id>] [--require-storyblok-draft] [--require-configured] [--visual] [--visual-baseline <file>] [--report-path <file>]
+  html-to-storyblok demo-sites-e2e [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--require-live] [--require-storyblok-draft] [--integration-id <id>] [--visual] [--visual-baseline <file>] [--report-path <file>]
   html-to-storyblok settings [--show] [--set key=value]
   html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
   html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]

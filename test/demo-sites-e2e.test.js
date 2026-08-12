@@ -25,6 +25,7 @@ test('demo-sites-e2e CLI command runs local and live phases with consolidated ev
     'acme-campaign-v1',
     '--require-live',
     '--require-storyblok-draft',
+    '--visual',
     '--fixture',
     fixture,
     '--work-dir',
@@ -42,6 +43,7 @@ test('demo-sites-e2e CLI command runs local and live phases with consolidated ev
   assert.equal(result.summary.local_sites_checked, 1);
   assert.equal(result.summary.live_routes_checked, 1);
   assert.equal(result.summary.storyblok_draft_routes, 1);
+  assert.equal(result.live.visual_summary.snapshots, 1);
   assert.match(report, /Demo Site End-to-End Deployment Evidence/);
   assert.match(report, /local_demo_matrix: passed/);
   assert.match(report, /live_deployment_preview: passed/);
