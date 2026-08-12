@@ -75,6 +75,7 @@ async function planRouteHandoff(root, plan, route, { dryRun }) {
     slug: route.slug,
     suggested_site_path: route.suggested_site_path,
     storyblok_slug: route.storyblok_slug,
+    seo: route.seo || {},
     route_proposal_file: proposalFile || null,
     host_route_file: hostRouteFile || null,
     registration_policy: 'manual_review_required',
@@ -270,13 +271,29 @@ function renderAstroHostRoute(plan, entry) {
 // ${routeHeader(plan, entry).replaceAll('\n', '\n// ')}
 import ImportedRoute from '${entry.import_path}';
 
+${renderRouteSeoConstant(entry.seo)}
 ${renderStoryblokContentHelpers(entry.storyblok_slug)}
 
 const story = Astro.props.story || await htsFetchStoryblokDraft();
 const blok = Astro.props.blok || story?.content || {};
 const htsStoryblokSource = story ? 'storyblok-draft' : 'generated-fallback';
+const htsSeo = htsResolveStoryblokSeo(story, HTS_ROUTE_SEO);
 ---
 
+<head>
+  {htsSeo.title && <title>{htsSeo.title}</title>}
+  {htsSeo.description && <meta name="description" content={htsSeo.description} />}
+  {htsSeo.canonical_url && <link rel="canonical" href={htsSeo.canonical_url} />}
+  {htsSeo.robots && <meta name="robots" content={htsSeo.robots} />}
+  {htsSeo.og_title && <meta property="og:title" content={htsSeo.og_title} />}
+  {htsSeo.og_description && <meta property="og:description" content={htsSeo.og_description} />}
+  {htsSeo.og_image && <meta property="og:image" content={htsSeo.og_image} />}
+  {htsSeo.og_type && <meta property="og:type" content={htsSeo.og_type} />}
+  {htsSeo.twitter_card && <meta name="twitter:card" content={htsSeo.twitter_card} />}
+  {htsSeo.twitter_title && <meta name="twitter:title" content={htsSeo.twitter_title} />}
+  {htsSeo.twitter_description && <meta name="twitter:description" content={htsSeo.twitter_description} />}
+  {htsSeo.twitter_image && <meta name="twitter:image" content={htsSeo.twitter_image} />}
+</head>
 <span data-hts-storyblok-source={htsStoryblokSource} data-hts-storyblok-slug={HTS_STORYBLOK_STORY_SLUG} hidden></span>
 <ImportedRoute story={story} blok={blok} />
 `;
@@ -288,7 +305,13 @@ import ImportedRoute from '${entry.import_path}';
 
 export const dynamic = 'force-dynamic';
 
+${renderRouteSeoConstant(entry.seo)}
 ${renderStoryblokContentHelpers(entry.storyblok_slug)}
+
+export async function generateMetadata() {
+  const story = await htsFetchStoryblokDraft();
+  return htsNextRouteMetadata(htsResolveStoryblokSeo(story, HTS_ROUTE_SEO));
+}
 
 export default async function HtsImportedRoutePage() {
   const story = await htsFetchStoryblokDraft();
@@ -308,11 +331,31 @@ function renderNuxtHostRoute(plan, entry) {
 // ${routeHeader(plan, entry).replaceAll('\n', '\n// ')}
 import ImportedRoute from '${entry.import_path}';
 
+${renderRouteSeoConstant(entry.seo)}
 ${renderStoryblokContentHelpers(entry.storyblok_slug, { clientGuard: true })}
 
 const { data: story } = await useAsyncData('hts-${safeIdentifier(entry.slug)}-storyblok-draft', () => htsFetchStoryblokDraft(), {
   server: true
 });
+const htsSeo = computed(() => htsResolveStoryblokSeo(story.value, HTS_ROUTE_SEO));
+
+useSeoMeta({
+  title: () => htsSeo.value.title || undefined,
+  description: () => htsSeo.value.description || undefined,
+  robots: () => htsSeo.value.robots || undefined,
+  ogTitle: () => htsSeo.value.og_title || htsSeo.value.title || undefined,
+  ogDescription: () => htsSeo.value.og_description || htsSeo.value.description || undefined,
+  ogImage: () => htsSeo.value.og_image || undefined,
+  ogType: () => htsSeo.value.og_type || undefined,
+  twitterCard: () => htsSeo.value.twitter_card || undefined,
+  twitterTitle: () => htsSeo.value.twitter_title || htsSeo.value.title || undefined,
+  twitterDescription: () => htsSeo.value.twitter_description || htsSeo.value.description || undefined,
+  twitterImage: () => htsSeo.value.twitter_image || undefined
+});
+
+useHead(computed(() => ({
+  link: htsSeo.value.canonical_url ? [{ rel: 'canonical', href: htsSeo.value.canonical_url }] : []
+})));
 </script>
 
 <template>
@@ -320,6 +363,10 @@ const { data: story } = await useAsyncData('hts-${safeIdentifier(entry.slug)}-st
   <ImportedRoute :story="story" :blok="story?.content || null" />
 </template>
 `;
+}
+
+function renderRouteSeoConstant(seo = {}) {
+  return `const HTS_ROUTE_SEO = Object.freeze(${JSON.stringify(seo || {}, null, 2)});`;
 }
 
 function renderStoryblokContentHelpers(storyblokSlug, { clientGuard = false } = {}) {
@@ -356,6 +403,55 @@ function htsStoryblokContentToken() {
 
 function htsStoryblokEnvironment() {
   return typeof process !== 'undefined' && process.env ? process.env : {};
+}
+
+function htsResolveStoryblokSeo(story, fallback = {}) {
+  const content = story?.content || {};
+  return htsCompactSeo({
+    title: content.seo_title || fallback.title || content.headline || '',
+    description: content.seo_description || fallback.description || '',
+    canonical_url: content.canonical_url || fallback.canonical_url || '',
+    robots: content.robots || fallback.robots || '',
+    og_title: content.og_title || fallback.og_title || content.seo_title || fallback.title || '',
+    og_description: content.og_description || fallback.og_description || content.seo_description || fallback.description || '',
+    og_image: content.og_image || fallback.og_image || '',
+    og_type: content.og_type || fallback.og_type || '',
+    twitter_card: content.twitter_card || fallback.twitter_card || '',
+    twitter_title: content.twitter_title || fallback.twitter_title || content.seo_title || fallback.title || '',
+    twitter_description: content.twitter_description || fallback.twitter_description || content.seo_description || fallback.description || '',
+    twitter_image: content.twitter_image || fallback.twitter_image || ''
+  });
+}
+
+function htsNextRouteMetadata(seo) {
+  return {
+    ...(seo.title ? { title: seo.title } : {}),
+    ...(seo.description ? { description: seo.description } : {}),
+    ...(seo.canonical_url ? { alternates: { canonical: seo.canonical_url } } : {}),
+    ...(seo.robots ? { robots: seo.robots } : {}),
+    ...(seo.og_title || seo.og_description || seo.og_image || seo.og_type ? {
+      openGraph: {
+        ...(seo.og_title ? { title: seo.og_title } : {}),
+        ...(seo.og_description ? { description: seo.og_description } : {}),
+        ...(seo.og_image ? { images: [seo.og_image] } : {}),
+        ...(seo.og_type ? { type: seo.og_type } : {})
+      }
+    } : {}),
+    ...(seo.twitter_card || seo.twitter_title || seo.twitter_description || seo.twitter_image ? {
+      twitter: {
+        ...(seo.twitter_card ? { card: seo.twitter_card } : {}),
+        ...(seo.twitter_title ? { title: seo.twitter_title } : {}),
+        ...(seo.twitter_description ? { description: seo.twitter_description } : {}),
+        ...(seo.twitter_image ? { images: [seo.twitter_image] } : {})
+      }
+    } : {})
+  };
+}
+
+function htsCompactSeo(value) {
+  return Object.fromEntries(Object.entries(value || {})
+    .filter(([, entry]) => entry !== null && entry !== undefined && String(entry).trim() !== '')
+    .map(([key, entry]) => [key, String(entry)]));
 }`;
 }
 

@@ -64,6 +64,18 @@ export function buildSchemaPlan({ inventory, integrationId, storyblokPrefix, rep
         translatable: true,
         description: 'Internal preview headline for this imported template page.'
       },
+      seo_title: textField('Route SEO title imported from the template.'),
+      seo_description: textareaField('Route SEO description imported from the template.'),
+      canonical_url: textField('Route canonical URL imported from the template.'),
+      robots: textField('Route robots directive imported from the template.'),
+      og_title: textField('Open Graph title imported from the template.'),
+      og_description: textareaField('Open Graph description imported from the template.'),
+      og_image: textField('Open Graph image URL imported from the template.'),
+      og_type: textField('Open Graph content type imported from the template.'),
+      twitter_card: textField('Twitter card type imported from the template.'),
+      twitter_title: textField('Twitter title imported from the template.'),
+      twitter_description: textareaField('Twitter description imported from the template.'),
+      twitter_image: textField('Twitter image URL imported from the template.'),
       body: {
         type: 'bloks',
         restrict_components: true,
@@ -495,6 +507,7 @@ function buildDraftStory({ integrationId, rootName, page, blockDefinitions, mult
     .map((definition) => draftBlock(definition, page, integrationId, routeMap));
   const title = page.headings?.[0]?.text || page.title || displayName(integrationId);
   const route = routeForPage(page);
+  const seoFields = seoDraftFields(page, title);
   return {
     name: multiPage ? `${displayName(route.slug)} - ${displayName(integrationId)}` : `Integration Preview - ${displayName(integrationId)}`,
     slug: storySlugForRoute(integrationId, route),
@@ -502,9 +515,11 @@ function buildDraftStory({ integrationId, rootName, page, blockDefinitions, mult
     status: 'draft',
     source_page: page.page || null,
     route: route.path,
+    meta_data: storyMetaData(seoFields),
     content: {
       component: rootName,
       headline: title,
+      ...seoFields,
       body: blocks
     }
   };
@@ -697,6 +712,47 @@ function draftBlock(definition, primaryPage, integrationId, routeMap = null) {
     Object.assign(block, draftExplicitFieldValues(primaryPage, block, routeMap));
   }
   return block;
+}
+
+function seoDraftFields(page = {}, fallbackTitle = '') {
+  const seo = page.seo || {};
+  return compactObject({
+    seo_title: seo.title || page.title || fallbackTitle,
+    seo_description: seo.description || page.description || '',
+    canonical_url: seo.canonical_url || '',
+    robots: seo.robots || '',
+    og_title: seo.open_graph?.title || '',
+    og_description: seo.open_graph?.description || '',
+    og_image: seo.open_graph?.image || '',
+    og_type: seo.open_graph?.type || '',
+    twitter_card: seo.twitter?.card || '',
+    twitter_title: seo.twitter?.title || '',
+    twitter_description: seo.twitter?.description || '',
+    twitter_image: seo.twitter?.image || ''
+  });
+}
+
+function storyMetaData(seoFields = {}) {
+  return compactObject({
+    title: seoFields.seo_title,
+    description: seoFields.seo_description,
+    canonical_url: seoFields.canonical_url,
+    robots: seoFields.robots,
+    og_title: seoFields.og_title,
+    og_description: seoFields.og_description,
+    og_image: seoFields.og_image,
+    og_type: seoFields.og_type,
+    twitter_card: seoFields.twitter_card,
+    twitter_title: seoFields.twitter_title,
+    twitter_description: seoFields.twitter_description,
+    twitter_image: seoFields.twitter_image
+  });
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value)
+    .filter(([, entry]) => entry !== null && entry !== undefined && String(entry).trim() !== '')
+    .map(([key, entry]) => [key, String(entry)]));
 }
 
 function buildRepositoryAssetPlan({ inventory, templatePath, repositoryNamespace }) {
@@ -1237,6 +1293,13 @@ function applyDraftStoryOverride(draftStory, override, { integrationId, storyblo
     draftStory.slug = slug;
   }
   if (override.headline) draftStory.content.headline = String(override.headline);
+  const metaData = override.meta_data || override.metaData || null;
+  if (metaData && typeof metaData === 'object') {
+    draftStory.meta_data = compactObject({
+      ...(draftStory.meta_data || {}),
+      ...metaData
+    });
+  }
   const values = override.field_values || override.fields || null;
   if (values) Object.assign(draftStory.content, normalizeDraftValue(values, { storyblokPrefix }));
 }

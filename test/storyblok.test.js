@@ -306,6 +306,71 @@ test('createDraftStories treats matching draft stories as idempotent', async () 
   restoreFetch();
 });
 
+test('createDraftStories includes route SEO metadata in new draft payloads', async () => {
+  const content = {
+    component: 'hts_acme_homepage_v1_template_page',
+    headline: 'Acme',
+    seo_title: 'Acme SEO',
+    seo_description: 'Acme route description.',
+    body: []
+  };
+  const calls = mockFetch((url, options = {}) => {
+    if (url.includes('/stories?per_page=')) {
+      return { stories: [] };
+    }
+    if (url.includes('/stories?by_slugs=')) {
+      return { stories: [] };
+    }
+    if (/\/stories\/?$/.test(url) && options.method === 'POST') {
+      const payload = JSON.parse(options.body);
+      if (payload.story.is_folder) {
+        return {
+          story: {
+            id: 456,
+            slug: payload.story.slug,
+            full_slug: payload.story.slug,
+            is_folder: true,
+            parent_id: payload.story.parent_id
+          }
+        };
+      }
+      assert.equal(payload.story.meta_data.title, 'Acme SEO');
+      assert.equal(payload.story.meta_data.description, 'Acme route description.');
+      return {
+        story: {
+          id: 457,
+          slug: payload.story.slug,
+          full_slug: 'integration-preview/acme-homepage-v1',
+          published_at: null,
+          content: payload.story.content,
+          meta_data: payload.story.meta_data
+        }
+      };
+    }
+    throw new Error(`unexpected request: ${url}`);
+  });
+
+  const result = await createDraftStories({
+    storyblok: {
+      stories_to_create: [
+        {
+          slug: 'integration-preview/acme-homepage-v1',
+          component: 'hts_acme_homepage_v1_template_page',
+          meta_data: {
+            title: 'Acme SEO',
+            description: 'Acme route description.'
+          },
+          content
+        }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.equal(result[0].status, 'created');
+  assert.ok(calls.some((call) => /\/stories\/?$/.test(call.url) && call.options.method === 'POST'));
+  restoreFetch();
+});
+
 test('createDraftStories treats Storyblok editor metadata as idempotent on retry', async () => {
   const plannedContent = {
     component: 'hts_acme_homepage_v1_template_page',

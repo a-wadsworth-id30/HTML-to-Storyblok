@@ -13,6 +13,24 @@ test('buildSchemaPlan infers richer nested schemas from complex template facts',
         {
           page: 'index.html',
           title: 'Acme Homepage',
+          seo: {
+            title: 'Acme Homepage SEO',
+            description: 'SEO description for Acme.',
+            canonical_url: 'https://example.com/acme',
+            robots: 'index,follow',
+            open_graph: {
+              title: 'Acme OG',
+              description: 'Acme OG description.',
+              image: 'https://example.com/og.jpg',
+              type: 'website'
+            },
+            twitter: {
+              card: 'summary_large_image',
+              title: 'Acme Twitter',
+              description: 'Acme Twitter description.',
+              image: 'https://example.com/twitter.jpg'
+            }
+          },
           landmarks: {
             header: 1,
             nav: 0,
@@ -82,6 +100,9 @@ test('buildSchemaPlan infers richer nested schemas from complex template facts',
   const root = plan.components.find((component) => component.technical_name === 'hts_acme_homepage_v1_template_page');
   assert.ok(root.schema.body.component_whitelist.includes('hts_acme_homepage_v1_gallery'));
   assert.ok(!root.schema.body.component_whitelist.includes('hts_acme_homepage_v1_media_item'));
+  assert.equal(root.schema.seo_title.type, 'text');
+  assert.equal(root.schema.seo_description.type, 'textarea');
+  assert.equal(root.schema.og_image.type, 'text');
 
   const form = plan.components.find((component) => component.technical_name === 'hts_acme_homepage_v1_form');
   assert.deepEqual(form.schema.fields.component_whitelist, ['hts_acme_homepage_v1_form_field']);
@@ -96,6 +117,13 @@ test('buildSchemaPlan infers richer nested schemas from complex template facts',
   const gallery = plan.draft_story.content.body.find((block) => block.component === 'hts_acme_homepage_v1_gallery');
   assert.equal(gallery.items.length, 3);
   assert.equal(gallery.items[0].component, 'hts_acme_homepage_v1_media_item');
+  assert.equal(plan.draft_story.content.seo_title, 'Acme Homepage SEO');
+  assert.equal(plan.draft_story.content.seo_description, 'SEO description for Acme.');
+  assert.equal(plan.draft_story.content.canonical_url, 'https://example.com/acme');
+  assert.equal(plan.draft_story.content.og_title, 'Acme OG');
+  assert.equal(plan.draft_story.content.twitter_card, 'summary_large_image');
+  assert.equal(plan.draft_story.meta_data.title, 'Acme Homepage SEO');
+  assert.equal(plan.draft_story.meta_data.description, 'SEO description for Acme.');
 });
 
 test('buildSchemaPlan seeds draft assets by block role instead of leaking the first image everywhere', () => {

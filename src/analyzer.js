@@ -12,6 +12,7 @@ export function analyzeHtml(content, { sourceFile = '' } = {}) {
   const tags = extractTags(content);
   const tagCounts = countBy(tags.map((tag) => tag.name));
   const title = decodeEntities(firstMatch(content, /<title\b[^>]*>([\s\S]*?)<\/title>/i));
+  const seo = extractSeoMetadata(tags, title);
   const headings = extractPairedTagText(content, /h[1-6]/i).map((entry) => ({
     level: Number(entry.tag.slice(1)),
     text: cleanText(entry.text),
@@ -51,6 +52,8 @@ export function analyzeHtml(content, { sourceFile = '' } = {}) {
   return {
     source_file: sourceFile,
     title,
+    description: seo.description,
+    seo,
     tag_counts: tagCounts,
     landmarks,
     headings,
@@ -68,6 +71,56 @@ export function analyzeHtml(content, { sourceFile = '' } = {}) {
     accessibility_issues: inferHtmlAccessibilityIssues({ images, links, forms, headings, sourceFile }),
     risks: inferHtmlRisks({ scripts, inlineHandlers, externalUrls, forms })
   };
+}
+
+function extractSeoMetadata(tags, title) {
+  const metaTags = tags.filter((tag) => tag.name === 'meta');
+  const linkTags = tags.filter((tag) => tag.name === 'link');
+  return {
+    title: cleanMetadataValue(title),
+    description: metaContent(metaTags, ['description']),
+    canonical_url: canonicalHref(linkTags),
+    robots: metaContent(metaTags, ['robots']),
+    open_graph: {
+      title: metaContent(metaTags, ['og:title']),
+      description: metaContent(metaTags, ['og:description']),
+      image: metaContent(metaTags, ['og:image']),
+      type: metaContent(metaTags, ['og:type']),
+      url: metaContent(metaTags, ['og:url'])
+    },
+    twitter: {
+      card: metaContent(metaTags, ['twitter:card']),
+      title: metaContent(metaTags, ['twitter:title']),
+      description: metaContent(metaTags, ['twitter:description']),
+      image: metaContent(metaTags, ['twitter:image'])
+    }
+  };
+}
+
+function metaContent(metaTags, keys) {
+  const normalizedKeys = new Set(keys.map((key) => key.toLowerCase()));
+  const tag = metaTags.find((entry) => {
+    const key = attributeValue(entry.attributes, 'name') ||
+      attributeValue(entry.attributes, 'property') ||
+      attributeValue(entry.attributes, 'itemprop');
+    return normalizedKeys.has(String(key || '').toLowerCase());
+  });
+  return cleanMetadataValue(attributeValue(tag?.attributes || {}, 'content'));
+}
+
+function canonicalHref(linkTags) {
+  const tag = linkTags.find((entry) => splitClasses(attributeValue(entry.attributes, 'rel')).some((value) => value.toLowerCase() === 'canonical'));
+  return cleanMetadataValue(attributeValue(tag?.attributes || {}, 'href'));
+}
+
+function attributeValue(attributes, name) {
+  const lower = String(name).toLowerCase();
+  const entry = Object.entries(attributes || {}).find(([key]) => key.toLowerCase() === lower);
+  return entry ? entry[1] : '';
+}
+
+function cleanMetadataValue(value = '') {
+  return decodeEntities(String(value || '')).replace(/\s+/g, ' ').trim();
 }
 
 export function analyzeCss(content, { sourceFile = '' } = {}) {

@@ -69,6 +69,8 @@ export async function inspectTemplate(templatePath) {
       pageInventory.push({
         page: rel,
         title: facts.title,
+        description: facts.description,
+        seo: facts.seo,
         tag_counts: facts.tag_counts,
         landmarks: facts.landmarks,
         headings: facts.headings,

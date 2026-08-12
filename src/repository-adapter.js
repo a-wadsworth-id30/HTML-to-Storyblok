@@ -81,6 +81,7 @@ function adapterRoutes(manifest, conversion, framework, { hasRoutePreviews = fal
       suggested_site_path: slug === 'home' ? '/' : `/${slug}`,
       storyblok_slug: story?.slug || story?.full_slug || `${manifest.integration_id}/${slug}`,
       source_page: route.source_page || story?.source_page || null,
+      seo: routeSeoForStory(story),
       preview_file: hasRoutePreviews ? routePreviewPath(manifest.repository_namespace, slug, framework) : null,
       template_html_module: hasRoutePreviews ? `${manifest.repository_namespace}/routes/${slug}/template-html.js` : null,
       route_proposal_file: hasRoutePreviews ? routeProposalPath(manifest.repository_namespace, slug, framework) : null,
@@ -179,6 +180,7 @@ function routeProposalSummary(manifest, routes, framework, { hasPreview }) {
       slug: route.slug,
       suggested_site_path: route.suggested_site_path,
       storyblok_slug: route.storyblok_slug,
+      seo: route.seo || {},
       proposal_file: route.route_proposal_file,
       preview_file: route.preview_file,
       suggested_host_files: suggestedHostFiles(route.slug, framework),
@@ -322,10 +324,36 @@ function routeProposalMetadata(plan, route) {
     route_slug: route.slug,
     suggested_site_path: route.suggested_site_path,
     storyblok_slug: route.storyblok_slug,
+    seo: route.seo || {},
     preview_file: route.preview_file,
     registration_policy: route.registration_policy,
     host_routes_modified: false
   };
+}
+
+function routeSeoForStory(story = {}) {
+  const content = story?.content || {};
+  const meta = story?.meta_data || {};
+  return compactObject({
+    title: content.seo_title || meta.title || content.headline || story?.name || '',
+    description: content.seo_description || meta.description || '',
+    canonical_url: content.canonical_url || meta.canonical_url || '',
+    robots: content.robots || meta.robots || '',
+    og_title: content.og_title || meta.og_title || '',
+    og_description: content.og_description || meta.og_description || '',
+    og_image: content.og_image || meta.og_image || '',
+    og_type: content.og_type || meta.og_type || '',
+    twitter_card: content.twitter_card || meta.twitter_card || '',
+    twitter_title: content.twitter_title || meta.twitter_title || '',
+    twitter_description: content.twitter_description || meta.twitter_description || '',
+    twitter_image: content.twitter_image || meta.twitter_image || ''
+  });
+}
+
+function compactObject(value) {
+  return Object.fromEntries(Object.entries(value || {})
+    .filter(([, entry]) => entry !== null && entry !== undefined && String(entry).trim() !== '')
+    .map(([key, entry]) => [key, String(entry)]));
 }
 
 function proposalImportPath(slug, ...targetParts) {
