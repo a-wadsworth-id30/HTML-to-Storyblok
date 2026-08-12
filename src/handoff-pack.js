@@ -95,6 +95,7 @@ export function renderProductionHandoffMarkdown(pack) {
 - Latest validation: ${pack.summary.plan_validation}
 - Latest Storyblok management verification: ${pack.summary.storyblok_management_verification}
 - Asset integrity: ${pack.summary.asset_integrity}
+- Asset reference graph: ${pack.summary.asset_reference_graph}
 
 ## Storyblok Review
 
@@ -115,6 +116,10 @@ ${renderValidationMarkdown(pack.validation)}
 - Uploaded or reused: ${pack.assets.uploaded_or_reused}
 - Missing local sources: ${pack.assets.missing_sources}
 - Unresolved draft asset fields: ${pack.assets.unresolved_asset_fields}
+- Asset reference graph: ${pack.assets.reference_graph.status}
+- Story asset fields: ${pack.assets.reference_graph.story_asset_fields}
+- Resolved story asset fields: ${pack.assets.reference_graph.resolved_story_asset_fields}
+- Unresolved story asset fields: ${pack.assets.reference_graph.unresolved_story_asset_fields}
 
 ## Rollback Scope
 
@@ -161,6 +166,7 @@ function buildSummary({ manifest, readiness, report, latestApply }) {
       ? `${report.latest_template_quality.grade} (${report.latest_template_quality.score}/100)`
       : 'not_run',
     asset_integrity: report.asset_integrity?.status || 'not_run',
+    asset_reference_graph: report.asset_reference_graph?.status || 'not_run',
     unresolved_failures: report.safety_confirmation?.unresolved_failures || 0
   };
 }
@@ -255,14 +261,22 @@ function buildRepositoryHandoff({ manifest, latestApply, artifacts }) {
 
 function buildAssetHandoff(report) {
   const assetIntegrity = report.asset_integrity || {};
+  const assetReferenceGraph = report.asset_reference_graph || {};
   return {
     status: assetIntegrity.status || 'not_run',
     planned_repository_assets: assetIntegrity.planned_repository_assets || 0,
     planned_storyblok_assets: assetIntegrity.planned_storyblok_assets || 0,
     local_sources_available: assetIntegrity.local_sources_available || 0,
-    missing_sources: assetIntegrity.missing_sources || 0,
+    missing_sources: assetIntegrity.local_sources_missing || assetIntegrity.missing_sources || 0,
     uploaded_or_reused: assetIntegrity.uploaded_or_reused || 0,
     unresolved_asset_fields: assetIntegrity.unresolved_asset_fields || 0,
+    reference_graph: {
+      status: assetReferenceGraph.status || 'not_run',
+      story_asset_fields: assetReferenceGraph.summary?.story_asset_fields || 0,
+      resolved_story_asset_fields: assetReferenceGraph.summary?.resolved_story_asset_fields || 0,
+      unresolved_story_asset_fields: assetReferenceGraph.summary?.unresolved_story_asset_fields || 0,
+      remote_unresolved_asset_fields: assetReferenceGraph.summary?.remote_unresolved_asset_fields || 0
+    },
     assets: ensureArray(assetIntegrity.assets).slice(0, 20).map((asset) => ({
       filename: asset.filename || asset.local_path || 'asset',
       source_status: asset.source_status || 'unknown',
@@ -347,6 +361,7 @@ function buildSignOffChecklist({ readiness, report, latestApply, artifacts }) {
     checklistItem('Storyblok Management verification passed', safety.storyblok_management_valid),
     checklistItem('Storyblok Content API validation passed or skipped intentionally', safety.storyblok_content_valid),
     checklistItem('Asset integrity passed or pending only before apply', safety.asset_integrity_valid),
+    checklistItem('Asset reference graph has no unresolved story fields', safety.asset_reference_graph_valid),
     checklistItem('Repository route handoff reviewed', Boolean(artifacts.route_handoff || collectRepositoryRoutePreviews(latestApply).length > 0)),
     checklistItem('Rollback preview reviewed', Boolean(artifacts.rollback_preview || artifacts.readiness_result || readiness)),
     checklistItem('Client/editor visual QA completed', false, 'Manual sign-off required after preview review.')
@@ -359,6 +374,7 @@ function buildNextActions({ readiness, report, latestApply, artifacts }) {
   if (!report.safety_confirmation?.storyblok_management_valid) actions.push('Run html-to-storyblok storyblok-verify after apply to confirm remote Storyblok state.');
   if (!report.safety_confirmation?.storyblok_content_valid) actions.push('Run html-to-storyblok validate-storyblok with a preview token to verify draft content.');
   if (!report.safety_confirmation?.asset_integrity_valid) actions.push('Review html-to-storyblok asset-dashboard and resolve missing or unresolved asset fields.');
+  if (!report.safety_confirmation?.asset_reference_graph_valid) actions.push('Review html-to-storyblok asset-graph and resolve story fields that do not map to uploaded Storyblok assets.');
   if (!artifacts.route_handoff) actions.push('Run html-to-storyblok wire-routes --dry-run before exposing imported routes on the host site.');
   if (!artifacts.netlify_preview && !artifacts.demo_sites_live_preview && !artifacts.demo_sites_e2e) actions.push('Validate deployed previews through Netlify or demo-site live preview checks.');
   if (readiness?.status === 'failed') actions.push('Resolve failed readiness sections before client handoff.');

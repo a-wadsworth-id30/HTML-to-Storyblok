@@ -369,6 +369,10 @@ export async function main(argv) {
     } else if (command === 'asset-dashboard') {
       const report = await createReport(workDir);
       result = report.asset_integrity;
+    } else if (command === 'asset-graph') {
+      const report = await createReport(workDir);
+      result = report.asset_reference_graph;
+      await writeArtifact(workDir, 'asset-reference-graph.json', result);
     } else if (command === 'examples') {
       const manifest = args.manifest ? await readJson(requireOption(args, 'manifest')) : await readJson(`${workDir}/integration-manifest.json`);
       result = createCommandExamples(manifest, { workDir, repoPath: args.repo ? String(args.repo) : '<repo-path>', templatePath: args.template ? String(args.template) : manifest.template?.source_path || '<template-path>' });
@@ -546,6 +550,7 @@ function normalizeCommand(command) {
     'storyblok-visual-editor': 'visual-editor-readiness',
     'production-handoff': 'handoff-pack',
     'handoff-report': 'handoff-pack',
+    'asset-map': 'asset-graph',
     handoff: 'readiness',
     examples: 'examples'
   };
@@ -1226,6 +1231,7 @@ Usage:
   html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]
   html-to-storyblok view-report
   html-to-storyblok asset-dashboard
+  html-to-storyblok asset-graph
   html-to-storyblok completion [--shell zsh|bash|fish]
   html-to-storyblok inspect-template --template <path>
   html-to-storyblok template-readiness --template <path>
@@ -1272,11 +1278,12 @@ Usage:
   html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--allow-modified-generated-files] [--dry-run]
   html-to-storyblok report [--view] [--html]
   html-to-storyblok asset-dashboard
+  html-to-storyblok asset-graph
 
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
 Use --no-interactive for scriptable non-interactive execution.
 Use --json-summary for compact CI output.
-Aliases: route-handoff, handoff, live-demo-sites, e2e-demo-sites, ve-readiness, storyblok-visual-editor. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
+Aliases: route-handoff, handoff, live-demo-sites, e2e-demo-sites, ve-readiness, storyblok-visual-editor, asset-map. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
 Run html-to-storyblok help <topic> for focused guidance.
