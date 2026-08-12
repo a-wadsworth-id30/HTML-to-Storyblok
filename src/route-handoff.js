@@ -86,7 +86,8 @@ async function planRouteHandoff(root, plan, route, { dryRun }) {
     return {
       ...base,
       status: 'skipped',
-      reason: `Automatic route handoff is not supported for ${plan.framework}. Review the route proposal manually.`
+      reason: `Automatic route handoff is not supported for ${plan.framework}. Review the route proposal manually.`,
+      manual_handoff: manualRouteHandoff(plan, route, proposalFile)
     };
   }
   if (!proposalFile) {
@@ -114,6 +115,7 @@ async function planRouteHandoff(root, plan, route, { dryRun }) {
 }
 
 function routeHandoffResult({ dryRun, routes, status, reason = null }) {
+  const manualRoutes = routes.filter((entry) => entry.manual_handoff);
   return {
     action: 'wire_repository_routes',
     status,
@@ -123,8 +125,72 @@ function routeHandoffResult({ dryRun, routes, status, reason = null }) {
     host_route_files_created: dryRun ? 0 : routes.filter((entry) => entry.status === 'created').length,
     reason,
     routes,
-    summary: summarizeRouteHandoff(routes)
+    summary: summarizeRouteHandoff(routes),
+    manual_handoff: manualRoutes.length > 0 ? summarizeManualHandoff(manualRoutes) : null
   };
+}
+
+function manualRouteHandoff(plan, route, proposalFile) {
+  const framework = plan.framework || 'static';
+  const importTarget = proposalFile || route.route_proposal_file || route.proposal_file || 'review adapter-plan.json for the generated route proposal';
+  const sitePath = route.suggested_site_path || `/${route.slug || ''}`;
+  const storyblokSlug = route.storyblok_slug || `${plan.integration_id}/${route.slug || 'home'}`;
+  return {
+    framework,
+    required: true,
+    site_path: sitePath,
+    route_proposal_file: importTarget,
+    storyblok_slug: storyblokSlug,
+    policy: 'manual-review-required',
+    reason: manualRouteReason(framework),
+    steps: manualRouteSteps(framework, { importTarget, sitePath, storyblokSlug })
+  };
+}
+
+function summarizeManualHandoff(routes) {
+  const frameworks = [...new Set(routes.map((entry) => entry.manual_handoff.framework))];
+  return {
+    required: true,
+    frameworks,
+    routes: routes.length,
+    policy: 'manual-review-required',
+    summary: 'Automatic router mutation is disabled for these frameworks because route registration is project-specific.',
+    next_steps: [
+      'Open each route proposal file listed below.',
+      'Create or update host router entries manually in the target app.',
+      'Pass Storyblok draft content from the host app using its existing safe Content API pattern.',
+      'Run the host app build and browser checks before deployment.'
+    ]
+  };
+}
+
+function manualRouteReason(framework) {
+  if (framework === 'react') return 'React route registration depends on the host router setup, such as React Router, file-based routing, or custom app composition.';
+  if (framework === 'vue') return 'Vue route registration depends on the host router setup, such as Vue Router, file-based routing, or custom app composition.';
+  if (framework === 'static') return 'Static route publishing depends on the host file layout and deployment convention.';
+  return `Automatic route handoff is not implemented for ${framework}.`;
+}
+
+function manualRouteSteps(framework, { importTarget, sitePath, storyblokSlug }) {
+  const common = [
+    `Review the generated route proposal: ${importTarget}`,
+    `Map host route ${sitePath || '/'} to Storyblok draft ${storyblokSlug}.`,
+    'Use a Content API token only in a safe server/runtime context; never expose Management API tokens.',
+    'Run the target app validation, build, and browser preview before publishing.'
+  ];
+  if (framework === 'react') {
+    return [
+      ...common,
+      'Register the imported route component in the host React router or app shell by hand.'
+    ];
+  }
+  if (framework === 'vue') {
+    return [
+      ...common,
+      'Register the imported route component in the host Vue router or page registry by hand.'
+    ];
+  }
+  return common;
 }
 
 function filterRoutes(routes, route) {

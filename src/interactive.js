@@ -2246,6 +2246,19 @@ function renderRouteHandoffSummary(terminal, result) {
       entry.status === 'blocked' ? 'error' : entry.status === 'skipped' ? 'warning' : 'success'
     ]));
   }
+  if (result.manual_handoff?.required) {
+    terminal.panel('Manual Route Handoff', [
+      ['Frameworks', result.manual_handoff.frameworks.join(', '), 'warning'],
+      ['Routes', result.manual_handoff.routes, 'warning'],
+      ['Policy', result.manual_handoff.policy, 'success'],
+      ['Reason', result.manual_handoff.summary, 'warning']
+    ]);
+    const manualRoutes = ensureArray(result.routes).filter((entry) => entry.manual_handoff).slice(0, 8);
+    terminal.panel('Manual Route Steps', manualRoutes.flatMap((entry) => [
+      [entry.suggested_site_path || entry.slug, entry.manual_handoff.route_proposal_file, 'success'],
+      ['Next', entry.manual_handoff.steps.at(-1), 'info']
+    ]));
+  }
   if (result.reason) {
     terminal.panel('Route Handoff Note', [
       ['Reason', result.reason, result.status === 'blocked' ? 'error' : 'warning']
