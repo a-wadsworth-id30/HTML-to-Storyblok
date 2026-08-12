@@ -2600,7 +2600,7 @@ function storyblokArtifactSummary(artifact) {
     return `${artifact.status}; ${artifact.matching || 0} matching; ${artifact.missing || 0} missing; ${artifact.drifted || 0} drifted; ${artifact.blocked || 0} blocked`;
   }
   if (artifact.type === 'storyblok_management_verification') {
-    return `${artifact.status}; ${artifact.failed_story_checks || 0} failed story checks; ${artifact.unresolved_generated_story_links || 0} unresolved links; ${artifact.unresolved_asset_fields || 0} unresolved assets`;
+    return `${artifact.status}; ${artifact.failed_story_checks || 0} failed story checks; ${artifact.content_drifted_stories || 0} content drift; ${artifact.unresolved_generated_story_links || 0} unresolved links; ${artifact.unresolved_asset_fields || 0} unresolved assets`;
   }
   if (artifact.type === 'storyblok_audit') {
     return `${artifact.status}; ${artifact.unavailable_collections || 0} optional collections unavailable`;
@@ -2632,6 +2632,7 @@ function renderStoryblokReportDrilldown(terminal, artifacts) {
   if (verification) {
     terminal.panel('Verification Drilldown', [
       ['Failed Story Checks', verification.failed_story_checks || 0, verification.failed_story_checks ? 'error' : 'success'],
+      ['Content Drifted Stories', verification.content_drifted_stories || 0, verification.content_drifted_stories ? 'error' : 'success'],
       ['Unresolved Story Links', verification.unresolved_generated_story_links || 0, verification.unresolved_generated_story_links ? 'warning' : 'success'],
       ['Unresolved Asset Fields', verification.unresolved_asset_fields || 0, verification.unresolved_asset_fields ? 'warning' : 'success']
     ]);

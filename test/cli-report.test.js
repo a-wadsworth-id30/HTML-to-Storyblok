@@ -6,7 +6,7 @@ import test from 'node:test';
 import { main } from '../src/cli.js';
 import { writeArtifact } from '../src/evidence.js';
 import { createIntegrationPlan } from '../src/planner.js';
-import { createReport, renderMarkdownReport } from '../src/reporter.js';
+import { createReport, renderHtmlReport, renderMarkdownReport } from '../src/reporter.js';
 
 test('report summarizes manifest, validation, and command failure evidence', async () => {
   const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-report-'));
@@ -86,6 +86,45 @@ test('report surfaces skipped duplication diagnostics from the manifest', async 
   assert.equal(manifestSummary.duplication_inference.skipped_candidates[0].source_path, 'src/components/Hero.jsx');
   assert.match(markdown, /## Duplication Diagnostics/);
   assert.match(markdown, /local import could not be resolved/);
+});
+
+test('report surfaces Storyblok Management API content drift verification', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-report-storyblok-management-'));
+  await writeArtifact(workDir, 'storyblok-management-verification.json', {
+    action: 'verify_storyblok_management_state',
+    status: 'failed',
+    summary: {
+      resources: 7,
+      matching: 6,
+      missing: 0,
+      drifted: 0,
+      blocked: 0,
+      story_checks: 5,
+      failed_story_checks: 1,
+      unresolved_generated_story_links: 0,
+      unresolved_asset_fields: 0,
+      content_drifted_stories: 1
+    },
+    stories: [
+      {
+        slug: 'acme-homepage-v1/home',
+        status: 'failed',
+        content_drift: ['headline changed']
+      }
+    ]
+  });
+
+  const report = await createReport(workDir);
+  const markdown = renderMarkdownReport(report);
+  const html = renderHtmlReport(report);
+
+  assert.equal(report.latest_storyblok_management_verification.status, 'failed');
+  assert.equal(report.latest_storyblok_management_verification.content_drifted_stories, 1);
+  assert.equal(report.safety_confirmation.storyblok_management_valid, false);
+  assert.match(markdown, /Latest Storyblok management verification: failed/);
+  assert.match(markdown, /Content drifted stories: 1/);
+  assert.match(html, /Storyblok management valid: no/);
+  assert.match(html, /Content drifted stories: 1/);
 });
 
 test('apply dry-run executes the import pipeline without copying template assets as repository duplicates', async () => {
