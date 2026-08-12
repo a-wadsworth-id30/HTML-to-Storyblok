@@ -13,6 +13,7 @@ export async function createReport(workDir) {
   const failed = evidence.filter((entry) => entry.type === 'command_failed');
   const latestValidation = latestSummary(artifactSummaries, ['plan_validation', 'integration_validation']);
   const latestStoryblokValidation = latestSummary(artifactSummaries, ['storyblok_content_validation']);
+  const latestStoryblokManagementVerification = latestSummary(artifactSummaries, ['storyblok_management_verification']);
   const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
   return {
     work_dir: workDir,
@@ -33,10 +34,12 @@ export async function createReport(workDir) {
     artifacts: artifactSummaries,
     latest_validation: latestValidation,
     latest_storyblok_validation: latestStoryblokValidation,
+    latest_storyblok_management_verification: latestStoryblokManagementVerification,
     latest_netlify: latestNetlify,
     safety_confirmation: {
       plan_valid: latestValidation?.status === 'passed' || latestValidation?.valid === true,
       storyblok_content_valid: latestStoryblokValidation?.status === 'passed' || latestStoryblokValidation?.status === 'skipped',
+      storyblok_management_valid: latestStoryblokManagementVerification?.status === 'passed' || latestStoryblokManagementVerification?.status === 'skipped',
       deploy_preview_verified: latestNetlify?.status === 'passed',
       command_argument_redaction: 'token-like argument keys are redacted in evidence',
       unresolved_failures: failed.length
@@ -63,6 +66,7 @@ export function renderMarkdownReport(report) {
     ? `${report.latest_validation.status || (report.latest_validation.valid ? 'passed' : 'failed')}`
     : 'not run';
   const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
+  const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestNetlify = report.latest_netlify?.status || 'not run';
   const artifactRows = report.artifacts.length
     ? report.artifacts.map((artifact) => `- ${artifact.type}: ${artifact.artifact}`).join('\n')
@@ -73,6 +77,7 @@ export function renderMarkdownReport(report) {
   const skippedDuplicationRows = duplicationSkippedCandidates(report)
     .map((candidate) => `- ${candidate.source_path}: ${candidate.blockers.join('; ')}`)
     .join('\n') || '- None';
+  const storyblokManagementRows = storyblokManagementVerificationRows(report).join('\n');
 
   return `# HTML-to-Storyblok Report
 
@@ -83,12 +88,14 @@ export function renderMarkdownReport(report) {
 - Commands completed: ${report.commands_completed}
 - Latest validation: ${latestValidation}
 - Latest Storyblok validation: ${latestStoryblokValidation}
+- Latest Storyblok management verification: ${latestStoryblokManagementVerification}
 - Latest Netlify: ${latestNetlify}
 
 ## Safety
 
 - Plan valid: ${report.safety_confirmation.plan_valid ? 'yes' : 'no'}
 - Storyblok content valid: ${report.safety_confirmation.storyblok_content_valid ? 'yes' : 'no'}
+- Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}
 - Deploy preview verified: ${report.safety_confirmation.deploy_preview_verified ? 'yes' : 'no'}
 - Unresolved failures: ${report.safety_confirmation.unresolved_failures}
 - Secret handling: ${report.safety_confirmation.command_argument_redaction}
@@ -101,6 +108,10 @@ ${artifactRows}
 
 ${skippedDuplicationRows}
 
+## Storyblok Management Verification
+
+${storyblokManagementRows}
+
 ## Failures
 
 ${failureRows}
@@ -112,6 +123,10 @@ export function renderHtmlReport(report) {
     ? report.latest_validation.status || (report.latest_validation.valid ? 'passed' : 'failed')
     : 'not run';
   const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
+  const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
+  const storyblokManagementRows = storyblokManagementVerificationRows(report)
+    .map((row) => `<li>${escapeHtml(row.replace(/^- /, ''))}</li>`)
+    .join('\n') || '<li>Not run</li>';
   const artifactRows = report.artifacts.map((artifact) => `<tr><td>${escapeHtml(artifact.type)}</td><td>${escapeHtml(artifact.status || 'recorded')}</td><td><code>${escapeHtml(artifact.artifact)}</code></td></tr>`).join('\n') ||
     '<tr><td colspan="3">None recorded</td></tr>';
   const failureRows = report.commands_failed.map((failure) => `<li><strong>${escapeHtml(failure.command)}</strong>: ${escapeHtml(failure.message)}</li>`).join('\n') ||
@@ -141,6 +156,7 @@ export function renderHtmlReport(report) {
       <p><strong>Work directory:</strong> <code>${escapeHtml(report.work_dir)}</code></p>
       <p><strong>Latest validation:</strong> ${escapeHtml(latestValidation)}</p>
       <p><strong>Latest Storyblok validation:</strong> ${escapeHtml(latestStoryblokValidation)}</p>
+      <p><strong>Latest Storyblok management verification:</strong> ${escapeHtml(latestStoryblokManagementVerification)}</p>
       <p><strong>Commands completed:</strong> ${report.commands_completed}</p>
     </section>
     <section>
@@ -148,8 +164,13 @@ export function renderHtmlReport(report) {
       <ul>
         <li class="${report.safety_confirmation.plan_valid ? 'ok' : 'warn'}">Plan valid: ${report.safety_confirmation.plan_valid ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.storyblok_content_valid ? 'ok' : 'warn'}">Storyblok content valid: ${report.safety_confirmation.storyblok_content_valid ? 'yes' : 'no'}</li>
+        <li class="${report.safety_confirmation.storyblok_management_valid ? 'ok' : 'warn'}">Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}</li>
         <li>Secret handling: ${escapeHtml(report.safety_confirmation.command_argument_redaction)}</li>
       </ul>
+    </section>
+    <section>
+      <h2>Storyblok Management Verification</h2>
+      <ul>${storyblokManagementRows}</ul>
     </section>
     <section>
       <h2>Artifacts</h2>
@@ -328,9 +349,11 @@ function summarizeStoryblokManagementVerification(data, artifact) {
     missing: data.summary?.missing || 0,
     drifted: data.summary?.drifted || 0,
     blocked: data.summary?.blocked || 0,
+    story_checks: data.summary?.story_checks || 0,
     failed_story_checks: data.summary?.failed_story_checks || 0,
     unresolved_generated_story_links: data.summary?.unresolved_generated_story_links || 0,
-    unresolved_asset_fields: data.summary?.unresolved_asset_fields || 0
+    unresolved_asset_fields: data.summary?.unresolved_asset_fields || 0,
+    content_drifted_stories: data.summary?.content_drifted_stories || 0
   };
 }
 
@@ -401,6 +424,19 @@ function duplicationSkippedCandidates(report) {
     .filter((artifact) => artifact.type === 'integration_manifest')
     .flatMap((artifact) => artifact.duplication_inference?.skipped_candidates || [])
     .slice(0, 10);
+}
+
+function storyblokManagementVerificationRows(report) {
+  const verification = report.latest_storyblok_management_verification;
+  if (!verification) return ['- Not run'];
+  return [
+    `- Status: ${verification.status || 'recorded'}`,
+    `- Story checks: ${verification.story_checks || 0}`,
+    `- Failed story checks: ${verification.failed_story_checks || 0}`,
+    `- Content drifted stories: ${verification.content_drifted_stories || 0}`,
+    `- Unresolved story links: ${verification.unresolved_generated_story_links || 0}`,
+    `- Unresolved asset fields: ${verification.unresolved_asset_fields || 0}`
+  ];
 }
 
 function normalizeSkippedCandidates(candidates) {
