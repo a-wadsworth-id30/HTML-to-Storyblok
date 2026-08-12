@@ -41,7 +41,43 @@ test('demo-sites-live-preview CLI command delegates to the live runner', async (
   assert.ok(result.sites.some((site) => site.site === 'next' && site.env === 'HTS_DEMO_NEXT_URL'));
 });
 
+test('demo-sites-live-preview CLI command writes markdown evidence reports', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-live-preview-cli-report-'));
+  const fixture = await writeFixture({
+    '/': '<!doctype html><html><body><span data-hts-storyblok-source="generated-fallback" data-hts-storyblok-slug="acme-campaign-v1/home" hidden></span><main>Home</main></body></html>'
+  });
+  const reportPath = path.join(workDir, 'live-preview.md');
+  const output = await captureStdout(() => main([
+    'node',
+    'html-to-storyblok',
+    'demo-sites-live-preview',
+    '--site',
+    'astro',
+    '--base-url',
+    'https://astro-demo.example.test',
+    '--routes',
+    '/',
+    '--require-configured',
+    '--fixture',
+    fixture,
+    '--report-path',
+    reportPath,
+    '--work-dir',
+    workDir,
+    '--no-interactive'
+  ]));
+  const result = JSON.parse(output);
+  const artifact = JSON.parse(await readFile(path.join(workDir, 'demo-sites-live-preview-result.json'), 'utf8'));
+
+  assert.equal(result.status, 'passed');
+  assert.equal(result.preview_report, reportPath);
+  assert.equal(artifact.preview_report, reportPath);
+  assert.match(await readFile(reportPath, 'utf8'), /Demo Site Live Preview Evidence/);
+});
+
 test('live demo preview runner passes when deployed routes expose Storyblok draft markers', async () => {
+  const reportRoot = await mkdtemp(path.join(os.tmpdir(), 'hts-live-preview-report-'));
+  const reportPath = path.join(reportRoot, 'preview.md');
   const fixture = await writeFixture({
     '/about': '<!doctype html><html><body><span data-hts-storyblok-source="storyblok-draft" data-hts-storyblok-slug="acme-campaign-v1/about" hidden></span><main>About</main></body></html>'
   });
@@ -58,16 +94,22 @@ test('live demo preview runner passes when deployed routes expose Storyblok draf
     '--require-storyblok-draft',
     '--require-configured',
     '--fixture',
-    fixture
+    fixture,
+    '--report-path',
+    reportPath
   ], { maxBuffer: 1024 * 1024 });
   const result = JSON.parse(stdout);
 
   assert.equal(result.status, 'passed');
+  assert.equal(result.preview_report, reportPath);
   assert.equal(result.sites[0].routes[0].storyblok_draft_rendered, true);
   assert.equal(result.sites[0].routes[0].storyblok_slug, 'acme-campaign-v1/about');
+  assert.match(await readFile(reportPath, 'utf8'), /\/about: passed HTTP 200 source=storyblok-draft/);
 });
 
 test('live demo preview runner fails when a deployed route returns 404', async () => {
+  const reportRoot = await mkdtemp(path.join(os.tmpdir(), 'hts-live-preview-fail-report-'));
+  const reportPath = path.join(reportRoot, 'preview.md');
   const fixture = await writeFixture({
     '/': '<!doctype html><html><body><span data-hts-storyblok-source="generated-fallback" data-hts-storyblok-slug="acme-campaign-v1/home" hidden></span><main>Home</main></body></html>',
     '/about': {
@@ -86,17 +128,21 @@ test('live demo preview runner fails when a deployed route returns 404', async (
       '/,/about',
       '--require-configured',
       '--fixture',
-      fixture
+      fixture,
+      '--report-path',
+      reportPath
     ], { maxBuffer: 1024 * 1024 }),
     (error) => {
       const result = JSON.parse(error.stdout);
       assert.equal(result.status, 'failed');
+      assert.equal(result.preview_report, reportPath);
       const about = result.sites[0].routes.find((route) => route.route === '/about');
       assert.equal(about.status, 'failed');
       assert.equal(about.http_status, 404);
       return true;
     }
   );
+  assert.match(await readFile(reportPath, 'utf8'), /\/about: failed HTTP 404/);
 });
 
 async function writeFixture(content) {

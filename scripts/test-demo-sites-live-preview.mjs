@@ -1,4 +1,6 @@
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { DEFAULT_WORK_DIR } from '../src/evidence.js';
 
 const DEFAULT_SITES = ['static', 'astro', 'next', 'nuxt', 'vue', 'react'];
 const DEFAULT_ROUTES = ['/', '/about', '/services', '/gallery', '/contact'];
@@ -13,6 +15,9 @@ const requireStoryblokDraft = Boolean(args.require_storyblok_draft || args.requi
 const integrationId = args.integration_id || args.integrationId || '';
 const urlMap = resolveConfiguredUrls(args, process.env);
 const fixtureResponses = args.fixture ? await readFixtureResponses(args.fixture) : null;
+const reportPath = args.report === false || args.report === 'false'
+  ? null
+  : String(args.report_path || args.reportPath || path.join(DEFAULT_WORK_DIR, 'demo-sites-live-preview-report.md'));
 
 if (args.list) {
   console.log(JSON.stringify({
@@ -41,6 +46,7 @@ if (configuredSites.length === 0) {
     required_env: selectedSites.map((site) => envNameForSite(site)),
     routes
   };
+  if (reportPath) result.preview_report = await writeLivePreviewReport(reportPath, result);
   console.log(JSON.stringify(result, null, 2));
   if (requireConfigured) process.exit(1);
   process.exit(0);
@@ -52,14 +58,16 @@ for (const site of configuredSites) {
 }
 
 const failed = summaries.some((site) => site.status === 'failed');
-console.log(JSON.stringify({
+const result = {
   action: 'test_demo_sites_live_preview',
   status: failed ? 'failed' : 'passed',
   require_storyblok_draft: requireStoryblokDraft,
   integration_id: integrationId || null,
   routes,
   sites: summaries
-}, null, 2));
+};
+if (reportPath) result.preview_report = await writeLivePreviewReport(reportPath, result);
+console.log(JSON.stringify(result, null, 2));
 
 if (failed) process.exit(1);
 
@@ -273,6 +281,55 @@ function csv(value) {
     .split(',')
     .map((item) => item.trim())
     .filter(Boolean);
+}
+
+async function writeLivePreviewReport(filePath, result) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, renderLivePreviewReport(result));
+  return filePath;
+}
+
+function renderLivePreviewReport(result) {
+  const siteSections = result.sites?.length
+    ? result.sites.map(renderSiteSection).join('\n\n')
+    : renderNoConfiguredSites(result);
+  return `# Demo Site Live Preview Evidence
+
+- Action: ${result.action}
+- Status: ${result.status}
+- Storyblok draft required: ${result.require_storyblok_draft ? 'yes' : 'no'}
+- Integration: ${result.integration_id || 'not supplied'}
+- Routes checked: ${ensureArray(result.routes).join(', ') || 'none'}
+
+${siteSections}
+`;
+}
+
+function renderSiteSection(site) {
+  const routeRows = ensureArray(site.routes).map((route) =>
+    `- ${route.route}: ${route.status} HTTP ${route.http_status ?? 'n/a'} source=${route.storyblok_source || 'none'} slug=${route.storyblok_slug || 'none'}${route.reason ? ` reason=${route.reason}` : ''}`
+  ).join('\n') || '- No routes checked';
+  return `## ${site.site}
+
+- URL: ${site.url}
+- Status: ${site.status}
+
+${routeRows}`;
+}
+
+function renderNoConfiguredSites(result) {
+  const required = ensureArray(result.required_env).map((name) => `- ${name}`).join('\n') || '- None';
+  return `## No Configured Sites
+
+- Reason: ${result.reason || 'No deployed demo sites were checked.'}
+
+Required environment variables:
+
+${required}`;
+}
+
+function ensureArray(value) {
+  return Array.isArray(value) ? value : [];
 }
 
 function parseArgs(argv) {
