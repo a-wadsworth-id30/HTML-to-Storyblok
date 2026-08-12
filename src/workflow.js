@@ -3,7 +3,7 @@ import { writeArtifact } from './evidence.js';
 import { generateIntegration } from './generator.js';
 import { buildOperations, createIntegrationPlan } from './planner.js';
 import { validatePlan } from './policy.js';
-import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, createStoryblokStateCache, getStoryblokConfig, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
+import { collectStoryblokActivityEvidence, createDraftStories, createStoryblokAssetFolders, createStoryblokComponentGroups, createStoryblokComponents, createStoryblokInternalTags, createStoryblokPresets, createStoryblokStateCache, duplicateStoryblokComponents, getStoryblokConfig, preflightStoryblokIntegration, uploadStoryblokAssets, validateStoryblokDraftContent, verifyStoryblokManagementState } from './storyblok.js';
 import { ensureArray, readJson, requireOption } from './utils.js';
 import { preflightRepositoryIntegration, runRepositoryScript, validateIntegration } from './validator.js';
 import { applyInferredDuplicationCandidates } from './duplication-inference.js';
@@ -181,75 +181,86 @@ export async function applyStoryblokOnly(manifest, args = {}, workDir, { onProgr
   const startedAt = new Date().toISOString();
   const storyblokDetail = storyblokProgressDetail(env);
   const storyblokStateCache = createStoryblokStateCache();
+  const totalSteps = 12;
   assertApplyPreflight(manifest, { dryRun, env });
 
-  await progress({ label: 'Checking Storyblok Access', current: 0, total: 11, detail: storyblokDetail });
+  await progress({ label: 'Checking Storyblok Access', current: 0, total: totalSteps, detail: storyblokDetail });
   const storyblokPreflight = await preflightStoryblokIntegration(manifest, { dryRun, env });
   await writeArtifact(workDir, 'storyblok-apply-step-00-preflight.json', storyblokPreflight);
   assertStoryblokPreflightPassed(storyblokPreflight);
-  await progress({ label: 'Creating Storyblok Component Folders', current: 1, total: 11, detail: storyblokDetail });
+  await progress({ label: 'Creating Storyblok Component Folders', current: 1, total: totalSteps, detail: storyblokDetail });
   const componentGroupsStep = {
     action: 'storyblok_component_groups',
     results: await createStoryblokComponentGroups(manifest, { dryRun, env })
   };
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-01-component-groups.json', componentGroupsStep);
-  await progress({ label: 'Creating Storyblok Internal Tags', current: 2, total: 11, detail: storyblokDetail });
+  await progress({ label: 'Creating Storyblok Internal Tags', current: 2, total: totalSteps, detail: storyblokDetail });
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-02-internal-tags.json', {
     action: 'storyblok_internal_tags',
     results: await createStoryblokInternalTags(manifest, { dryRun, env })
   });
-  await progress({ label: 'Creating Storyblok Components', current: 3, total: 11, detail: storyblokDetail });
+  await progress({ label: 'Creating Storyblok Components', current: 3, total: totalSteps, detail: storyblokDetail });
   const storyblokComponentsStep = {
     action: 'storyblok_components',
     results: await createStoryblokComponents(manifest, { dryRun, env, componentGroupResults: componentGroupsStep.results })
   };
   await recordApplyStep(workDir, steps, 'storyblok-apply-step-03-components.json', storyblokComponentsStep);
-  await progress({ label: 'Creating Storyblok Asset Folders', current: 4, total: 11, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-04-asset-folders.json', {
+  await progress({ label: 'Duplicating Storyblok Components', current: 4, total: totalSteps, detail: storyblokDetail });
+  const storyblokDuplicateComponentsStep = {
+    action: 'storyblok_duplicate_components',
+    results: await duplicateStoryblokComponents(manifest, { dryRun, env })
+  };
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-04-duplicate-components.json', storyblokDuplicateComponentsStep);
+  const allComponentResults = [
+    ...ensureArray(storyblokComponentsStep.results),
+    ...ensureArray(storyblokDuplicateComponentsStep.results)
+  ];
+  await progress({ label: 'Creating Storyblok Asset Folders', current: 5, total: totalSteps, detail: storyblokDetail });
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-05-asset-folders.json', {
     action: 'storyblok_asset_folders',
     results: await createStoryblokAssetFolders(manifest, { dryRun, env })
   });
-  await progress({ label: 'Uploading Assets', current: 5, total: 11, detail: storyblokDetail });
+  await progress({ label: 'Uploading Assets', current: 6, total: totalSteps, detail: storyblokDetail });
   const storyblokAssetsStep = {
     action: 'storyblok_assets',
     results: await uploadStoryblokAssets(manifest, { dryRun, env })
   };
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-05-assets.json', storyblokAssetsStep);
-  await progress({ label: 'Creating Storyblok Presets', current: 6, total: 11, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-06-presets.json', {
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-06-assets.json', storyblokAssetsStep);
+  await progress({ label: 'Creating Storyblok Presets', current: 7, total: totalSteps, detail: storyblokDetail });
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-07-presets.json', {
     action: 'storyblok_presets',
     results: await createStoryblokPresets(manifest, {
       dryRun,
       env,
-      componentResults: storyblokComponentsStep.results,
+      componentResults: allComponentResults,
       assetResults: storyblokAssetsStep.results
     })
   });
-  await progress({ label: 'Creating Draft Stories', current: 7, total: 11, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-07-draft-stories.json', {
+  await progress({ label: 'Creating Draft Stories', current: 8, total: totalSteps, detail: storyblokDetail });
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-08-draft-stories.json', {
     action: 'storyblok_draft_stories',
     results: await createDraftStories(manifest, { dryRun, env, assetResults: storyblokAssetsStep.results })
   });
-  await progress({ label: 'Validating Storyblok Content', current: 8, total: 11, detail: storyblokDetail });
+  await progress({ label: 'Validating Storyblok Content', current: 9, total: totalSteps, detail: storyblokDetail });
   const storyblokContentValidation = await validateStoryblokDraftContent(manifest, { dryRun, env });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-08-content-validation.json', storyblokContentValidation);
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-09-content-validation.json', storyblokContentValidation);
   assertStoryblokContentValidationPassed(storyblokContentValidation);
-  await progress({ label: 'Verifying Storyblok Management State', current: 9, total: 11, detail: storyblokDetail });
+  await progress({ label: 'Verifying Storyblok Management State', current: 10, total: totalSteps, detail: storyblokDetail });
   const storyblokManagementVerification = await verifyStoryblokManagementState(manifest, {
     dryRun,
     env,
     stateCache: storyblokStateCache,
     refreshRemoteState: true
   });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-09-management-verification.json', storyblokManagementVerification);
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-10-management-verification.json', storyblokManagementVerification);
   assertStoryblokManagementVerificationPassed(storyblokManagementVerification);
-  await progress({ label: 'Recording Storyblok Activity Evidence', current: 10, total: 11, detail: storyblokDetail });
-  await recordApplyStep(workDir, steps, 'storyblok-apply-step-10-activity-evidence.json', await collectStoryblokActivityEvidence(manifest, {
+  await progress({ label: 'Recording Storyblok Activity Evidence', current: 11, total: totalSteps, detail: storyblokDetail });
+  await recordApplyStep(workDir, steps, 'storyblok-apply-step-11-activity-evidence.json', await collectStoryblokActivityEvidence(manifest, {
     dryRun,
     env,
     since: startedAt
   }));
-  await progress({ label: 'Done', current: 11, total: 11 });
+  await progress({ label: 'Done', current: 12, total: totalSteps });
   const result = {
     action: 'apply_storyblok_only',
     dry_run: dryRun,

@@ -1013,7 +1013,7 @@ html-to-storyblok storyblok-apply \
   --dry-run
 ```
 
-This combines component folder creation, internal tag creation, component creation, asset folder creation, asset upload, component preset creation, draft story creation, Content API validation when possible, Management API reconcile/verification, and activity evidence capture. It is useful for validating the Storyblok side of a template before a target repository exists. For real execution, omit `--dry-run`; the command requires `STORYBLOK_MANAGEMENT_TOKEN` and `STORYBLOK_SPACE_ID`, or credentials entered in the interactive wizard.
+This combines component folder creation, internal tag creation, component creation, Storyblok component duplication, asset folder creation, asset upload, component preset creation, draft story creation, Content API validation when possible, Management API reconcile/verification, and activity evidence capture. It is useful for validating the Storyblok side of a template before a target repository exists. For real execution, omit `--dry-run`; the command requires `STORYBLOK_MANAGEMENT_TOKEN` and `STORYBLOK_SPACE_ID`, or credentials entered in the interactive wizard.
 
 After real Storyblok apply, run Content API validation manually if needed:
 
