@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import test from 'node:test';
 import { generateIntegration } from '../src/generator.js';
 import { createIntegrationPlan } from '../src/planner.js';
@@ -51,7 +52,11 @@ test('generate converts template HTML into isolated framework files', async () =
 
   const astro = await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/TemplatePage.astro'), 'utf8');
   assert.match(astro, /import '\.\/behaviour\/acme-homepage-v1\.js'/);
-  assert.match(astro, /class="hts-acme-homepage-v1-site-header"/);
+  assert.match(astro, /import \{ renderTemplateHtml \} from '\.\/template-html\.js'/);
+  assert.match(astro, /set:html=\{htsHtml\}/);
+
+  const htmlModule = await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/template-html.js'), 'utf8');
+  assert.match(htmlModule, /hts-acme-homepage-v1-site-header/);
 
   const adapterPlan = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-homepage-v1/adapter-plan.json'), 'utf8'));
   assert.equal(adapterPlan.framework, 'astro');
@@ -110,7 +115,7 @@ test('generate refuses drifted generated files during resume', async () => {
   );
 });
 
-test('generate converts complex HTML attributes into React-safe JSX', async () => {
+test('generate renders Storyblok fields through the shared HTML module', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-react-repo-'));
   const templatePath = await mkdtemp(path.join(os.tmpdir(), 'hts-generator-react-template-'));
   await writeFile(path.join(templatePath, 'hero.svg'), '<svg xmlns="http://www.w3.org/2000/svg"></svg>\n');
@@ -119,9 +124,14 @@ test('generate converts complex HTML attributes into React-safe JSX', async () =
   <body>
     <main>
       <label for="email">Email</label>
-      <input id="email" class="field" style="background-color: red; --gap: 1rem;" required readonly autofocus maxlength="30">
+      <h1 data-hts-field="headline">Original headline</h1>
+      <p data-hts-field="intro_copy">Original intro.</p>
+      <input id="email" class="field" style="background-color: red; --gap: 1rem;" required readonly autofocus maxlength="30" data-hts-field="lead_email">
+      <input type="checkbox" data-hts-field="accept_updates">
+      <select data-hts-field="preferred_package"><option>Starter</option><option>Scale</option></select>
       <a href="#email" aria-controls="email">Jump</a>
-      <img src="./hero.svg" alt="Hero">
+      <a href="/old" data-hts-field="primary_cta">Start</a>
+      <img src="./hero.svg" alt="Hero" data-hts-field="hero_image">
       <p>Do not rewrite text that mentions ./hero.svg outside an attribute.</p>
       <svg viewBox="0 0 10 10"><path fill-rule="evenodd" stroke-width="2"></path></svg>
       <my-widget class="widget" custom-attr="demo" data-mode="compact" onclick=alert(1)></my-widget>
@@ -157,18 +167,52 @@ test('generate converts complex HTML attributes into React-safe JSX', async () =
   assert.equal(result.removed_inline_handlers, 1);
 
   const jsx = await readFile(path.join(repoPath, 'src/integrations/react-template-v1/TemplatePage.jsx'), 'utf8');
-  assert.match(jsx, /htmlFor="hts-react-template-v1-email"/);
-  assert.match(jsx, /id="hts-react-template-v1-email"/);
-  assert.match(jsx, /href="#hts-react-template-v1-email"/);
-  assert.match(jsx, /aria-controls="hts-react-template-v1-email"/);
-  assert.match(jsx, /className="hts-react-template-v1-field"/);
-  assert.match(jsx, /style=\{\{ backgroundColor: "red", "--gap": "1rem" \}\}/);
-  assert.match(jsx, /required readOnly autoFocus maxLength="30"/);
-  assert.match(jsx, /<img src="\.\/assets\/hero\.svg" alt="Hero" \/>/);
-  assert.match(jsx, /Do not rewrite text that mentions \.\/hero\.svg outside an attribute/);
-  assert.match(jsx, /fillRule="evenodd" strokeWidth="2"/);
-  assert.match(jsx, /<my-widget class="hts-react-template-v1-widget" custom-attr="demo" data-mode="compact">/);
+  assert.match(jsx, /dangerouslySetInnerHTML=\{\{ __html: renderTemplateHtml\(blok\) \}\}/);
+  assert.match(jsx, /import \{ renderTemplateHtml \} from '\.\/template-html\.js'/);
+
+  const { renderTemplateHtml } = await import(pathToFileURL(path.join(repoPath, 'src/integrations/react-template-v1/template-html.js')).href);
+  const rendered = renderTemplateHtml({
+    headline: 'Live Storyblok headline',
+    body: [{
+      component: 'hts_react_template_v1_hero',
+      intro_copy: {
+        type: 'doc',
+        content: [{ type: 'paragraph', content: [{ type: 'text', text: 'Live rich text intro.' }] }]
+      },
+      hero_image: {
+        fieldtype: 'asset',
+        filename: 'https://a.storyblok.com/f/123/live-hero.svg',
+        alt: 'Live hero alt'
+      },
+      primary_cta: {
+        linktype: 'story',
+        cached_url: 'demo/contact'
+      },
+      lead_email: 'hello@example.com',
+      accept_updates: true,
+      preferred_package: 'Scale'
+    }]
+  });
+
+  assert.match(rendered, /id="hts-react-template-v1-email"/);
+  assert.match(rendered, /for="hts-react-template-v1-email"/);
+  assert.match(rendered, /href="#hts-react-template-v1-email"/);
+  assert.match(rendered, /aria-controls="hts-react-template-v1-email"/);
+  assert.match(rendered, /class="hts-react-template-v1-field"/);
+  assert.match(rendered, /style="background-color: red; --gap: 1rem;"/);
+  assert.match(rendered, /required readonly autofocus maxlength="30"/);
+  assert.match(rendered, /value="hello@example.com"/);
+  assert.match(rendered, /type="checkbox"[^>]*checked/);
+  assert.match(rendered, /<option selected>Scale<\/option>/);
+  assert.match(rendered, /<h1 data-hts-field="headline">Live Storyblok headline<\/h1>/);
+  assert.match(rendered, /<p data-hts-field="intro_copy">Live rich text intro\.<\/p>/);
+  assert.match(rendered, /<a href="\/demo\/contact" data-hts-field="primary_cta">Start<\/a>/);
+  assert.match(rendered, /<img src="https:\/\/a\.storyblok\.com\/f\/123\/live-hero\.svg" alt="Live hero alt" data-hts-field="hero_image">/);
+  assert.match(rendered, /Do not rewrite text that mentions \.\/hero\.svg outside an attribute/);
+  assert.match(rendered, /fill-rule="evenodd" stroke-width="2"/);
+  assert.match(rendered, /<my-widget class="hts-react-template-v1-widget" custom-attr="demo" data-mode="compact"><\/my-widget>/);
   assert.doesNotMatch(jsx, /onclick/);
+  assert.doesNotMatch(rendered, /onclick/);
 });
 
 test('generate writes isolated route previews for every template page without touching app routes', async () => {

@@ -150,53 +150,49 @@ export function buildTemplateFiles({ manifest, framework, html, css, behaviour, 
   ];
 
   if (framework === 'astro') {
-    const astroHtml = html
-      .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{blok.headline || "$1"}<')
-      .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{blok.body || "$1"}<');
     files.push({
       path: `${namespace}/TemplatePage.astro`,
       content: `---
 import './styles/template.css';
+import { renderTemplateHtml } from './template-html.js';
 
 const { blok = {} } = Astro.props;
+const htsHtml = renderTemplateHtml(blok);
 ---
 
 <script>
   import './behaviour/${integrationId}.js';
 </script>
 
-<main class="hts-${integrationId}-root" data-integration="${integrationId}">
-${astroHtml}
-</main>
+<main class="hts-${integrationId}-root" data-integration="${integrationId}" set:html={htsHtml}></main>
 `
     });
   } else if (framework === 'react' || framework === 'next') {
-    const jsxHtml = toJsx(html)
-      .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{blok.headline || "$1"}<')
-      .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{blok.body || "$1"}<');
     files.push({
       path: `${namespace}/TemplatePage.jsx`,
       content: `import './styles/template.css';
 import './behaviour/${integrationId}.js';
+import { renderTemplateHtml } from './template-html.js';
 
 export function HtsTemplatePage({ blok = {} }) {
   return (
-    <main className="hts-${integrationId}-root" data-integration="${integrationId}">
-${indent(jsxHtml, 6)}
-    </main>
+    <main
+      className="hts-${integrationId}-root"
+      data-integration="${integrationId}"
+      dangerouslySetInnerHTML={{ __html: renderTemplateHtml(blok) }}
+    />
   );
 }
 `
     });
   } else if (framework === 'vue' || framework === 'nuxt') {
-    const vueHtml = html
-      .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{{ blok.headline || "$1" }}<')
-      .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{{ blok.body || "$1" }}<');
     files.push({
       path: `${namespace}/TemplatePage.vue`,
       content: `<script setup>
+import { computed } from 'vue';
 import './styles/template.css';
 import './behaviour/${integrationId}.js';
+import { renderTemplateHtml } from './template-html.js';
 
 const props = defineProps({
   blok: {
@@ -204,12 +200,12 @@ const props = defineProps({
     default: () => ({})
   }
 });
+
+const htsHtml = computed(() => renderTemplateHtml(props.blok));
 </script>
 
 <template>
-  <main class="hts-${integrationId}-root" data-integration="${integrationId}">
-${indent(vueHtml.replaceAll('blok.', 'props.blok.'), 4)}
-  </main>
+  <main class="hts-${integrationId}-root" data-integration="${integrationId}" v-html="htsHtml"></main>
 </template>
 `
     });
@@ -259,53 +255,50 @@ function buildRoutePreviewFiles({ manifest, framework, routes }) {
       content: renderTemplateModule(integrationId, route.html)
     });
     if (normalized === 'astro') {
-      const astroHtml = route.html
-        .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{blok.headline || "$1"}<')
-        .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{blok.body || "$1"}<');
       files.push({
         path: `${namespace}/routes/${route.slug}/TemplatePage.astro`,
         content: `---
 import '${prefix}/styles/template.css';
+import { renderTemplateHtml } from './template-html.js';
 
 const { blok = {} } = Astro.props;
+const htsHtml = renderTemplateHtml(blok);
 ---
 
 <script>
   import '${prefix}/behaviour/${integrationId}.js';
 </script>
 
-<main class="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}">
-${astroHtml}
-</main>
+<main class="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}" set:html={htsHtml}></main>
 `
       });
     } else if (normalized === 'react' || normalized === 'next') {
-      const jsxHtml = toJsx(route.html)
-        .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{blok.headline || "$1"}<')
-        .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{blok.body || "$1"}<');
       files.push({
         path: `${namespace}/routes/${route.slug}/TemplatePage.jsx`,
         content: `import '${prefix}/styles/template.css';
 import '${prefix}/behaviour/${integrationId}.js';
+import { renderTemplateHtml } from './template-html.js';
 
 export function HtsTemplatePage${pascalCase(route.slug)}({ blok = {} }) {
   return (
-    <main className="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}">
-${indent(jsxHtml, 6)}
-    </main>
+    <main
+      className="hts-${integrationId}-root"
+      data-integration="${integrationId}"
+      data-route="${route.slug}"
+      dangerouslySetInnerHTML={{ __html: renderTemplateHtml(blok) }}
+    />
   );
 }
 `
       });
     } else if (normalized === 'vue' || normalized === 'nuxt') {
-      const vueHtml = route.html
-        .replace(/data-hts-field="headline">([^<]*)</, 'data-hts-field="headline">{{ blok.headline || "$1" }}<')
-        .replace(/data-hts-field="body">([^<]*)</, 'data-hts-field="body">{{ blok.body || "$1" }}<');
       files.push({
         path: `${namespace}/routes/${route.slug}/TemplatePage.vue`,
         content: `<script setup>
+import { computed } from 'vue';
 import '${prefix}/styles/template.css';
 import '${prefix}/behaviour/${integrationId}.js';
+import { renderTemplateHtml } from './template-html.js';
 
 const props = defineProps({
   blok: {
@@ -313,12 +306,12 @@ const props = defineProps({
     default: () => ({})
   }
 });
+
+const htsHtml = computed(() => renderTemplateHtml(props.blok));
 </script>
 
 <template>
-  <main class="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}">
-${indent(vueHtml.replaceAll('blok.', 'props.blok.'), 4)}
-  </main>
+  <main class="hts-${integrationId}-root" data-integration="${integrationId}" data-route="${route.slug}" v-html="htsHtml"></main>
 </template>
 `
       });
@@ -340,13 +333,204 @@ function renderTemplateModule(integrationId, html) {
   return `const templateHtml = ${JSON.stringify(html)};
 
 export function renderTemplateHtml(blok = {}) {
-  const replacements = {
-    headline: escapeHtml(blok.headline || ''),
-    body: escapeHtml(blok.body || '')
-  };
-  return templateHtml
-    .replaceAll('data-hts-field="headline"></', \`data-hts-field="headline">\${replacements.headline}</\`)
-    .replaceAll('data-hts-field="body"></', \`data-hts-field="body">\${replacements.body}</\`);
+  const fields = flattenBlokFields(blok);
+  return hydrateTextFields(
+    hydrateFormFields(
+      hydrateLinkFields(
+        hydrateAssetFields(templateHtml, fields),
+        fields
+      ),
+      fields
+    ),
+    fields
+  );
+}
+
+function hydrateTextFields(html, fields) {
+  return html.replace(/<([a-zA-Z][\\w:-]*)\\b([^<>]*\\sdata-hts-field=(["'])([^"']+)\\3[^<>]*?)>([\\s\\S]*?)<\\/\\1>/g, (match, tagName, attributes, _quote, fieldName, fallback) => {
+    const tag = tagName.toLowerCase();
+    if (['script', 'style', 'svg', 'picture', 'select'].includes(tag)) return match;
+    const value = fields[fieldName];
+    if (!hasRenderableValue(value)) return match;
+    if (tag === 'a' && isLinkValue(value)) return match;
+    if (tag === 'textarea') {
+      return '<' + tagName + attributes + '>' + escapeHtml(textValue(value, fallback)) + '</' + tagName + '>';
+    }
+    if (['input', 'img', 'source', 'video', 'audio'].includes(tag)) return match;
+    return '<' + tagName + attributes + '>' + escapeHtml(textValue(value, fallback)) + '</' + tagName + '>';
+  });
+}
+
+function hydrateAssetFields(html, fields) {
+  return html.replace(/<img\\b([^<>]*\\sdata-hts-field=(["'])([^"']+)\\2[^<>]*?)>/gi, (match, _attributes, _quote, fieldName) => {
+    const value = fields[fieldName];
+    if (!hasRenderableValue(value)) return match;
+    const src = assetUrl(value);
+    if (!src) return match;
+    let output = upsertAttribute(match, 'src', src);
+    const alt = assetAlt(value);
+    if (alt) output = upsertAttribute(output, 'alt', alt);
+    return output;
+  });
+}
+
+function hydrateLinkFields(html, fields) {
+  return html.replace(/<a\\b([^<>]*\\sdata-hts-field=(["'])([^"']+)\\2[^<>]*?)>/gi, (match, _attributes, _quote, fieldName) => {
+    const value = fields[fieldName];
+    if (!hasRenderableValue(value)) return match;
+    const href = linkUrl(value);
+    return href ? upsertAttribute(match, 'href', href) : match;
+  });
+}
+
+function hydrateFormFields(html, fields) {
+  let output = html.replace(/<input\\b([^<>]*\\sdata-hts-field=(["'])([^"']+)\\2[^<>]*?)>/gi, (match, attributes, _quote, fieldName) => {
+    const value = fields[fieldName];
+    if (!hasRenderableValue(value)) return match;
+    const type = attributeValue(attributes, 'type').toLowerCase();
+    if (type === 'checkbox' || type === 'radio') {
+      return upsertBooleanAttribute(match, 'checked', Boolean(value));
+    }
+    return upsertAttribute(match, 'value', textValue(value, attributeValue(attributes, 'value')));
+  });
+  output = output.replace(/<select\\b([^<>]*\\sdata-hts-field=(["'])([^"']+)\\2[^<>]*?)>([\\s\\S]*?)<\\/select>/gi, (match, attributes, _quote, fieldName, optionsHtml) => {
+    const value = fields[fieldName];
+    if (!hasRenderableValue(value)) return match;
+    const selected = textValue(value, '');
+    if (!selected) return match;
+    const hydratedOptions = optionsHtml.replace(/<option\\b([^<>]*?)>([\\s\\S]*?)<\\/option>/gi, (optionMatch, optionAttributes, label) => {
+      const optionValue = attributeValue(optionAttributes, 'value') || stripHtml(label);
+      const cleanSelected = selected.trim();
+      const isSelected = optionValue.trim() === cleanSelected || stripHtml(label).trim() === cleanSelected;
+      return optionMatch.replace(/<option\\b([^<>]*?)>/i, (openingTag) => (
+        isSelected ? upsertBooleanAttribute(openingTag, 'selected', true) : removeAttribute(openingTag, 'selected')
+      ));
+    });
+    return '<select' + attributes + '>' + hydratedOptions + '</select>';
+  });
+  return output;
+}
+
+function flattenBlokFields(value, fields = {}, seen = new Set()) {
+  if (!value || typeof value !== 'object' || seen.has(value)) return fields;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    for (const item of value) flattenBlokFields(item, fields, seen);
+    return fields;
+  }
+  for (const [key, child] of Object.entries(value)) {
+    if (key === 'component' || key.startsWith('_')) continue;
+    if (fields[key] === undefined && hasDirectFieldValue(child)) {
+      fields[key] = child;
+    }
+  }
+  for (const child of Object.values(value)) {
+    if (child && typeof child === 'object') flattenBlokFields(child, fields, seen);
+  }
+  return fields;
+}
+
+function hasDirectFieldValue(value) {
+  if (value === null || value === undefined || value === '') return false;
+  if (typeof value === 'number' || typeof value === 'boolean') return true;
+  if (typeof value === 'string') return true;
+  if (Array.isArray(value)) return false;
+  if (typeof value === 'object') {
+    return Boolean(value.filename || value.fieldtype === 'asset' || value.linktype || value.type === 'doc');
+  }
+  return false;
+}
+
+function hasRenderableValue(value) {
+  return hasDirectFieldValue(value);
+}
+
+function isLinkValue(value) {
+  return Boolean(value && typeof value === 'object' && value.linktype);
+}
+
+function textValue(value, fallback = '') {
+  if (value === null || value === undefined || value === '') return stripHtml(fallback);
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) return value.map((item) => textValue(item, '')).filter(Boolean).join(' ');
+  if (typeof value === 'object') {
+    if (value.type === 'doc') return richTextToPlainText(value);
+    if (value.fieldtype === 'asset' || value.filename) return value.alt || value.title || value.filename || stripHtml(fallback);
+    if (value.linktype) return linkUrl(value) || stripHtml(fallback);
+    if (typeof value.text === 'string') return value.text;
+    if (Array.isArray(value.content)) return value.content.map((item) => textValue(item, '')).filter(Boolean).join(' ');
+  }
+  return stripHtml(fallback);
+}
+
+function richTextToPlainText(value) {
+  if (!value || typeof value !== 'object') return '';
+  if (typeof value.text === 'string') return value.text;
+  if (Array.isArray(value.content)) {
+    return value.content.map((item) => richTextToPlainText(item)).filter(Boolean).join(' ');
+  }
+  return '';
+}
+
+function assetUrl(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value === 'object') return value.filename || value.url || '';
+  return '';
+}
+
+function assetAlt(value) {
+  return value && typeof value === 'object' ? value.alt || value.title || '' : '';
+}
+
+function linkUrl(value) {
+  if (!value) return '';
+  if (typeof value === 'string') return value;
+  if (typeof value !== 'object') return '';
+  const raw = value.url || value.cached_url || value.story?.cached_url || '';
+  if (!raw) return '';
+  if (/^(https?:|mailto:|tel:|#|\\/)/i.test(raw)) return raw;
+  return '/' + raw.replace(/^\\/+/, '');
+}
+
+function attributeValue(attributes, name) {
+  const pattern = new RegExp("\\\\s" + escapeRegExp(name) + "\\\\s*=\\\\s*([\\"'])([\\\\s\\\\S]*?)\\\\1", "i");
+  const match = String(attributes || '').match(pattern);
+  return match ? decodeHtmlAttribute(match[2]) : '';
+}
+
+function upsertAttribute(tag, name, value) {
+  const serialized = ' ' + name + '="' + escapeHtmlAttribute(value) + '"';
+  const pattern = new RegExp("\\\\s" + escapeRegExp(name) + "\\\\s*=\\\\s*([\\"'])[\\\\s\\\\S]*?\\\\1", "i");
+  if (pattern.test(tag)) return tag.replace(pattern, serialized);
+  return tag.replace(/\\s*\\/?>$/, (end) => serialized + end);
+}
+
+function upsertBooleanAttribute(tag, name, enabled) {
+  if (!enabled) return removeAttribute(tag, name);
+  const pattern = new RegExp("\\\\s" + escapeRegExp(name) + "(?:\\\\s*=\\\\s*([\\"'])[\\\\s\\\\S]*?\\\\1)?", "i");
+  if (pattern.test(tag)) return tag;
+  return tag.replace(/\\s*\\/?>$/, (end) => ' ' + name + end);
+}
+
+function removeAttribute(tag, name) {
+  const pattern = new RegExp("\\\\s" + escapeRegExp(name) + "(?:\\\\s*=\\\\s*([\\"'])[\\\\s\\\\S]*?\\\\1)?", "ig");
+  return tag.replace(pattern, '');
+}
+
+function stripHtml(value) {
+  return String(value || '').replace(/<[^>]*>/g, '').replace(/\\s+/g, ' ').trim();
+}
+
+function decodeHtmlAttribute(value) {
+  return String(value || '')
+    .replaceAll('&quot;', '"')
+    .replaceAll('&#34;', '"')
+    .replaceAll('&#x22;', '"')
+    .replaceAll('&apos;', "'")
+    .replaceAll('&#39;', "'")
+    .replaceAll('&#x27;', "'")
+    .replaceAll('&amp;', '&');
 }
 
 function escapeHtml(value) {
@@ -356,6 +540,14 @@ function escapeHtml(value) {
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;');
+}
+
+function escapeHtmlAttribute(value) {
+  return escapeHtml(value);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[\\\\^$.*+?()[\\]{}|]/g, '\\\\$&');
 }
 `;
 }
@@ -603,119 +795,6 @@ function rewriteSrcsetAssetRefs(value, replacements) {
   }).join(', ');
 }
 
-function toJsx(html) {
-  return html
-    .replace(/<!--[\s\S]*?-->/g, '')
-    .replace(/<([a-zA-Z][\w:-]*)([^<>]*?)(\/?)>/g, (match, tagName, rawAttributes = '', selfClosing = '') => {
-      if (match.startsWith('</')) return match;
-      const tag = tagName.toLowerCase();
-      const attrs = attributesToJsx(rawAttributes, tag);
-      const close = selfClosing || JSX_VOID_TAGS.has(tag) ? ' />' : '>';
-      return `<${tagName}${attrs}${close}`;
-    });
-}
-
-const JSX_VOID_TAGS = new Set(['area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input', 'link', 'meta', 'param', 'source', 'track', 'wbr']);
-
-const JSX_BOOLEAN_ATTRIBUTES = new Set([
-  'allowFullScreen',
-  'async',
-  'autoFocus',
-  'autoPlay',
-  'checked',
-  'controls',
-  'default',
-  'defer',
-  'disabled',
-  'formNoValidate',
-  'hidden',
-  'loop',
-  'multiple',
-  'muted',
-  'noModule',
-  'noValidate',
-  'open',
-  'playsInline',
-  'readOnly',
-  'required',
-  'reversed',
-  'selected'
-]);
-
-const JSX_ATTRIBUTE_MAP = new Map(Object.entries({
-  acceptcharset: 'acceptCharset',
-  accesskey: 'accessKey',
-  allowfullscreen: 'allowFullScreen',
-  autocomplete: 'autoComplete',
-  autofocus: 'autoFocus',
-  autoplay: 'autoPlay',
-  cellpadding: 'cellPadding',
-  cellspacing: 'cellSpacing',
-  charset: 'charSet',
-  class: 'className',
-  colspan: 'colSpan',
-  contenteditable: 'contentEditable',
-  crossorigin: 'crossOrigin',
-  datetime: 'dateTime',
-  enctype: 'encType',
-  for: 'htmlFor',
-  formaction: 'formAction',
-  formenctype: 'formEncType',
-  formmethod: 'formMethod',
-  formnovalidate: 'formNoValidate',
-  formtarget: 'formTarget',
-  frameborder: 'frameBorder',
-  inputmode: 'inputMode',
-  maxlength: 'maxLength',
-  minlength: 'minLength',
-  nomodule: 'noModule',
-  novalidate: 'noValidate',
-  playsinline: 'playsInline',
-  readonly: 'readOnly',
-  referrerpolicy: 'referrerPolicy',
-  rowspan: 'rowSpan',
-  spellcheck: 'spellCheck',
-  srcdoc: 'srcDoc',
-  srcset: 'srcSet',
-  tabindex: 'tabIndex',
-  usemap: 'useMap',
-  xlinkhref: 'xlinkHref',
-  xmlnsxlink: 'xmlnsXlink'
-}));
-
-function attributesToJsx(rawAttributes, tagName) {
-  const attributes = tokenizeAttributes(rawAttributes);
-  if (attributes.length === 0) return '';
-  return attributes
-    .map((attribute) => attributeToJsx(attribute, tagName))
-    .filter(Boolean)
-    .join('');
-}
-
-function attributeToJsx(attribute, tagName) {
-  if (/^on[a-z]/i.test(attribute.name)) return '';
-  const name = jsxAttributeName(attribute.name, tagName);
-  if (name === 'style' && attribute.value !== null) return ` style={${cssStyleStringToJsxObject(attribute.value)}}`;
-  if (attribute.value === null || (JSX_BOOLEAN_ATTRIBUTES.has(name) && attribute.value.toLowerCase() === attribute.name.toLowerCase())) {
-    return JSX_BOOLEAN_ATTRIBUTES.has(name) ? ` ${name}` : ` ${name}={true}`;
-  }
-  if (JSX_BOOLEAN_ATTRIBUTES.has(name) && /^(true|false)$/i.test(attribute.value)) {
-    return ` ${name}={${attribute.value.toLowerCase()}}`;
-  }
-  return ` ${name}="${escapeJsxAttribute(attribute.value)}"`;
-}
-
-function jsxAttributeName(name, tagName) {
-  const lower = name.toLowerCase();
-  if (lower.startsWith('data-') || lower.startsWith('aria-')) return lower;
-  if (tagName.includes('-') && !lower.includes(':')) {
-    if (lower === 'style') return 'style';
-    return name;
-  }
-  if (JSX_ATTRIBUTE_MAP.has(lower.replaceAll(':', ''))) return JSX_ATTRIBUTE_MAP.get(lower.replaceAll(':', ''));
-  return name.replace(/[:-]([a-z])/g, (_match, char) => char.toUpperCase());
-}
-
 function tokenizeAttributes(rawAttributes) {
   const attributes = [];
   const attrPattern = /([:@a-zA-Z_][:@\w.-]*)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+)))?/g;
@@ -727,39 +806,6 @@ function tokenizeAttributes(rawAttributes) {
     });
   }
   return attributes;
-}
-
-function cssStyleStringToJsxObject(style) {
-  const declarations = String(style)
-    .split(';')
-    .map((declaration) => declaration.trim())
-    .filter(Boolean)
-    .map((declaration) => {
-      const separator = declaration.indexOf(':');
-      if (separator === -1) return null;
-      const property = declaration.slice(0, separator).trim();
-      const value = declaration.slice(separator + 1).trim();
-      if (!property || !value) return null;
-      const key = property.startsWith('--') ? JSON.stringify(property) : camelCaseCssProperty(property);
-      return `${key}: ${JSON.stringify(value)}`;
-    })
-    .filter(Boolean);
-  return `{ ${declarations.join(', ')} }`;
-}
-
-function camelCaseCssProperty(property) {
-  const vendorPrefixed = property.startsWith('-ms-')
-    ? `ms-${property.slice(4)}`
-    : property.replace(/^-/, '');
-  return vendorPrefixed.replace(/-([a-z])/g, (_match, char) => char.toUpperCase());
-}
-
-function escapeJsxAttribute(value) {
-  return String(value)
-    .replaceAll('&', '&amp;')
-    .replaceAll('"', '&quot;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
 }
 
 function indent(value, spaces) {

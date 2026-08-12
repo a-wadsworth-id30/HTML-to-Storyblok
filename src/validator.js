@@ -350,7 +350,9 @@ async function checkForbiddenCoupling(manifest, root, checks) {
     const content = await readFile(path.join(root, file), 'utf8');
     const violations = [];
     for (const [name, pattern] of FORBIDDEN_PATTERNS) {
-      if (pattern.test(content)) violations.push(name);
+      if (pattern.test(content) && !isAllowedGeneratedPattern(name, content, file, namespace)) {
+        violations.push(name);
+      }
     }
     if (!file.endsWith('.md')) {
       for (const importPath of extractImports(content)) {
@@ -521,6 +523,31 @@ function isForbiddenImport(importPath, namespace, fromFile = '') {
   }
   if (importPath.includes('/components') || importPath.includes('/layouts') || importPath.includes('/styles')) return true;
   return !importPath.includes(namespace);
+}
+
+function isAllowedGeneratedPattern(name, content, file, namespace) {
+  if (!namespace || !isGeneratedTemplatePreview(file, namespace)) return false;
+  if (!/import\s+\{\s*renderTemplateHtml\s*\}\s+from\s+['"]\.\/template-html\.js['"]/.test(content)) {
+    return false;
+  }
+  if (name === 'dangerouslySetInnerHTML') {
+    return /dangerouslySetInnerHTML=\{\{\s*__html:\s*renderTemplateHtml\(blok\)\s*\}\}/.test(content);
+  }
+  if (name === 'v-html') {
+    return /const\s+htsHtml\s*=\s*computed\(\(\)\s*=>\s*renderTemplateHtml\(props\.blok\)\);?/.test(content) &&
+      /v-html="htsHtml"/.test(content);
+  }
+  return false;
+}
+
+function isGeneratedTemplatePreview(file, namespace) {
+  return file === `${namespace}/TemplatePage.jsx` ||
+    file === `${namespace}/TemplatePage.vue` ||
+    new RegExp(`^${escapeRegExp(namespace)}/routes/[^/]+/TemplatePage\\.(jsx|vue)$`).test(file);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 function addCheck(checks, name, passed, message, details = null, statusOverride = null) {
