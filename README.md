@@ -372,15 +372,16 @@ Run the designer handoff readiness gate before planning:
 
 ```sh
 html-to-storyblok template-readiness --template templates/acme-homepage
+html-to-storyblok template-quality --template templates/acme-homepage --minimum-score 75
 ```
 
-This writes `.tmp/html-to-storyblok/template-readiness.json` and returns:
+`template-readiness` writes `.tmp/html-to-storyblok/template-readiness.json` and returns:
 
 - `passed` when the template is ready for planning
 - `warning` when the import can continue but needs human review
 - `failed` when blockers such as missing assets or unsafe local scripts should be fixed first
 
-The readiness gate checks for HTML routes, missing local assets, page titles, H1s, explicit editorial field hints, third-party URLs, external scripts, inline handlers, local unsafe JavaScript, forms, accessibility issues, global CSS selectors, font licence review, and unsupported files. The interactive wizard shows the same readiness status and top issues during template inspection.
+The readiness gate checks for HTML routes, missing local assets, page titles, H1s, explicit editorial field hints, third-party URLs, external scripts, inline handlers, local unsafe JavaScript, forms, accessibility issues, global CSS selectors, font licence review, and unsupported files. It also includes a weighted template quality profile with category grades for route/SEO readiness, editorial model signals, asset health, JavaScript safety, CSS isolation readiness, accessibility, form production readiness, and third-party dependency review. `template-quality` outputs only that quality profile and can fail CI or agency intake with `--minimum-score`. The interactive wizard shows the same readiness status, quality grade, and top issues during template inspection.
 
 ### 2. Inspect the target repository
 
@@ -1233,6 +1234,7 @@ html-to-storyblok asset-dashboard
 html-to-storyblok completion [--shell zsh|bash|fish]
 html-to-storyblok inspect-template --template <path>
 html-to-storyblok template-readiness --template <path>
+html-to-storyblok template-quality --template <path> [--minimum-score 75]
 html-to-storyblok inspect-repository --repo <path>
 html-to-storyblok inspect-storyblok [--remote] [--full] [--audit]
 html-to-storyblok storyblok-audit [--full]
@@ -1326,7 +1328,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness and quality scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, Storyblok field hydration for hinted text, rich text, asset, link, and form fields, safe Storyblok `_editable` marker preservation for generated previews, route SEO metadata extraction from template head tags, multi-route isolated repository previews, review-only route proposal wrappers, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching and route metadata fallback, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
@@ -1343,7 +1345,7 @@ Implemented:
 ## Remaining limitations
 
 - Duplication inference is conservative and opt-in. It now handles local code dependencies, barrel re-export dependencies, local style dependencies, local JSON data dependencies, safe path aliases, and resolvable local static assets, but still skips unresolved, unsupported, unsafe, or oversized dependency graphs and requires manifest review before apply.
-- Template readiness is a static designer-handoff gate. It catches missing assets, unsafe scripts, weak route metadata, forms, third-party dependencies, accessibility warnings, CSS globals, font licence review, unsupported files, and missing field hints before planning, but it does not replace browser rendering, visual regression, client QA, or Storyblok editor review.
+- Template readiness and template quality scoring are static designer-handoff gates. They catch missing assets, unsafe scripts, weak route metadata, forms, third-party dependencies, accessibility warnings, CSS globals, font licence review, unsupported files, and missing field hints before planning, but they do not replace browser rendering, visual regression, client QA, or Storyblok editor review.
 - Schema generation covers common editorial patterns, several bespoke landing-page patterns, explicit template field hints, and additive schema override files. Highly bespoke modelling can still require review, but business-specific fields and namespaced nested relationships can now be supplied at planning time.
 - Generated framework previews hydrate template markup from Storyblok draft fields through the integration-owned renderer. This works best when templates include explicit `data-hts-field` hints for editorial text, images, links, and form controls. It is not a replacement for a hand-authored production component system when a client needs fully bespoke frontend behavior, Visual Editor bridge annotations throughout custom components, or complex conditional rendering.
 - When live Storyblok draft content includes `_editable` comments, generated previews preserve safe root and top-level block markers so the Visual Editor has a better bridge into imported preview output. This is still a preview-oriented bridge; a fully hand-authored component renderer remains the right target for complex per-block editing behavior.

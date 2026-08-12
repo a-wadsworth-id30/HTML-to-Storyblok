@@ -151,6 +151,12 @@ export async function main(argv) {
       result = inventory.template_readiness;
       await writeArtifact(workDir, 'template-readiness.json', result);
       if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'template-quality') {
+      const inventory = await inspectTemplate(requireOption(args, 'template'));
+      await writeArtifact(workDir, 'template-inventory.json', inventory);
+      result = inventory.template_readiness?.quality_profile || null;
+      await writeArtifact(workDir, 'template-quality.json', result);
+      if (args.minimum_score && Number(result?.score || 0) < Number(args.minimum_score)) process.exitCode = 2;
     } else if (command === 'inspect-repository') {
       result = await inspectRepository(requireOption(args, 'repo'));
       await writeArtifact(workDir, 'repository-inspection.json', result);
@@ -1019,6 +1025,7 @@ function renderShellCompletion(shell = 'zsh') {
     'completion',
     'inspect-template',
     'template-readiness',
+    'template-quality',
     'inspect-repository',
     'inspect-storyblok',
     'storyblok-audit',
@@ -1182,6 +1189,7 @@ Usage:
   html-to-storyblok completion [--shell zsh|bash|fish]
   html-to-storyblok inspect-template --template <path>
   html-to-storyblok template-readiness --template <path>
+  html-to-storyblok template-quality --template <path> [--minimum-score 75]
   html-to-storyblok inspect-repository --repo <path>
   html-to-storyblok inspect-storyblok [--remote] [--full] [--audit]
   html-to-storyblok storyblok-audit [--full]

@@ -17,6 +17,7 @@ export async function createReport(workDir) {
   const latestStoryblokManagementVerification = latestSummary(artifactSummaries, ['storyblok_management_verification']);
   const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
   const latestRouteHandoff = latestSummary(artifactSummaries, ['route_handoff']);
+  const latestTemplateQuality = latestSummary(artifactSummaries, ['template_quality']);
   const assetIntegrity = buildAssetIntegrityDashboard(artifactSummaries);
   return {
     work_dir: workDir,
@@ -40,6 +41,7 @@ export async function createReport(workDir) {
     latest_storyblok_management_verification: latestStoryblokManagementVerification,
     latest_netlify: latestNetlify,
     latest_route_handoff: latestRouteHandoff,
+    latest_template_quality: latestTemplateQuality,
     asset_integrity: assetIntegrity,
     safety_confirmation: {
       plan_valid: latestValidation?.status === 'passed' || latestValidation?.valid === true,
@@ -75,6 +77,9 @@ export function renderMarkdownReport(report) {
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestNetlify = report.latest_netlify?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
+  const latestTemplateQuality = report.latest_template_quality
+    ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
+    : 'not run';
   const artifactRows = report.artifacts.length
     ? report.artifacts.map((artifact) => `- ${artifact.type}: ${artifact.artifact}`).join('\n')
     : '- None recorded';
@@ -99,6 +104,7 @@ export function renderMarkdownReport(report) {
 - Latest Storyblok management verification: ${latestStoryblokManagementVerification}
 - Latest Netlify: ${latestNetlify}
 - Latest route handoff: ${latestRouteHandoff}
+- Latest template quality: ${latestTemplateQuality}
 
 ## Safety
 
@@ -137,6 +143,9 @@ export function renderHtmlReport(report) {
   const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
+  const latestTemplateQuality = report.latest_template_quality
+    ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
+    : 'not run';
   const assetIntegrity = report.asset_integrity || {};
   const assetIntegrityRows = (assetIntegrity.assets || [])
     .slice(0, 20)
@@ -176,6 +185,7 @@ export function renderHtmlReport(report) {
       <p><strong>Latest Storyblok validation:</strong> ${escapeHtml(latestStoryblokValidation)}</p>
       <p><strong>Latest Storyblok management verification:</strong> ${escapeHtml(latestStoryblokManagementVerification)}</p>
       <p><strong>Latest route handoff:</strong> ${escapeHtml(latestRouteHandoff)}</p>
+      <p><strong>Latest template quality:</strong> ${escapeHtml(latestTemplateQuality)}</p>
       <p><strong>Commands completed:</strong> ${report.commands_completed}</p>
     </section>
     <section>
@@ -264,6 +274,12 @@ async function summarizeArtifact(artifact) {
         violations: data.violations?.length || 0
       };
     }
+    if (name === 'template-quality.json') {
+      return summarizeTemplateQuality(data, artifact);
+    }
+    if (name === 'template-readiness.json') {
+      return summarizeTemplateReadiness(data, artifact);
+    }
     if (name === 'validation-result.json') {
       return {
         type: 'integration_validation',
@@ -337,6 +353,33 @@ async function summarizeArtifact(artifact) {
       status: 'unreadable'
     };
   }
+}
+
+function summarizeTemplateQuality(data, artifact) {
+  return {
+    type: 'template_quality',
+    artifact,
+    status: data.status || 'recorded',
+    score: data.score || 0,
+    grade: data.grade || null,
+    risks: ensureArray(data.risks).length,
+    categories: ensureArray(data.categories).length
+  };
+}
+
+function summarizeTemplateReadiness(data, artifact) {
+  const quality = data.quality_profile || {};
+  return {
+    type: 'template_quality',
+    artifact,
+    status: data.status || 'recorded',
+    readiness_level: data.readiness_level || null,
+    readiness_score: data.score || 0,
+    score: quality.score || data.quality_score || 0,
+    grade: quality.grade || data.quality_grade || null,
+    risks: ensureArray(quality.risks).length,
+    categories: ensureArray(quality.categories).length
+  };
 }
 
 function summarizeStoryblokPreflight(data, artifact) {

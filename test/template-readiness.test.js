@@ -19,6 +19,9 @@ test('template readiness classifies review warnings without blocking import', as
   assert.ok(readiness.warnings.some((warning) => warning.id === 'editorial_field_hints'));
   assert.ok(readiness.warnings.some((warning) => warning.id === 'external_dependencies_reviewed'));
   assert.equal(readiness.blockers.length, 0);
+  assert.equal(readiness.quality_profile.categories.length, 8);
+  assert.match(readiness.quality_grade, /^[A-F]$/);
+  assert.ok(readiness.quality_profile.risks.some((risk) => risk.id === 'editorial_model'));
 });
 
 test('template readiness blocks missing assets and unsafe local scripts', async () => {
@@ -43,6 +46,8 @@ test('template readiness blocks missing assets and unsafe local scripts', async 
   assert.equal(readiness.readiness_level, 'blocked');
   assert.equal(readiness.summary.missing_assets, 1);
   assert.equal(readiness.summary.unsafe_script_patterns, 1);
+  assert.ok(readiness.quality_profile.categories.find((category) => category.id === 'asset_health').score < 75);
+  assert.ok(readiness.quality_profile.categories.find((category) => category.id === 'javascript_safety').score < 75);
   assert.ok(readiness.blockers.some((blocker) => blocker.id === 'local_assets_resolved'));
   assert.ok(readiness.blockers.some((blocker) => blocker.id === 'script_behaviour_reviewed'));
   assert.ok(readiness.next_steps.some((step) => /missing assets/i.test(step)));
@@ -64,6 +69,44 @@ test('template-readiness command writes a dedicated readiness artifact', async (
   assert.equal(readiness.status, 'warning');
   assert.equal(artifact.summary.pages, 1);
   assert.equal(process.exitCode, undefined);
+});
+
+test('template-quality command writes category scoring and can enforce a minimum score', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-quality-work-'));
+  const output = await captureStdout(() => runCli([
+    'template-quality',
+    '--template',
+    'test/fixtures/basic-template',
+    '--minimum-score',
+    '10',
+    '--work-dir',
+    workDir
+  ]));
+  const quality = JSON.parse(output);
+  const artifact = JSON.parse(await readFile(path.join(workDir, 'template-quality.json'), 'utf8'));
+
+  assert.equal(quality.categories.length, 8);
+  assert.equal(artifact.score, quality.score);
+  assert.match(quality.grade, /^[A-F]$/);
+  assert.equal(process.exitCode, undefined);
+});
+
+test('template-quality command exits nonzero below the required score', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-quality-minimum-work-'));
+  await captureStdout(() => main([
+    'node',
+    'html-to-storyblok',
+    'template-quality',
+    '--template',
+    'test/fixtures/basic-template',
+    '--minimum-score',
+    '100',
+    '--work-dir',
+    workDir
+  ]));
+
+  assert.equal(process.exitCode, 2);
+  process.exitCode = undefined;
 });
 
 test('template-readiness command exits nonzero for blocked templates', async () => {

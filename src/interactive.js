@@ -2140,9 +2140,18 @@ function renderTemplateSummary(terminal, template) {
     ['Scripts', count(template.behaviour_inventory)],
     ['Warnings', warnings, warnings ? 'warning' : 'success'],
     ...(readiness ? [
-      ['Readiness', `${labelForStatus(readiness.readiness_level)} (${readiness.score}/100)`, readiness.status === 'passed' ? 'success' : readiness.status === 'failed' ? 'error' : 'warning']
+      ['Readiness', `${labelForStatus(readiness.readiness_level)} (${readiness.score}/100)`, readiness.status === 'passed' ? 'success' : readiness.status === 'failed' ? 'error' : 'warning'],
+      ['Quality', `${readiness.quality_grade || '-'} (${readiness.quality_score ?? 0}/100)`, readiness.quality_score >= 75 ? 'success' : readiness.quality_score >= 60 ? 'warning' : 'error']
     ] : [])
   ]);
+  const qualityRisks = ensureArray(readiness?.quality_profile?.risks).slice(0, 4);
+  if (qualityRisks.length > 0) {
+    terminal.panel('Template Quality', qualityRisks.map((risk) => [
+      risk.label,
+      `${risk.grade} (${risk.score}/100) - ${risk.recommendation}`,
+      risk.score < 60 ? 'error' : 'warning'
+    ]));
+  }
   const topIssues = [
     ...ensureArray(readiness?.blockers),
     ...ensureArray(readiness?.warnings)
