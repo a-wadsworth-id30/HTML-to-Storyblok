@@ -983,7 +983,7 @@ html-to-storyblok storyblok-components \
 
 Real Storyblok component creation is idempotent: if a namespaced component already exists and matches the manifest, the CLI reports it as `already_exists`; if it differs, the CLI stops and reports drift.
 
-Storyblok Management API requests retry `429` rate-limit responses and transient `5xx` failures with backoff. Requests also use configurable timeouts, and `STORYBLOK_REQUEST_INTERVAL_MS` can be set to pace requests for stricter rate-limit environments. If an earlier run stopped part-way through because of rate limiting, rerun the same manifest/integration ID; matching namespaced resources are reused and remaining resources continue from the manifest.
+Storyblok Management API requests retry `429` rate-limit responses and transient `5xx` failures with backoff. A `429` response also sets a shared backoff window for later Management API requests against the same space, so the next apply step slows down instead of immediately hitting the same limit again. Requests use configurable timeouts, and `STORYBLOK_REQUEST_INTERVAL_MS` can be set to pace requests for stricter rate-limit environments. If an earlier run stopped part-way through because of rate limiting, rerun the same manifest/integration ID; matching namespaced resources are reused and remaining resources continue from the manifest.
 
 Create Storyblok asset folders listed in `storyblok.asset_folders_to_create`:
 

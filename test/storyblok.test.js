@@ -117,6 +117,69 @@ test('createStoryblokComponents retries Storyblok Management API rate limits', a
   restoreFetch();
 });
 
+test('Storyblok Management API rate limits apply adaptive backoff to later operations', async () => {
+  originalFetch = global.fetch;
+  let rateLimitedAt = 0;
+  let nextOperationAt = 0;
+  global.fetch = async (url, options = {}) => {
+    const method = options.method || 'GET';
+    if (String(url).includes('/components/') && method === 'GET') {
+      return jsonResponse({ components: [] });
+    }
+    if (String(url).endsWith('/components/') && method === 'POST') {
+      rateLimitedAt = Date.now();
+      return jsonResponse({ error: 'Rate limit reached' }, {
+        ok: false,
+        status: 429,
+        headers: { 'retry-after': '0.04' }
+      });
+    }
+    if (String(url).includes('/component_groups/') && method === 'GET') {
+      nextOperationAt = Date.now();
+      return jsonResponse({ component_groups: [] });
+    }
+    if (String(url).endsWith('/component_groups/') && method === 'POST') {
+      return jsonResponse({
+        component_group: {
+          id: 55,
+          uuid: 'component-folder-uuid',
+          name: 'acme-homepage-v1',
+          parent_id: 0
+        }
+      });
+    }
+    throw new Error(`unexpected request: ${url}`);
+  };
+
+  await assert.rejects(
+    createStoryblokComponents({
+      storyblok: {
+        components_to_create: [
+          {
+            technical_name: 'hts_acme_homepage_v1_hero',
+            display_name: 'Hero',
+            component_type: 'nestable',
+            schema: {}
+          }
+        ]
+      }
+    }, { env: { ...storyblokEnv(), STORYBLOK_RETRY_LIMIT: '0' } }),
+    /429/
+  );
+
+  await createStoryblokComponentGroups({
+    storyblok: {
+      component_groups_to_create: [
+        { path: 'acme-homepage-v1', name: 'acme-homepage-v1', parent_id: 0 }
+      ]
+    }
+  }, { env: storyblokEnv() });
+
+  assert.ok(rateLimitedAt > 0);
+  assert.ok(nextOperationAt - rateLimitedAt >= 25);
+  restoreFetch();
+});
+
 test('createStoryblokComponents scans paginated component lists before creating', async () => {
   const targetComponent = {
     id: 999,
