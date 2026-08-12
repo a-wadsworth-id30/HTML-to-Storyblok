@@ -335,7 +335,37 @@ export async function createDashboardModel({
 }
 
 async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) {
+  let showGoalPicker = terminal.interactive;
   while (true) {
+    const context = { terminal, args, config, workDir, answers, cwd };
+    if (showGoalPicker) {
+      showGoalPicker = false;
+      const goalAction = await runGoalPicker({ terminal, answers });
+      if (!goalAction || goalAction === 'exit') return { action: 'exit' };
+      if (goalAction !== 'menu') {
+        let result;
+        try {
+          result = await runHomeAction(goalAction, context);
+        } catch (error) {
+          result = await runFailureRecovery({
+            terminal,
+            args,
+            config,
+            workDir,
+            answers,
+            cwd,
+            action: goalAction,
+            error,
+            retry: () => runHomeAction(goalAction, context)
+          });
+        }
+        if (!terminal.interactive || result?.action === 'exit') return result;
+        const next = await handleNextAction({ terminal, args, result, answers, workDir });
+        if (next === 'exit') return { ...result, next_action: 'exit' };
+        continue;
+      }
+    }
+
     const repositoryDetected = await isRepository(cwd);
     terminal.header('HTML -> Storyblok', 'Safety-first template integration');
     terminal.section('Project');
@@ -363,7 +393,6 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
     });
 
     if (!action || action === 'exit') return { action: 'exit' };
-    const context = { terminal, args, config, workDir, answers, cwd };
     let result;
     try {
       result = await runHomeAction(action, context);
@@ -385,6 +414,30 @@ async function runHomeScreen({ terminal, args, config, workDir, answers, cwd }) 
     const next = await handleNextAction({ terminal, args, result, answers, workDir });
     if (next === 'exit') return { ...result, next_action: 'exit' };
   }
+}
+
+async function runGoalPicker({ terminal, answers }) {
+  terminal.header('Start Here', 'Choose the outcome you want. The CLI will pick the right workflow.');
+  terminal.panel('Common Goals', [
+    ['Full Import', 'Template, repository, Storyblok, validation, and report', 'success'],
+    ['Storyblok Only', 'Components, assets, and draft stories without a repository', 'success'],
+    ['Resume', 'Continue or recover an existing integration', 'info'],
+    ['Evidence', 'Review reports, history, validation, and generated files', 'info']
+  ]);
+  return selectOption(terminal, {
+    message: 'What are you trying to do?',
+    choices: [
+      { label: 'Import Template Into Existing Site', value: 'create' },
+      { label: 'Test Storyblok Only', value: 'storyblok-only' },
+      { label: 'Resume Failed Or Previous Import', value: 'continue' },
+      { label: 'Validate Existing Import', value: 'validate' },
+      { label: 'Set Up Or Test Credentials', value: 'credentials' },
+      { label: 'View Reports And Evidence', value: 'report' },
+      { label: 'Show Full Main Menu', value: 'menu' },
+      { label: 'Exit', value: 'exit' }
+    ],
+    answers
+  });
 }
 
 async function runHomeAction(action, context) {
@@ -781,15 +834,36 @@ function renderPostActionCheckpoint(terminal, result) {
 
 async function runCreateIntegration({ terminal, args, config, workDir, answers, cwd }) {
   terminal.header('Create New Integration', 'Guided import wizard');
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 1,
+    total: 10,
+    current: 'Choose Template'
+  });
 
   const templatePath = await chooseTemplate({ terminal, config, answers, cwd });
   if (!templatePath) return { action: 'cancelled' };
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 2,
+    total: 10,
+    current: 'Choose Repository',
+    templatePath
+  });
 
   const repoPath = await chooseRepository({ terminal, config, answers, cwd, allowStoryblokOnly: true });
   if (!repoPath) return { action: 'cancelled' };
   if (repoPath === STORYBLOK_ONLY_REPOSITORY) {
     return runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd, templatePath });
   }
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 3,
+    total: 10,
+    current: 'Inspect Repository',
+    templatePath,
+    repoPath
+  });
 
   const repository = await terminal.task('Inspect Repository', async () => {
     const inspection = await inspectRepository(repoPath);
@@ -799,6 +873,14 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   renderRepositorySummary(terminal, repository);
 
   let sessionEnv = await createSessionEnvironment({ terminal, config, cwd, repoPath });
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 4,
+    total: 10,
+    current: 'Inspect Storyblok',
+    templatePath,
+    repoPath
+  });
   sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: false });
 
   const storyblok = await terminal.task('Inspect Storyblok', async () => {
@@ -811,6 +893,14 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   });
   renderStoryblokSummary(terminal, storyblok, config, sessionEnv);
 
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 5,
+    total: 10,
+    current: 'Inspect Template',
+    templatePath,
+    repoPath
+  });
   const template = await terminal.task('Inspect Template', async () => {
     const inventory = await inspectTemplate(templatePath);
     await writeArtifact(workDir, 'template-inventory.json', inventory);
@@ -828,6 +918,15 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   const repositoryNamespace = `src/integrations/${integrationId}`;
   const framework = frameworkValue(repository.framework?.name, config.preferred_framework);
   const draftStoryCount = count(template.pages) || 1;
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 6,
+    total: 10,
+    current: 'Confirm Integration Namespace',
+    templatePath,
+    repoPath,
+    integrationId
+  });
 
   terminal.panel('Integration Preview', [
     ['Storyblok Prefix', storyblokPrefix, 'success'],
@@ -838,6 +937,15 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
     ['Draft Stories', `${draftStoryCount} under ${integrationId}/`, 'success']
   ]);
 
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 7,
+    total: 10,
+    current: 'Create Plan',
+    templatePath,
+    repoPath,
+    integrationId
+  });
   const manifest = await terminal.task('Create Integration Plan', async () => {
     const schemaOverride = await readTemplateSchemaOverrides(templatePath);
     const plan = await createIntegrationPlan({
@@ -854,6 +962,15 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
   });
   renderPlanSummary(terminal, manifest);
 
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 8,
+    total: 10,
+    current: 'Validate Plan',
+    templatePath,
+    repoPath,
+    integrationId
+  });
   const validation = validatePlan(manifest);
   await writeArtifact(workDir, VALIDATION_NAME, validation);
   renderValidationSummary(terminal, validation);
@@ -861,6 +978,15 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
     return { action: 'create_integration', status: 'blocked', manifest, validation };
   }
 
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 9,
+    total: 10,
+    current: 'Dry Run Apply',
+    templatePath,
+    repoPath,
+    integrationId
+  });
   const dryRun = await terminal.task('Dry Run Apply', async () => applyManifest(
     manifest,
     { repo: repoPath, template: templatePath, framework, dry_run: true, env: sessionEnv },
@@ -886,6 +1012,15 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
     return { action: 'create_integration', status: 'dry_run_complete', manifest, validation, repo_path: repoPath, dry_run: dryRun, report: reportPath };
   }
 
+  renderWizardContext(terminal, {
+    workflow: 'Create Integration',
+    step: 10,
+    total: 10,
+    current: 'Real Apply',
+    templatePath,
+    repoPath,
+    integrationId
+  });
   sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: true });
   const result = await terminal.task('Apply Integration', async () => applyManifest(
     manifest,
@@ -901,11 +1036,26 @@ async function runCreateIntegration({ terminal, args, config, workDir, answers, 
 
 async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workDir, answers, cwd, templatePath = null }) {
   terminal.header('Test Storyblok Only', 'Create Storyblok components, assets, and a draft story without selecting a repository');
+  renderWizardContext(terminal, {
+    workflow: 'Storyblok Only',
+    step: 1,
+    total: 7,
+    current: 'Choose Template',
+    repositorySkipped: true
+  });
 
   const selectedTemplatePath = templatePath || await chooseTemplate({ terminal, config, answers, cwd });
   if (!selectedTemplatePath) return { action: 'storyblok_only_integration', status: 'cancelled' };
 
   let sessionEnv = await createSessionEnvironment({ terminal, config, cwd });
+  renderWizardContext(terminal, {
+    workflow: 'Storyblok Only',
+    step: 2,
+    total: 7,
+    current: 'Inspect Storyblok',
+    templatePath: selectedTemplatePath,
+    repositorySkipped: true
+  });
   sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: false });
 
   const storyblok = await terminal.task('Inspect Storyblok', async () => {
@@ -918,6 +1068,14 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
   });
   renderStoryblokSummary(terminal, storyblok, config, sessionEnv);
 
+  renderWizardContext(terminal, {
+    workflow: 'Storyblok Only',
+    step: 3,
+    total: 7,
+    current: 'Inspect Template',
+    templatePath: selectedTemplatePath,
+    repositorySkipped: true
+  });
   const template = await terminal.task('Inspect Template', async () => {
     const inventory = await inspectTemplate(selectedTemplatePath);
     await writeArtifact(workDir, 'template-inventory.json', inventory);
@@ -935,6 +1093,15 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
   const repositoryNamespace = `src/integrations/${integrationId}`;
   const framework = 'static';
   const draftStoryCount = count(template.pages) || 1;
+  renderWizardContext(terminal, {
+    workflow: 'Storyblok Only',
+    step: 4,
+    total: 7,
+    current: 'Confirm Integration Namespace',
+    templatePath: selectedTemplatePath,
+    integrationId,
+    repositorySkipped: true
+  });
 
   terminal.panel('Integration Preview', [
     ['Storyblok Prefix', storyblokPrefix, 'success'],
@@ -945,6 +1112,15 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
     ['Draft Stories', `${draftStoryCount} under ${integrationId}/`, 'success']
   ]);
 
+  renderWizardContext(terminal, {
+    workflow: 'Storyblok Only',
+    step: 5,
+    total: 7,
+    current: 'Create And Validate Plan',
+    templatePath: selectedTemplatePath,
+    integrationId,
+    repositorySkipped: true
+  });
   const manifest = await terminal.task('Create Storyblok Plan', async () => {
     const schemaOverride = await readTemplateSchemaOverrides(selectedTemplatePath);
     const plan = await createIntegrationPlan({
@@ -968,6 +1144,15 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
     return { action: 'storyblok_only_integration', status: 'blocked', manifest, validation };
   }
 
+  renderWizardContext(terminal, {
+    workflow: 'Storyblok Only',
+    step: 6,
+    total: 7,
+    current: 'Dry Run Storyblok Apply',
+    templatePath: selectedTemplatePath,
+    integrationId,
+    repositorySkipped: true
+  });
   const dryRun = await terminal.task('Dry Run Storyblok Apply', async () => applyStoryblokOnly(
     manifest,
     { dry_run: true, env: sessionEnv },
@@ -994,6 +1179,15 @@ async function runCreateStoryblokOnlyIntegration({ terminal, args, config, workD
     return { action: 'storyblok_only_integration', status: 'dry_run_complete', manifest, validation, repository_skipped: true, dry_run: dryRun, report: reportPath };
   }
 
+  renderWizardContext(terminal, {
+    workflow: 'Storyblok Only',
+    step: 7,
+    total: 7,
+    current: 'Real Storyblok Apply',
+    templatePath: selectedTemplatePath,
+    integrationId,
+    repositorySkipped: true
+  });
   sessionEnv = await promptForStoryblokCredentials({ terminal, env: sessionEnv, config, answers, required: true });
   const result = await terminal.task('Apply Storyblok Integration', async () => applyStoryblokOnly(
     manifest,
@@ -1730,6 +1924,26 @@ function renderResumeDashboard(terminal, model) {
     ['Storyblok Validation', model.storyblok_content_validation, model.storyblok_content_validation === 'passed' ? 'success' : model.storyblok_content_validation === 'failed' ? 'error' : 'warning'],
     ['Failed Step', model.failed_step || 'None', model.failed_step ? 'error' : 'success'],
     ['Next', model.recommended_action, model.failed_step ? 'warning' : 'info']
+  ]);
+}
+
+function renderWizardContext(terminal, {
+  workflow,
+  step,
+  total,
+  current,
+  templatePath = null,
+  repoPath = null,
+  integrationId = null,
+  repositorySkipped = false
+} = {}) {
+  terminal.panel('Wizard Context', [
+    ['Workflow', workflow || 'Interactive workflow', 'info'],
+    ['Step', step && total ? `${step} / ${total}` : 'Not tracked', 'info'],
+    ['Current', current || 'Continue', 'info'],
+    ...(templatePath ? [['Template', path.basename(templatePath), 'success']] : []),
+    ...(repositorySkipped ? [['Repository', 'Skipped for Storyblok-only run', 'warning']] : repoPath ? [['Repository', path.basename(repoPath), 'success']] : []),
+    ...(integrationId ? [['Integration', integrationId, 'success']] : [])
   ]);
 }
 

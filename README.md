@@ -59,7 +59,33 @@ html-to-storyblok
 
 Interactive startup displays the compact ID30 ASCII banner in `ascii-art.txt`, converted from `id30-logo.svg`, followed by the ID30 developer credit and proprietary-use legal notice. Non-interactive help output also includes the same branding and legal notice.
 
-The home screen provides task-oriented actions so first-time users do not need to remember the lower-level command names:
+Interactive mode opens with a goal picker so first-time users can choose the outcome they want before seeing the full command-style menu:
+
+```text
+────────────────────────────────────────────
+
+Start Here
+Choose the outcome you want. The CLI will pick the right workflow.
+
+Common Goals
+✓ Full Import            Template, repository, Storyblok, validation, and report
+✓ Storyblok Only         Components, assets, and draft stories without a repository
+• Resume                 Continue or recover an existing integration
+• Evidence               Review reports, history, validation, and generated files
+
+What are you trying to do?
+
+❯ Import Template Into Existing Site
+  Test Storyblok Only
+  Resume Failed Or Previous Import
+  Validate Existing Import
+  Set Up Or Test Credentials
+  View Reports And Evidence
+  Show Full Main Menu
+  Exit
+```
+
+Major wizard steps now include a compact context panel showing the workflow, current step, selected template, selected repository, and integration ID where available. The full home screen remains available for users who prefer direct task selection:
 
 ```text
 ────────────────────────────────────────────
