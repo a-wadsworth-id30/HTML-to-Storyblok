@@ -9,6 +9,7 @@ import { ensureWorkDir, recordEvidence, writeArtifact, DEFAULT_WORK_DIR } from '
 import { generateIntegration } from './generator.js';
 import { openDraftPullRequest } from './github.js';
 import { openDraftMergeRequest } from './gitlab.js';
+import { helpTopicNames, renderHelpTopic } from './help.js';
 import { readIntegrationHistory, recordIntegrationHistory } from './history.js';
 import { runDashboard, runDoctorCommand, runInteractiveApp, runReportViewer, runSettings } from './interactive.js';
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
@@ -49,7 +50,10 @@ export async function main(argv) {
   await ensureWorkDir(workDir);
 
   if (command === 'help' || args.help) {
-    printHelp();
+    const topic = command === 'help'
+      ? args._?.[0]
+      : command !== 'interactive' ? command : null;
+    printHelp(topic ? normalizeCommand(String(topic)) : null);
     return;
   }
 
@@ -751,6 +755,7 @@ function validationSeverity(violation) {
 
 function renderShellCompletion(shell = 'zsh') {
   const commands = [
+    'help',
     'dashboard',
     'history',
     'demo-sites',
@@ -809,7 +814,8 @@ function renderShellCompletion(shell = 'zsh') {
     'open-mr',
     'rollback-preview',
     'rollback',
-    'report'
+    'report',
+    ...helpTopicNames()
   ];
   const options = [
     '--manifest',
@@ -886,12 +892,18 @@ _html_to_storyblok() {
 _html_to_storyblok "$@"`;
 }
 
-function printHelp() {
+function printHelp(topic = null) {
+  if (topic) {
+    console.log(renderHelpTopic(topic));
+    return;
+  }
+
   console.log(`html-to-storyblok
 ${CLI_BRANDING_LINES.join('\n')}
 
 Usage:
   html-to-storyblok
+  html-to-storyblok help <topic>
   html-to-storyblok dashboard
   html-to-storyblok history [--limit 20]
   html-to-storyblok demo-sites [--list] [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--report-path <file>]
@@ -949,5 +961,7 @@ Use --json-summary for compact CI output.
 Aliases: route-handoff, handoff, live-demo-sites. Storyblok aliases: sb-audit, sb-reconcile, sb-verify, sb-activities, sb-preflight, sb-validate, sb-apply.
 
 All evidence and generated artifacts are written to .tmp/html-to-storyblok by default.
+Run html-to-storyblok help <topic> for focused guidance.
+Available help topics: ${helpTopicNames().join(', ')}.
 `);
 }

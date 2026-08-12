@@ -184,6 +184,17 @@ html-to-storyblok completion --shell bash
 html-to-storyblok completion --shell fish
 ```
 
+Get focused guidance for a command or workflow:
+
+```sh
+html-to-storyblok help plan
+html-to-storyblok storyblok-apply --help
+html-to-storyblok help storyblok
+html-to-storyblok help repository
+```
+
+The focused help screens explain when to use the command, the required evidence artifacts, safety guarantees, examples, and suggested next commands. Use them when scripting a workflow or handing a process to another developer.
+
 Credential handling:
 
 - Interactive mode asks for missing Storyblok credentials when inspection or real apply needs them.
