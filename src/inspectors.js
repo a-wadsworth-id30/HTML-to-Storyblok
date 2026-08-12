@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { analyzeCss, analyzeHtml, analyzeScript, ASSET_EXTENSIONS, extractAssetReferences, findMissingLocalAssets } from './analyzer.js';
+import { assessTemplateReadiness } from './template-readiness.js';
 import { relativeTo, sha256, unique } from './utils.js';
 
 const IGNORED_DIRS = new Set(['.git', 'node_modules', 'dist', 'build', '.next', '.nuxt', '.astro', '.tmp']);
@@ -145,7 +146,7 @@ export async function inspectTemplate(templatePath) {
     inventory.push(fileItem(rel, 'Excluded item', stats.size, 'No automatic template classification yet'));
   }
 
-  return {
+  const result = {
     template_path: root,
     files_inspected: files.map((file) => relativeTo(root, file)),
     pages,
@@ -172,6 +173,8 @@ export async function inspectTemplate(templatePath) {
     script_inventory: scriptInventory,
     inventory
   };
+  result.template_readiness = assessTemplateReadiness(result);
+  return result;
 }
 
 export async function inspectRepository(repositoryPath) {

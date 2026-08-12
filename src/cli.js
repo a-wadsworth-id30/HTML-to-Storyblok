@@ -116,6 +116,12 @@ export async function main(argv) {
     } else if (command === 'inspect-template') {
       result = await inspectTemplate(requireOption(args, 'template'));
       await writeArtifact(workDir, 'template-inventory.json', result);
+    } else if (command === 'template-readiness') {
+      const inventory = await inspectTemplate(requireOption(args, 'template'));
+      await writeArtifact(workDir, 'template-inventory.json', inventory);
+      result = inventory.template_readiness;
+      await writeArtifact(workDir, 'template-readiness.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
     } else if (command === 'inspect-repository') {
       result = await inspectRepository(requireOption(args, 'repo'));
       await writeArtifact(workDir, 'repository-inspection.json', result);
@@ -520,6 +526,7 @@ function createCommandExamples(manifest, { workDir, repoPath, templatePath }) {
     integration_id: integrationId,
     examples: [
       `html-to-storyblok inspect-template --template ${templatePath}`,
+      `html-to-storyblok template-readiness --template ${templatePath}`,
       `html-to-storyblok storyblok-audit --full --work-dir ${workDir}`,
       `html-to-storyblok plan --integration-id ${integrationId} --template ${templatePath}${planRepositoryArg} --framework ${manifest.template?.framework || 'static'} --work-dir ${workDir}`,
       `html-to-storyblok validate-plan --manifest ${manifestPath}`,
@@ -570,6 +577,7 @@ function renderShellCompletion(shell = 'zsh') {
     'view-report',
     'completion',
     'inspect-template',
+    'template-readiness',
     'inspect-repository',
     'inspect-storyblok',
     'storyblok-audit',
@@ -682,6 +690,7 @@ Usage:
   html-to-storyblok view-report
   html-to-storyblok completion [--shell zsh|bash|fish]
   html-to-storyblok inspect-template --template <path>
+  html-to-storyblok template-readiness --template <path>
   html-to-storyblok inspect-repository --repo <path>
   html-to-storyblok inspect-storyblok [--remote] [--full] [--audit]
   html-to-storyblok storyblok-audit [--full]
