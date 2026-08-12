@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
+import { mkdtemp, readFile } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import {
@@ -26,13 +29,24 @@ test('full demo-site runner lists framework validation targets', async () => {
 });
 
 test('full demo-site runner keeps static validation dependency-free', async () => {
-  const { stdout } = await execFileAsync('node', ['scripts/test-demo-sites-full.mjs', '--site', 'static'], {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-demo-preview-report-'));
+  const reportPath = path.join(workDir, 'preview.md');
+  const { stdout } = await execFileAsync('node', [
+    'scripts/test-demo-sites-full.mjs',
+    '--site',
+    'static',
+    '--report-path',
+    reportPath
+  ], {
     maxBuffer: 1024 * 1024
   });
+  const result = parseRunnerJson(stdout);
 
   assert.match(stdout, /demo build check passed: hts-demo-static/);
   assert.match(stdout, /"site": "static"/);
   assert.match(stdout, /"status": "lightweight_only"/);
+  assert.equal(result.preview_report, reportPath);
+  assert.match(await readFile(reportPath, 'utf8'), /Demo Site Preview Evidence/);
 });
 
 test('preview smoke evidence validates server-rendered generated route markers', () => {
@@ -131,3 +145,10 @@ test('client bundle smoke evidence fails when generated tokens are missing', () 
   assert.match(result.reason, /integration_id_in_bundle/);
   assert.match(result.reason, /generated_story_seed_in_bundle/);
 });
+
+function parseRunnerJson(output) {
+  const marker = '{\n  "action": "test_demo_sites_full"';
+  const index = output.indexOf(marker);
+  assert.notEqual(index, -1);
+  return JSON.parse(output.slice(index));
+}
