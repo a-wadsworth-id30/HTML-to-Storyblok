@@ -1971,6 +1971,7 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
     ] : [['Route Handoff', 'No route handoff artifact recorded', 'warning']]);
   } else if (section === 'rollback') {
     const manifest = report.artifacts.find((artifact) => artifact.type === 'integration_manifest');
+    const rollback = report.latest_rollback;
     terminal.panel('Rollback Targets', [
       ['Repository Files', manifest?.repository_files || 0, manifest?.repository_files ? 'warning' : 'success'],
       ['Component Folders', manifest?.storyblok_component_groups || 0, manifest?.storyblok_component_groups ? 'warning' : 'success'],
@@ -1980,6 +1981,17 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
       ['Storyblok Assets', manifest?.storyblok_assets || 0, manifest?.storyblok_assets ? 'warning' : 'success'],
       ['Mode', 'Preview before confirmed rollback', 'success']
     ]);
+    if (rollback) {
+      terminal.panel('Rollback Ledger', [
+        ['Artifact', rollback.type, 'info'],
+        ['Local Targets', rollback.local_targets || 0, rollback.local_targets ? 'warning' : 'success'],
+        ['Local Removed', rollback.local_removed || 0, rollback.local_removed ? 'success' : 'warning'],
+        ['Remote Targets', rollback.remote_targets || 0, rollback.remote_targets ? 'warning' : 'success'],
+        ['Remote Requested', rollback.remote_requested ? 'Yes' : 'No', rollback.remote_requested ? 'warning' : 'success'],
+        ['Hash Status', rollback.hash_status || 'not_run', rollback.hash_status === 'failed' ? 'error' : rollback.hash_status === 'passed' ? 'success' : 'warning'],
+        ['Risk Flags', rollback.risk_flags || 0, rollback.risk_flags ? 'warning' : 'success']
+      ]);
+    }
   } else if (section === 'activity') {
     const activities = report.artifacts.filter((artifact) => artifact.type === 'storyblok_activity_evidence');
     terminal.panel('Activity Timeline', activities.length
