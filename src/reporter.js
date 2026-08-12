@@ -18,6 +18,7 @@ export async function createReport(workDir) {
   const latestStoryblokManagementVerification = latestSummary(artifactSummaries, ['storyblok_management_verification']);
   const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
   const latestRouteHandoff = latestSummary(artifactSummaries, ['route_handoff']);
+  const latestClientReviewGate = latestSummary(artifactSummaries, ['client_review_gate']);
   const latestTemplateQuality = latestSummary(artifactSummaries, ['template_quality']);
   const latestRollback = latestSummary(artifactSummaries, ['rollback', 'rollback_preview']);
   const assetIntegrity = buildAssetIntegrityDashboard(artifactSummaries);
@@ -43,6 +44,7 @@ export async function createReport(workDir) {
     latest_storyblok_management_verification: latestStoryblokManagementVerification,
     latest_netlify: latestNetlify,
     latest_route_handoff: latestRouteHandoff,
+    latest_client_review_gate: latestClientReviewGate,
     latest_template_quality: latestTemplateQuality,
     latest_rollback: latestRollback,
     asset_integrity: assetIntegrity,
@@ -51,6 +53,7 @@ export async function createReport(workDir) {
       storyblok_content_valid: latestStoryblokValidation?.status === 'passed' || latestStoryblokValidation?.status === 'skipped',
       storyblok_management_valid: latestStoryblokManagementVerification?.status === 'passed' || latestStoryblokManagementVerification?.status === 'skipped',
       asset_integrity_valid: assetIntegrity.status === 'passed' || assetIntegrity.status === 'pending',
+      client_review_ready: !latestClientReviewGate || latestClientReviewGate.status !== 'failed',
       deploy_preview_verified: latestNetlify?.status === 'passed',
       command_argument_redaction: 'token-like argument keys are redacted in evidence',
       unresolved_failures: failed.length
@@ -82,6 +85,7 @@ export function renderMarkdownReport(report) {
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestNetlify = report.latest_netlify?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
+  const latestClientReviewGate = report.latest_client_review_gate?.status || 'not run';
   const latestTemplateQuality = report.latest_template_quality
     ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
     : 'not run';
@@ -113,6 +117,7 @@ export function renderMarkdownReport(report) {
 - Latest Storyblok management verification: ${latestStoryblokManagementVerification}
 - Latest Netlify: ${latestNetlify}
 - Latest route handoff: ${latestRouteHandoff}
+- Latest client review gate: ${latestClientReviewGate}
 - Latest template quality: ${latestTemplateQuality}
 - Latest rollback: ${latestRollback}
 
@@ -122,6 +127,7 @@ export function renderMarkdownReport(report) {
 - Storyblok content valid: ${report.safety_confirmation.storyblok_content_valid ? 'yes' : 'no'}
 - Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}
 - Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}
+- Client review ready: ${report.safety_confirmation.client_review_ready ? 'yes' : 'no'}
 - Deploy preview verified: ${report.safety_confirmation.deploy_preview_verified ? 'yes' : 'no'}
 - Unresolved failures: ${report.safety_confirmation.unresolved_failures}
 - Secret handling: ${report.safety_confirmation.command_argument_redaction}
@@ -157,6 +163,7 @@ export function renderHtmlReport(report) {
   const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
+  const latestClientReviewGate = report.latest_client_review_gate?.status || 'not run';
   const latestTemplateQuality = report.latest_template_quality
     ? `${report.latest_template_quality.grade || '-'} (${report.latest_template_quality.score || 0}/100)`
     : 'not run';
@@ -205,6 +212,7 @@ export function renderHtmlReport(report) {
       <p><strong>Latest Storyblok validation:</strong> ${escapeHtml(latestStoryblokValidation)}</p>
       <p><strong>Latest Storyblok management verification:</strong> ${escapeHtml(latestStoryblokManagementVerification)}</p>
       <p><strong>Latest route handoff:</strong> ${escapeHtml(latestRouteHandoff)}</p>
+      <p><strong>Latest client review gate:</strong> ${escapeHtml(latestClientReviewGate)}</p>
       <p><strong>Latest template quality:</strong> ${escapeHtml(latestTemplateQuality)}</p>
       <p><strong>Latest rollback:</strong> ${escapeHtml(latestRollback)}</p>
       <p><strong>Commands completed:</strong> ${report.commands_completed}</p>
@@ -216,6 +224,7 @@ export function renderHtmlReport(report) {
         <li class="${report.safety_confirmation.storyblok_content_valid ? 'ok' : 'warn'}">Storyblok content valid: ${report.safety_confirmation.storyblok_content_valid ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.storyblok_management_valid ? 'ok' : 'warn'}">Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.asset_integrity_valid ? 'ok' : 'warn'}">Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}</li>
+        <li class="${report.safety_confirmation.client_review_ready ? 'ok' : 'warn'}">Client review ready: ${report.safety_confirmation.client_review_ready ? 'yes' : 'no'}</li>
         <li>Secret handling: ${escapeHtml(report.safety_confirmation.command_argument_redaction)}</li>
       </ul>
     </section>
@@ -345,6 +354,9 @@ async function summarizeArtifact(artifact) {
     }
     if (name === 'route-handoff-result.json') {
       return summarizeRouteHandoff(data, artifact);
+    }
+    if (name === 'client-review-gate.json' || name.endsWith('client-review-gate.json')) {
+      return summarizeClientReviewGate(data, artifact);
     }
     if (name === 'rollback-preview.json') {
       return summarizeRollbackArtifact(data, artifact, 'rollback_preview');
@@ -555,6 +567,23 @@ function summarizeRouteHandoff(data, artifact) {
     skipped: data.summary?.skipped || 0,
     manual_handoff_routes: ensureArray(data.routes).filter((route) => route.manual_handoff).length,
     markdown_report: data.markdown_report || null
+  };
+}
+
+function summarizeClientReviewGate(data, artifact) {
+  return {
+    type: 'client_review_gate',
+    artifact,
+    status: data.status || 'recorded',
+    ready_for_apply: Boolean(data.ready_for_apply),
+    ready_for_route_handoff: Boolean(data.ready_for_route_handoff),
+    failed_checks: data.failed_checks || ensureArray(data.checks).filter((check) => check.status === 'failed').length,
+    warning_checks: data.warning_checks || ensureArray(data.checks).filter((check) => check.status === 'warning').length,
+    framework: data.framework || null,
+    planned_repository_files: ensureArray(data.diff?.repository_files).length,
+    planned_repository_assets: ensureArray(data.diff?.repository_assets).length,
+    route_handoff_status: data.route_handoff_preview?.status || 'not_run',
+    host_scripts_available: ensureArray(data.host_scripts).filter((script) => script.command).length
   };
 }
 

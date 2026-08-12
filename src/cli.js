@@ -3,6 +3,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkLiveAccess } from './access.js';
 import { CLI_BRANDING_LINES } from './branding.js';
+import { createClientApplyReviewGate, renderClientApplyReviewGateMarkdown } from './client-review-gate.js';
 import { duplicateAll } from './duplicator.js';
 import { ENV_TEMPLATE, initEnvFile, loadEnvironment } from './env.js';
 import { ensureWorkDir, recordEvidence, writeArtifact, writeTextArtifact, DEFAULT_WORK_DIR } from './evidence.js';
@@ -329,6 +330,17 @@ export async function main(argv) {
       });
       await writeArtifact(workDir, 'repository-preflight.json', result);
       if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'client-review') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createClientApplyReviewGate(manifest, {
+        repoPath: args.repo ? String(args.repo) : process.cwd(),
+        mode: args.mode ? String(args.mode) : Boolean(args.dry_run) ? 'dry-run' : 'apply',
+        hostChecks: args.host_checks ? String(args.host_checks).split(',').map((script) => script.trim()).filter(Boolean) : undefined,
+        skipHostChecks: Boolean(args.skip_host_checks)
+      });
+      result.markdown_report = await writeTextArtifact(workDir, 'client-review-gate-report.md', renderClientApplyReviewGateMarkdown(result));
+      await writeArtifact(workDir, 'client-review-gate.json', result);
+      if (result.status === 'failed') process.exitCode = 2;
     } else if (command === 'build') {
       result = await runRepositoryScript({
         repoPath: args.repo ? String(args.repo) : process.cwd(),
@@ -526,6 +538,8 @@ function normalizeCommand(command) {
     'sb-validate': 'validate-storyblok',
     'sb-apply': 'storyblok-apply',
     'route-handoff': 'wire-routes',
+    'repository-review': 'client-review',
+    'apply-review': 'client-review',
     'live-demo-sites': 'demo-sites-live-preview',
     'e2e-demo-sites': 'demo-sites-e2e',
     've-readiness': 'visual-editor-readiness',

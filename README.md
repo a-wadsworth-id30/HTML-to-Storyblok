@@ -122,7 +122,9 @@ The create flow guides you through choosing a template from `templates/`, choosi
 
 Dry runs now include a human-readable apply preview diff covering repository files, assets, route preview/proposal paths, Storyblok component folders, internal tags, components, presets, asset folders, draft stories, and generated Storyblok link resolution. Long-running progress output uses a single task-owned progress renderer with percentages, elapsed time, and rate-limit/retry detail so spinner output does not collide with progress bars.
 
-Real repository apply runs available host `lint`, `typecheck`, and `build` scripts before writing generated files, then runs local output validation and the same host checks again before any Storyblok remote mutation. Missing scripts are reported as skipped, failing scripts stop the apply. Use `--host-checks lint,typecheck,build` to customize the script list, or `--skip-host-checks` only when you have already run equivalent checks.
+Real repository apply runs a read-only client apply review gate, then available host `lint`, `typecheck`, and `build` scripts before writing generated files, then runs local output validation and the same host checks again before any Storyblok remote mutation. Missing scripts are reported as skipped, failing scripts stop the apply. Use `--host-checks lint,typecheck,build` to customize the script list, or `--skip-host-checks` only when you have already run equivalent checks.
+
+The client apply review gate is also available as `html-to-storyblok client-review --manifest <path> --repo <path>`. It packages repository preflight, planned write isolation, host route preservation, route handoff preview readiness, host script discovery, and next steps into `.tmp/html-to-storyblok/client-review-gate-report.md` without generating files, wiring routes, running host scripts, or mutating Storyblok.
 
 After a completed interactive action, the CLI shows what changed, Storyblok draft editor links, generated route preview files, validation/report locations, and a rollback-preview command. It then shows a success checkpoint with the latest plan/local validation status, evidence-driven recommended next actions, suggested follow-up commands, and stays open on a `Next` menu. From there you can return to the main menu, run a validation check, view the latest report, or exit intentionally.
 
@@ -801,6 +803,7 @@ html-to-storyblok apply \
 `apply` performs these additive operations in order:
 
 - run a non-mutating repository preflight that refuses planned file/asset collisions and unrelated worktree changes during real apply, while reporting those collisions as warnings during dry-run preview
+- write a non-mutating client apply review gate covering planned writes, route preservation, route handoff readiness, host script discovery, and next steps
 - run a non-mutating Storyblok preflight when Storyblok operations are planned
 - duplicate approved frontend and Storyblok components into the integration namespace
 - convert supplied template HTML/CSS/assets into isolated framework files and route previews
@@ -1280,6 +1283,7 @@ html-to-storyblok storyblok-activities [--manifest <path>] [--since <iso-date>] 
 html-to-storyblok examples [--manifest <path>]
 html-to-storyblok diff --manifest <path> --repo <path>
 html-to-storyblok repository-preflight --manifest <path> --repo <path>
+html-to-storyblok client-review --manifest <path> --repo <path> [--host-checks lint,typecheck,build] [--skip-host-checks] [--dry-run]
 html-to-storyblok validate --manifest <path> --repo <path>
 html-to-storyblok build --repo <path> [--script build] [--dry-run]
 html-to-storyblok generate --manifest <path> --repo <path> [--template <path>] [--framework auto|astro|react|next|vue|nuxt|static] [--dry-run]
@@ -1302,7 +1306,7 @@ html-to-storyblok report [--view] [--html]
 html-to-storyblok asset-dashboard
 ```
 
-Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `handoff` is an alias for `readiness`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
+Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `repository-review` and `apply-review` are aliases for `client-review`; `handoff` is an alias for `readiness`; `production-handoff` and `handoff-report` are aliases for `handoff-pack`; `live-demo-sites` is an alias for `demo-sites-live-preview`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
 
 ## Policy
 
