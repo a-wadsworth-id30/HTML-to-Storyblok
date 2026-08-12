@@ -3,6 +3,7 @@ import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { generateIntegration } from '../src/generator.js';
 import { createIntegrationPlan } from '../src/planner.js';
+import { wireRepositoryRoutes } from '../src/route-handoff.js';
 import { preflightRepositoryIntegration, validateIntegration } from '../src/validator.js';
 
 const DEMO_ROOT = path.join(process.cwd(), 'demo-sites');
@@ -141,7 +142,7 @@ async function prepareGeneratedIntegration(site, sitePath, packageJson) {
     if (validation.status === 'failed') {
       throw new Error(`${site}: generated integration validation failed: ${validation.checks.filter((check) => check.status === 'failed').map((check) => check.message).join('; ')}`);
     }
-    host = await writeGeneratedHostRoute(site, sitePath, integrationId);
+    host = await writeGeneratedHostRoute(site, sitePath, integrationId, manifest);
     return {
       status: 'wired_for_framework_compile',
       integration_id: integrationId,
@@ -159,7 +160,22 @@ async function prepareGeneratedIntegration(site, sitePath, packageJson) {
   }
 }
 
-async function writeGeneratedHostRoute(site, sitePath, integrationId) {
+async function writeGeneratedHostRoute(site, sitePath, integrationId, manifest) {
+  if (['astro', 'next', 'nuxt'].includes(site)) {
+    const result = await wireRepositoryRoutes(manifest, {
+      repoPath: sitePath,
+      route: 'about'
+    });
+    if (result.status !== 'passed') {
+      throw new Error(`${site}: route handoff failed: ${result.reason || JSON.stringify(result.summary)}`);
+    }
+    const route = result.routes.find((entry) => entry.status === 'created');
+    return {
+      path: route.host_route_file,
+      original: null
+    };
+  }
+
   const host = generatedHostRoute(site, integrationId);
   const fullPath = path.join(sitePath, host.path);
   const original = await readOptional(fullPath);
