@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
+import { DEFAULT_WORK_DIR } from '../src/evidence.js';
 import { generateIntegration } from '../src/generator.js';
 import { createIntegrationPlan } from '../src/planner.js';
 import {
@@ -21,6 +22,9 @@ const smoke = Boolean(args.smoke);
 const requireFramework = Boolean(args.require_framework || args.requireFramework);
 const generatedIntegration = Boolean(args.generated_integration || args.generatedIntegration || args.generated);
 const listOnly = Boolean(args.list);
+const reportPath = args.report === false || args.report === 'false'
+  ? null
+  : String(args.report_path || args.reportPath || path.join(DEFAULT_WORK_DIR, 'demo-sites-preview-report.md'));
 
 const summaries = [];
 
@@ -100,12 +104,18 @@ for (const site of selectedSites) {
   }
 }
 
-console.log(JSON.stringify({
+const result = {
   action: 'test_demo_sites_full',
   install,
   smoke,
   sites: summaries
-}, null, 2));
+};
+
+if (!listOnly && reportPath) {
+  result.preview_report = await writePreviewEvidenceReport(reportPath, result);
+}
+
+console.log(JSON.stringify(result, null, 2));
 
 function parseArgs(argv) {
   const parsed = {};
@@ -435,6 +445,53 @@ async function readBundleTextFiles(directory, { root = directory } = {}) {
 
 function bundleTextFile(fileName) {
   return /\.(?:html|js|mjs|css)$/i.test(fileName);
+}
+
+async function writePreviewEvidenceReport(filePath, result) {
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, renderPreviewEvidenceReport(result));
+  return filePath;
+}
+
+function renderPreviewEvidenceReport(result) {
+  const siteSections = result.sites.map(renderSiteEvidence).join('\n\n');
+  return `# Demo Site Preview Evidence
+
+- Action: ${result.action}
+- Install dependencies: ${result.install ? 'yes' : 'no'}
+- Preview smoke: ${result.smoke ? 'yes' : 'no'}
+- Sites checked: ${result.sites.length}
+
+${siteSections}
+`;
+}
+
+function renderSiteEvidence(site) {
+  const bundleRows = site.client_bundle_evidence?.length
+    ? site.client_bundle_evidence.map((entry) => evidenceBullet(entry)).join('\n')
+    : '- Client bundle evidence: not applicable';
+  const previewRows = site.preview_evidence?.length
+    ? site.preview_evidence.map((entry) => evidenceBullet(entry)).join('\n')
+    : '- Preview evidence: not requested';
+  return `## ${site.site}
+
+- Status: ${site.status}
+- Framework: ${site.framework}
+- Generated integration: ${site.generated_integration}
+- Generated host file: ${site.generated_host_file || 'none'}
+- Smoke: ${site.smoke || 'not_requested'}
+
+${bundleRows}
+
+${previewRows}`;
+}
+
+function evidenceBullet(entry) {
+  const checks = (entry.checks || [])
+    .map((check) => `${check.name}=${check.status}`)
+    .join(', ') || 'no checks';
+  const target = entry.url || entry.name;
+  return `- ${entry.name}: ${entry.status} (${entry.render_mode}) ${target} [${checks}]`;
 }
 
 async function waitForUrl(url, timeoutMs) {
