@@ -69,6 +69,7 @@ test('help command lists available topics for unknown guides', async () => {
 
   assert.match(output, /No dedicated help guide exists for "not-a-guide"/);
   assert.match(output, /Available help topics:/);
+  assert.match(output, /demo-sites-e2e/);
   assert.match(output, /demo-sites-live-preview/);
 });
 

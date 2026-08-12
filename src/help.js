@@ -146,6 +146,29 @@ const COMMAND_GUIDES = {
       'html-to-storyblok demo-sites-live-preview --site astro --base-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-configured'
     ]
   },
+  'demo-sites-e2e': {
+    title: 'End-to-End Demo Deployment',
+    purpose: 'Runs the local demo matrix and deployed preview checks as one release-readiness gate.',
+    usage: [
+      'html-to-storyblok demo-sites-e2e [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--require-live] [--require-storyblok-draft] [--integration-id <id>] [--report-path <file>]'
+    ],
+    when: [
+      'Use after Storyblok, GitHub, Netlify, and demo-site wiring are in place.',
+      'Use before a client handoff to prove the generated repository output still builds and deployed preview URLs render the expected imported routes.'
+    ],
+    evidence: [
+      'Writes demo-sites-e2e-result.json, demo-sites-e2e-report.md, and phase-specific local/live preview reports by default.'
+    ],
+    safety: [
+      'Read-only against deployed URLs.',
+      'Temporary generated local demo output is restored by the underlying demo-sites runner unless --keep-generated is used.'
+    ],
+    examples: [
+      'html-to-storyblok demo-sites-e2e --site astro --generated --install --smoke --require-framework --astro-url https://your-astro-demo.netlify.app --require-live',
+      'html-to-storyblok demo-sites-e2e --site astro --astro-url https://your-astro-demo.netlify.app --integration-id acme-campaign-v1 --require-storyblok-draft --require-live'
+    ],
+    next: ['demo-sites-live-preview', 'report', 'readiness']
+  },
   'demo-sites': {
     title: 'Demo Site Matrix',
     purpose: 'Builds the local framework demo matrix and optionally validates generated integration output.',
