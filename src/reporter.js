@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { buildAssetIntegrityDashboard, renderAssetIntegrityMarkdown, summarizeManifestAssets } from './asset-integrity.js';
 import { readEvidence } from './evidence.js';
 import { readJson, writeText } from './utils.js';
 
@@ -16,6 +17,7 @@ export async function createReport(workDir) {
   const latestStoryblokManagementVerification = latestSummary(artifactSummaries, ['storyblok_management_verification']);
   const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
   const latestRouteHandoff = latestSummary(artifactSummaries, ['route_handoff']);
+  const assetIntegrity = buildAssetIntegrityDashboard(artifactSummaries);
   return {
     work_dir: workDir,
     evidence_entries: evidence.length,
@@ -38,10 +40,12 @@ export async function createReport(workDir) {
     latest_storyblok_management_verification: latestStoryblokManagementVerification,
     latest_netlify: latestNetlify,
     latest_route_handoff: latestRouteHandoff,
+    asset_integrity: assetIntegrity,
     safety_confirmation: {
       plan_valid: latestValidation?.status === 'passed' || latestValidation?.valid === true,
       storyblok_content_valid: latestStoryblokValidation?.status === 'passed' || latestStoryblokValidation?.status === 'skipped',
       storyblok_management_valid: latestStoryblokManagementVerification?.status === 'passed' || latestStoryblokManagementVerification?.status === 'skipped',
+      asset_integrity_valid: assetIntegrity.status === 'passed' || assetIntegrity.status === 'pending',
       deploy_preview_verified: latestNetlify?.status === 'passed',
       command_argument_redaction: 'token-like argument keys are redacted in evidence',
       unresolved_failures: failed.length
@@ -81,6 +85,7 @@ export function renderMarkdownReport(report) {
     .map((candidate) => `- ${candidate.source_path}: ${candidate.blockers.join('; ')}`)
     .join('\n') || '- None';
   const storyblokManagementRows = storyblokManagementVerificationRows(report).join('\n');
+  const assetIntegrityMarkdown = renderAssetIntegrityMarkdown(report.asset_integrity);
 
   return `# HTML-to-Storyblok Report
 
@@ -100,9 +105,12 @@ export function renderMarkdownReport(report) {
 - Plan valid: ${report.safety_confirmation.plan_valid ? 'yes' : 'no'}
 - Storyblok content valid: ${report.safety_confirmation.storyblok_content_valid ? 'yes' : 'no'}
 - Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}
+- Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}
 - Deploy preview verified: ${report.safety_confirmation.deploy_preview_verified ? 'yes' : 'no'}
 - Unresolved failures: ${report.safety_confirmation.unresolved_failures}
 - Secret handling: ${report.safety_confirmation.command_argument_redaction}
+
+${assetIntegrityMarkdown}
 
 ## Artifacts
 
@@ -129,6 +137,11 @@ export function renderHtmlReport(report) {
   const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
+  const assetIntegrity = report.asset_integrity || {};
+  const assetIntegrityRows = (assetIntegrity.assets || [])
+    .slice(0, 20)
+    .map((asset) => `<tr><td>${escapeHtml(asset.filename || asset.local_path || 'asset')}</td><td>${escapeHtml(asset.source_status || 'unknown')}</td><td>${escapeHtml(asset.upload_status || 'not_run')}</td><td>${escapeHtml(asset.id || '')}</td></tr>`)
+    .join('\n') || '<tr><td colspan="4">None recorded</td></tr>';
   const storyblokManagementRows = storyblokManagementVerificationRows(report)
     .map((row) => `<li>${escapeHtml(row.replace(/^- /, ''))}</li>`)
     .join('\n') || '<li>Not run</li>';
@@ -171,8 +184,18 @@ export function renderHtmlReport(report) {
         <li class="${report.safety_confirmation.plan_valid ? 'ok' : 'warn'}">Plan valid: ${report.safety_confirmation.plan_valid ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.storyblok_content_valid ? 'ok' : 'warn'}">Storyblok content valid: ${report.safety_confirmation.storyblok_content_valid ? 'yes' : 'no'}</li>
         <li class="${report.safety_confirmation.storyblok_management_valid ? 'ok' : 'warn'}">Storyblok management valid: ${report.safety_confirmation.storyblok_management_valid ? 'yes' : 'no'}</li>
+        <li class="${report.safety_confirmation.asset_integrity_valid ? 'ok' : 'warn'}">Asset integrity valid: ${report.safety_confirmation.asset_integrity_valid ? 'yes' : 'no'}</li>
         <li>Secret handling: ${escapeHtml(report.safety_confirmation.command_argument_redaction)}</li>
       </ul>
+    </section>
+    <section>
+      <h2>Asset Integrity</h2>
+      <p><strong>Status:</strong> ${escapeHtml(assetIntegrity.status || 'not_run')}</p>
+      <p><strong>Planned Storyblok assets:</strong> ${assetIntegrity.planned_storyblok_assets || 0}; <strong>Uploaded or reused:</strong> ${assetIntegrity.uploaded_or_reused || 0}; <strong>Unresolved asset fields:</strong> ${assetIntegrity.unresolved_asset_fields || 0}</p>
+      <table>
+        <thead><tr><th>Asset</th><th>Source</th><th>Upload</th><th>ID</th></tr></thead>
+        <tbody>${assetIntegrityRows}</tbody>
+      </table>
     </section>
     <section>
       <h2>Storyblok Management Verification</h2>
@@ -220,6 +243,7 @@ async function summarizeArtifact(artifact) {
         storyblok_presets: data.storyblok?.presets_to_create?.length || 0,
         storyblok_stories: data.storyblok?.stories_to_create?.length || 0,
         storyblok_assets: data.storyblok?.assets_to_create?.length || 0,
+        asset_integrity: await summarizeManifestAssets(data),
         duplication_inference: data.duplication_inference
           ? {
             repository_components: data.duplication_inference.repository_components || 0,
@@ -369,6 +393,7 @@ function summarizeStoryblokManagementVerification(data, artifact) {
     failed_story_checks: data.summary?.failed_story_checks || 0,
     unresolved_generated_story_links: data.summary?.unresolved_generated_story_links || 0,
     unresolved_asset_fields: data.summary?.unresolved_asset_fields || 0,
+    asset_fields: data.summary?.asset_fields || 0,
     content_drifted_stories: data.summary?.content_drifted_stories || 0
   };
 }
@@ -427,6 +452,17 @@ function summarizeStoryblokApplyResult(data, artifact, name) {
     presets_created_or_reused: presetResults.length,
     assets_created_or_reused: assetResults.length,
     draft_stories_created_or_reused: draftResults.length,
+    asset_results: assetResults.map((asset) => ({
+      status: asset.status || (asset.dry_run ? 'dry_run' : 'recorded'),
+      dry_run: Boolean(asset.dry_run),
+      local_path: asset.local_path || null,
+      filename: asset.filename || asset.verification?.filename || null,
+      asset_folder_path: asset.asset_folder_path || null,
+      bytes: asset.bytes || 0,
+      source_sha256: asset.source_sha256 || null,
+      id: asset.id || asset.verification?.id || null,
+      verification: asset.verification || null
+    })),
     link_summary: linkSummary
   };
 }

@@ -95,6 +95,22 @@ const COMMAND_GUIDES = {
     ],
     next: ['demo-sites-live-preview', 'wire-routes', 'readiness']
   },
+  'asset-dashboard': {
+    title: 'Asset Integrity Dashboard',
+    purpose: 'Summarizes planned assets, local source hashes, Storyblok upload evidence, and unresolved draft asset fields.',
+    usage: ['html-to-storyblok asset-dashboard [--work-dir .tmp/html-to-storyblok]'],
+    when: [
+      'Use after planning to verify local asset sources and after apply to confirm uploaded or reused Storyblok assets.',
+      'Use when a report says asset fields are unresolved or when editors cannot see imported images in draft stories.'
+    ],
+    evidence: ['Reads integration-manifest.json, apply-result/storyblok-apply-result artifacts, Content API validation, and Management API verification summaries.'],
+    safety: ['Read-only. It does not upload, delete, or modify assets.'],
+    examples: [
+      'html-to-storyblok asset-dashboard',
+      'html-to-storyblok asset-dashboard --work-dir .tmp/html-to-storyblok'
+    ],
+    next: ['upload-assets', 'storyblok-verify', 'view-report']
+  },
   'storyblok-apply': {
     title: 'Storyblok Apply',
     purpose: 'Runs only the Storyblok side of the import: folders, components, presets, assets, and draft stories.',

@@ -330,6 +330,9 @@ export async function main(argv) {
           result.html_report = await writeHtmlReport(workDir, result);
         }
       }
+    } else if (command === 'asset-dashboard') {
+      const report = await createReport(workDir);
+      result = report.asset_integrity;
     } else if (command === 'examples') {
       const manifest = args.manifest ? await readJson(requireOption(args, 'manifest')) : await readJson(`${workDir}/integration-manifest.json`);
       result = createCommandExamples(manifest, { workDir, repoPath: args.repo ? String(args.repo) : '<repo-path>', templatePath: args.template ? String(args.template) : manifest.template?.source_path || '<template-path>' });
@@ -1012,6 +1015,7 @@ function renderShellCompletion(shell = 'zsh') {
     'env',
     'doctor',
     'view-report',
+    'asset-dashboard',
     'completion',
     'inspect-template',
     'template-readiness',
@@ -1174,6 +1178,7 @@ Usage:
   html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
   html-to-storyblok doctor [--for all|storyblok-only|full-import|netlify-preview|repo-only]
   html-to-storyblok view-report
+  html-to-storyblok asset-dashboard
   html-to-storyblok completion [--shell zsh|bash|fish]
   html-to-storyblok inspect-template --template <path>
   html-to-storyblok template-readiness --template <path>
@@ -1217,6 +1222,7 @@ Usage:
   html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
   html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--allow-modified-generated-files] [--dry-run]
   html-to-storyblok report [--view] [--html]
+  html-to-storyblok asset-dashboard
 
 Mutating commands support --dry-run and always validate the manifest immediately before execution.
 Use --no-interactive for scriptable non-interactive execution.
