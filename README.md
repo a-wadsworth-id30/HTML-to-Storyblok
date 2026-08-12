@@ -131,7 +131,7 @@ When you only want to test the Storyblok side before a client repository is avai
 
 If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI offers to resume the previous integration or start a new one. The resume screen shows the integration ID, latest status, completed apply steps, validation state, failed step if any, and the recommended next action. From the continue workflow you can also review or edit generated Storyblok links, review or edit generated schema field types and labels, run one Storyblok apply step at a time, preview apply changes, wire missing host route files from generated route proposals, and show rollback targets before applying.
 
-`Import History` scans recent evidence and report artifacts so you can see the latest integration ID, validation status, completed steps, and generated reports without opening JSON files. `Live Sandbox Test` guides a disposable Storyblok-only test against a namespaced integration ID, validates the drafts when a Content API token is available, and can roll back generated remote resources.
+`Import History` reads the durable `.tmp/html-to-storyblok/import-history.json` ledger so you can see multiple integrations, statuses, report paths, and manifest snapshots without opening JSON files manually. It still shows recent evidence commands and artifacts as supporting detail. `Live Sandbox Test` guides a disposable Storyblok-only test against a namespaced integration ID, validates the drafts when a Content API token is available, and can roll back generated remote resources.
 
 For CI/CD or scripted usage, pass `--no-interactive` and use the command reference below. The no-command `--no-interactive` path prints help instead of launching a prompt.
 
@@ -141,6 +141,13 @@ View a human-readable project dashboard:
 
 ```sh
 html-to-storyblok dashboard
+```
+
+View the scriptable multi-integration ledger:
+
+```sh
+html-to-storyblok history
+html-to-storyblok history --limit 20
 ```
 
 Configure local defaults:
@@ -292,6 +299,7 @@ This directory is ignored by Git. It is used for:
 - Netlify inspections
 - Netlify deploy-preview verification
 - integration manifests
+- multi-integration history and manifest snapshots
 - plan validation output
 - local validation output
 - repository preflight output
@@ -1230,7 +1238,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, credential test screen, Storyblok-only test mode, resume dashboard, import history, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, credential test screen, Storyblok-only test mode, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, report viewer with Storyblok/assets/links/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, multi-route isolated repository previews, review-only route proposal wrappers, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.

@@ -8,6 +8,7 @@ import { main } from '../src/cli.js';
 import { loadConfig, parseSettingAssignment, saveConfig, updateConfigValue, updateProfileValue } from '../src/config.js';
 import { discoverRepositories, discoverTemplates } from '../src/discovery.js';
 import { generateIntegration } from '../src/generator.js';
+import { readIntegrationHistory } from '../src/history.js';
 import { createDashboardModel, createRecoveryAdvice, runInteractiveApp, runSettings } from '../src/interactive.js';
 import { createIntegrationPlan } from '../src/planner.js';
 import { createDefaultManifest } from '../src/policy.js';
@@ -80,6 +81,9 @@ test('interactive create flow produces a validated dry-run integration and repor
   assert.equal(result.validation.valid, true);
   assert.equal(await pathExists(path.join(workDir, 'integration-manifest.json')), true);
   assert.equal(await pathExists(path.join(workDir, 'report.md')), true);
+  const history = await readIntegrationHistory(workDir);
+  assert.equal(history.entries[0].integration_id, 'acme-homepage-v1');
+  assert.equal(history.entries[0].status, 'dry_run_complete');
   assert.match(output.text(), /Plan Summary/);
   assert.match(output.text(), /Dry run complete/);
   assert.match(output.text(), /Repository Route Previews/);
