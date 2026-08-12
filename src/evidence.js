@@ -1,6 +1,6 @@
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { nowIso, pathExists, writeJson } from './utils.js';
+import { nowIso, pathExists, writeJson, writeText } from './utils.js';
 
 export const DEFAULT_WORK_DIR = '.tmp/html-to-storyblok';
 
@@ -30,6 +30,17 @@ export async function writeArtifact(workDir, name, data) {
   return filePath;
 }
 
+export async function writeTextArtifact(workDir, name, content) {
+  await ensureWorkDir(workDir);
+  const filePath = path.join(workDir, name);
+  await writeText(filePath, content);
+  await recordEvidence(workDir, {
+    type: 'artifact_written',
+    artifact: filePath
+  });
+  return filePath;
+}
+
 export async function readEvidence(workDir = DEFAULT_WORK_DIR) {
   const filePath = path.join(workDir, 'evidence.jsonl');
   if (!(await pathExists(filePath))) return [];
@@ -39,4 +50,3 @@ export async function readEvidence(workDir = DEFAULT_WORK_DIR) {
     .filter(Boolean)
     .map((line) => JSON.parse(line));
 }
-

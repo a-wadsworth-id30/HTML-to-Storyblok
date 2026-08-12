@@ -6,7 +6,7 @@ import test from 'node:test';
 import { main } from '../src/cli.js';
 import { generateIntegration } from '../src/generator.js';
 import { createIntegrationPlan } from '../src/planner.js';
-import { wireRepositoryRoutes } from '../src/route-handoff.js';
+import { renderRouteHandoffReport, wireRepositoryRoutes } from '../src/route-handoff.js';
 import { pathExists } from '../src/utils.js';
 
 test('wireRepositoryRoutes creates Astro host route files additively after preview', async () => {
@@ -121,6 +121,11 @@ test('wire-routes CLI command previews route handoff without writing host routes
   assert.equal(result.action, 'wire_repository_routes');
   assert.equal(result.status, 'passed');
   assert.equal(result.would_create_routes, 5);
+  assert.match(result.markdown_report, /route-handoff-report\.md$/);
+  const report = await readFile(result.markdown_report, 'utf8');
+  assert.match(report, /Repository Route Handoff Report/);
+  assert.match(report, /Would create: 5/);
+  assert.match(report, /Confirm deployed routes expose/);
   assert.equal(await pathExists(path.join(repoPath, 'src/pages/index.astro')), false);
 });
 
@@ -196,6 +201,11 @@ test('wireRepositoryRoutes gives manual handoff guidance for React and Vue route
   assert.match(reactResult.routes[0].manual_handoff.reason, /React route registration depends/);
   assert.match(reactResult.routes[0].manual_handoff.route_proposal_file, /route-proposals\/home\/page\.jsx/);
   assert.ok(reactResult.routes[0].manual_handoff.steps.some((step) => /never expose Management API tokens/.test(step)));
+  assert.ok(reactResult.routes[0].manual_handoff.integration_options.some((option) => /React Router/.test(option)));
+  const reactReport = renderRouteHandoffReport(reactResult);
+  assert.match(reactReport, /Manual Handoff/);
+  assert.match(reactReport, /React Router/);
+  assert.match(reactReport, /react-campaign-v1\/home/);
 
   const vueRepoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-route-handoff-vue-'));
   const vueManifest = await createIntegrationPlan({
@@ -215,6 +225,7 @@ test('wireRepositoryRoutes gives manual handoff guidance for React and Vue route
   assert.deepEqual(vueResult.manual_handoff.frameworks, ['vue']);
   assert.match(vueResult.routes[0].manual_handoff.reason, /Vue route registration depends/);
   assert.match(vueResult.routes[0].manual_handoff.route_proposal_file, /route-proposals\/services\/Page\.vue/);
+  assert.ok(vueResult.routes[0].manual_handoff.integration_options.some((option) => /Vue Router/.test(option)));
 });
 
 async function captureStdout(callback) {

@@ -120,7 +120,7 @@ const COMMAND_GUIDES = {
     when: [
       'Use when Storyblok and generated integration files are ready, and the target framework can safely expose preview routes.'
     ],
-    evidence: ['Writes route-handoff-result.json with created, blocked, or manual handoff routes.'],
+    evidence: ['Writes route-handoff-result.json and route-handoff-report.md with created, blocked, or manual handoff routes.'],
     safety: [
       'Never overwrites existing app routes.',
       'Blocks when a host route already exists and gives manual handoff guidance for frameworks that need it.'

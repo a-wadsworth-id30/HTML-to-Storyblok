@@ -15,6 +15,7 @@ export async function createReport(workDir) {
   const latestStoryblokValidation = latestSummary(artifactSummaries, ['storyblok_content_validation']);
   const latestStoryblokManagementVerification = latestSummary(artifactSummaries, ['storyblok_management_verification']);
   const latestNetlify = latestSummary(artifactSummaries, ['netlify_preview']);
+  const latestRouteHandoff = latestSummary(artifactSummaries, ['route_handoff']);
   return {
     work_dir: workDir,
     evidence_entries: evidence.length,
@@ -36,6 +37,7 @@ export async function createReport(workDir) {
     latest_storyblok_validation: latestStoryblokValidation,
     latest_storyblok_management_verification: latestStoryblokManagementVerification,
     latest_netlify: latestNetlify,
+    latest_route_handoff: latestRouteHandoff,
     safety_confirmation: {
       plan_valid: latestValidation?.status === 'passed' || latestValidation?.valid === true,
       storyblok_content_valid: latestStoryblokValidation?.status === 'passed' || latestStoryblokValidation?.status === 'skipped',
@@ -68,6 +70,7 @@ export function renderMarkdownReport(report) {
   const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
   const latestNetlify = report.latest_netlify?.status || 'not run';
+  const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
   const artifactRows = report.artifacts.length
     ? report.artifacts.map((artifact) => `- ${artifact.type}: ${artifact.artifact}`).join('\n')
     : '- None recorded';
@@ -90,6 +93,7 @@ export function renderMarkdownReport(report) {
 - Latest Storyblok validation: ${latestStoryblokValidation}
 - Latest Storyblok management verification: ${latestStoryblokManagementVerification}
 - Latest Netlify: ${latestNetlify}
+- Latest route handoff: ${latestRouteHandoff}
 
 ## Safety
 
@@ -124,6 +128,7 @@ export function renderHtmlReport(report) {
     : 'not run';
   const latestStoryblokValidation = report.latest_storyblok_validation?.status || 'not run';
   const latestStoryblokManagementVerification = report.latest_storyblok_management_verification?.status || 'not run';
+  const latestRouteHandoff = report.latest_route_handoff?.status || 'not run';
   const storyblokManagementRows = storyblokManagementVerificationRows(report)
     .map((row) => `<li>${escapeHtml(row.replace(/^- /, ''))}</li>`)
     .join('\n') || '<li>Not run</li>';
@@ -157,6 +162,7 @@ export function renderHtmlReport(report) {
       <p><strong>Latest validation:</strong> ${escapeHtml(latestValidation)}</p>
       <p><strong>Latest Storyblok validation:</strong> ${escapeHtml(latestStoryblokValidation)}</p>
       <p><strong>Latest Storyblok management verification:</strong> ${escapeHtml(latestStoryblokManagementVerification)}</p>
+      <p><strong>Latest route handoff:</strong> ${escapeHtml(latestRouteHandoff)}</p>
       <p><strong>Commands completed:</strong> ${report.commands_completed}</p>
     </section>
     <section>
@@ -190,6 +196,13 @@ export function renderHtmlReport(report) {
 
 async function summarizeArtifact(artifact) {
   const name = artifact.split('/').at(-1);
+  if (name === 'route-handoff-report.md') {
+    return {
+      type: 'route_handoff_report',
+      artifact,
+      status: 'recorded'
+    };
+  }
   try {
     const data = await readJson(artifact);
     if (name === 'integration-manifest.json') {
@@ -264,6 +277,9 @@ async function summarizeArtifact(artifact) {
     }
     if (name === 'storyblok-apply-result.json' || name === 'apply-result.json') {
       return summarizeStoryblokApplyResult(data, artifact, name);
+    }
+    if (name === 'route-handoff-result.json') {
+      return summarizeRouteHandoff(data, artifact);
     }
     if (name === 'github-pr-result.json') {
       return {
@@ -412,6 +428,22 @@ function summarizeStoryblokApplyResult(data, artifact, name) {
     assets_created_or_reused: assetResults.length,
     draft_stories_created_or_reused: draftResults.length,
     link_summary: linkSummary
+  };
+}
+
+function summarizeRouteHandoff(data, artifact) {
+  return {
+    type: 'route_handoff',
+    artifact,
+    status: data.status || 'recorded',
+    dry_run: Boolean(data.dry_run),
+    total_routes: data.summary?.total || ensureArray(data.routes).length,
+    created: data.summary?.created || 0,
+    would_create: data.summary?.would_create || 0,
+    blocked: data.summary?.blocked || 0,
+    skipped: data.summary?.skipped || 0,
+    manual_handoff_routes: ensureArray(data.routes).filter((route) => route.manual_handoff).length,
+    markdown_report: data.markdown_report || null
   };
 }
 
