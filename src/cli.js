@@ -17,6 +17,7 @@ import { runDashboard, runDoctorCommand, runInteractiveApp, runOnboardingCommand
 import { inspectNetlify, inspectRepository, inspectStoryblokEnvironment, inspectTemplate } from './inspectors.js';
 import { queryNetlifyDeployPreviews, verifyNetlifyDeployPreview } from './netlify.js';
 import { validatePlan } from './policy.js';
+import { createPlatformReadiness, renderPlatformReadinessMarkdown } from './platform-readiness.js';
 import { createReadinessHandoff } from './readiness.js';
 import { createReport, writeHtmlReport } from './reporter.js';
 import { createRollbackPreview, rollbackIntegration } from './rollback.js';
@@ -342,6 +343,16 @@ export async function main(argv) {
       result.markdown_report = await writeTextArtifact(workDir, 'client-review-gate-report.md', renderClientApplyReviewGateMarkdown(result));
       await writeArtifact(workDir, 'client-review-gate.json', result);
       if (result.status === 'failed') process.exitCode = 2;
+    } else if (command === 'platform-readiness') {
+      const manifest = await readAndValidateManifest(args, workDir);
+      result = await createPlatformReadiness(manifest, {
+        repoPath: args.repo ? String(args.repo) : process.cwd(),
+        route: args.route ? String(args.route) : null,
+        requireAutomaticRoutes: Boolean(args.require_automatic_routes)
+      });
+      result.markdown_report = await writeTextArtifact(workDir, 'platform-readiness-report.md', renderPlatformReadinessMarkdown(result));
+      await writeArtifact(workDir, 'platform-readiness.json', result);
+      if (result.status === 'blocked' || result.status === 'failed') process.exitCode = 2;
     } else if (command === 'build') {
       result = await runRepositoryScript({
         repoPath: args.repo ? String(args.repo) : process.cwd(),
@@ -564,6 +575,9 @@ function normalizeCommand(command) {
     'route-analyzer': 'route-collisions',
     'route-analysis': 'route-collisions',
     'route-collision-analysis': 'route-collisions',
+    'platform-check': 'platform-readiness',
+    'adapter-readiness': 'platform-readiness',
+    'framework-readiness': 'platform-readiness',
     handoff: 'readiness',
     examples: 'examples'
   };
@@ -1114,6 +1128,10 @@ function renderShellCompletion(shell = 'zsh') {
     'repository-preflight',
     'validate',
     'build',
+    'platform-readiness',
+    'platform-check',
+    'adapter-readiness',
+    'framework-readiness',
     'generate',
     'wire-routes',
     'route-handoff',
@@ -1156,6 +1174,7 @@ function renderShellCompletion(shell = 'zsh') {
     '--require-repository',
     '--skip-readiness',
     '--require-preview-url',
+    '--require-automatic-routes',
     '--integration-id',
     '--fixture',
     '--static-url',

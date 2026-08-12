@@ -365,6 +365,7 @@ const COMMAND_GUIDES = {
       'html-to-storyblok repository-preflight --manifest <path> --repo <path>',
       'html-to-storyblok apply --manifest <path> --repo <path> --dry-run',
       'html-to-storyblok apply --manifest <path> --repo <path>',
+      'html-to-storyblok platform-readiness --manifest <path> --repo <path>',
       'html-to-storyblok route-collisions --manifest <path> --repo <path>',
       'html-to-storyblok wire-routes --manifest <path> --repo <path> --dry-run'
     ],
@@ -372,6 +373,28 @@ const COMMAND_GUIDES = {
     evidence: ['Preflight, apply, validation, and route handoff each write separate artifacts.'],
     safety: ['The CLI creates isolated files under the integration namespace and blocks existing route/file collisions.'],
     examples: ['html-to-storyblok help repository']
+  },
+  'platform-readiness': {
+    title: 'Platform Readiness',
+    purpose: 'Confirms the generated integration is ready for the target framework before imported routes are exposed.',
+    usage: [
+      'html-to-storyblok platform-readiness --manifest <path> --repo <path> [--route home|about|/path] [--require-automatic-routes]'
+    ],
+    when: [
+      'Run after generate/apply has written adapter-plan.json and before route-collisions or wire-routes.',
+      'Use --require-automatic-routes in CI when React, Vue, or static manual handoff should block the pipeline.'
+    ],
+    evidence: ['Writes platform-readiness.json and platform-readiness-report.md.'],
+    safety: [
+      'Read-only. It does not create host route files, edit router registries, mutate Storyblok, or expose secrets.',
+      'It verifies generated route preview/proposal files and keeps Content API token guidance separate from Management API credentials.',
+      'It reports Astro, Next, and Nuxt as automatic route-file targets; React, Vue, and static projects require manual router handoff.'
+    ],
+    examples: [
+      'html-to-storyblok platform-readiness --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site',
+      'html-to-storyblok framework-readiness --manifest .tmp/html-to-storyblok/integration-manifest.json --repo ../client-site --require-automatic-routes'
+    ],
+    next: ['route-collisions', 'wire-routes', 'validate']
   },
   'route-collisions': {
     title: 'Route Collision Analysis',
