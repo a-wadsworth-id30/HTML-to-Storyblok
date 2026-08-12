@@ -671,99 +671,168 @@ export async function createStoryblokAssetFolders(manifest, { dryRun = false, en
 export async function uploadStoryblokAssets(manifest, { dryRun = false, env = process.env } = {}) {
   const config = getStoryblokConfig(env);
   const assets = ensureArray(manifest.storyblok?.assets_to_create);
-  const results = [];
-  if (assets.length === 0) return results;
+  if (assets.length === 0) return [];
   if (!config.available && !dryRun) {
     throw new Error('Storyblok credentials unavailable; set STORYBLOK_MANAGEMENT_TOKEN and STORYBLOK_SPACE_ID');
   }
 
   const folderIds = dryRun ? new Map() : await resolveAssetFolderIds(manifest, { env });
+  const targetQueues = new Map();
+  const completedTargets = new Map();
 
-  for (const asset of assets) {
-    const localPath = asset.local_path || asset.file || asset.path;
-    if (!localPath) throw new Error('asset entry is missing local_path');
-    if (!(await pathExists(localPath))) throw new Error(`asset file does not exist: ${localPath}`);
-    const filename = asset.filename || path.basename(localPath);
-    const fileStat = await stat(localPath);
-    const sourceBuffer = await readFile(localPath);
-    const sourceSha256 = sha256(sourceBuffer);
-    const assetFolderPath = asset.asset_folder_path || defaultAssetFolderPath(manifest);
-    const resolvedFolderId = asset.asset_folder_id || (assetFolderPath ? folderIds.get(assetFolderPath) : null);
-    if (!dryRun && assetFolderPath && !resolvedFolderId) {
-      throw new Error(`Storyblok asset folder was not resolved for asset ${filename}: ${assetFolderPath}`);
-    }
-    const signPayload = {
-      filename,
-      asset_folder_id: resolvedFolderId || undefined,
-      size: asset.size || '',
-      validate_upload: 1
-    };
+  return mapConcurrent(assets, async (asset) => {
+    const context = storyblokAssetUploadContext(asset, manifest, folderIds, { dryRun });
     if (dryRun) {
-      results.push({
-        action: 'upload_asset',
-        dry_run: true,
-        local_path: localPath,
-        filename,
-        source_ref: asset.source_ref || null,
-        asset_folder_path: assetFolderPath || null,
-        bytes: fileStat.size,
-        source_sha256: sourceSha256,
-        sign_payload: {
-          ...signPayload,
-          asset_folder_path: assetFolderPath || undefined
-        }
-      });
-      continue;
+      return dryRunStoryblokAssetUpload(asset, context);
     }
 
-    const existing = dryRun ? null : await findAssetByFilename(config, filename, {
-      assetFolderId: resolvedFolderId,
-      manifest
-    });
-    if (existing) {
-      assertAssetMatches(existing, { filename, bytes: fileStat.size });
-      results.push({
-        action: 'upload_asset',
-        dry_run: false,
-        status: 'already_exists',
-        local_path: localPath,
-        filename,
-        source_ref: asset.source_ref || null,
-        asset_folder_path: assetFolderPath || null,
-        asset_folder_id: resolvedFolderId || null,
-        bytes: fileStat.size,
-        source_sha256: sourceSha256,
-        id: existing.id || null,
-        verification: summarizeAsset(existing)
-      });
-      continue;
-    }
+    return enqueueSerial(targetQueues, context.targetKey, () =>
+      uploadStoryblokAsset(asset, context, {
+        completedTargets,
+        config,
+        manifest
+      })
+    );
+  }, { concurrency: config.readConcurrency });
+}
 
-    const signed = await storyblokRequest(config, `/spaces/${config.spaceId}/assets/`, {
-      method: 'POST',
-      body: signPayload
-    });
-    await uploadSignedAsset(signed, localPath, filename, config);
-    const assetId = signed.id || signed.asset?.id;
-    const finished = assetId
-      ? await storyblokRequest(config, `/spaces/${config.spaceId}/assets/${assetId}/finish_upload`)
-      : signed;
-    results.push({
+function storyblokAssetUploadContext(asset, manifest, folderIds, { dryRun }) {
+  const localPath = asset.local_path || asset.file || asset.path;
+  if (!localPath) throw new Error('asset entry is missing local_path');
+  const filename = asset.filename || path.basename(localPath);
+  const assetFolderPath = asset.asset_folder_path || defaultAssetFolderPath(manifest);
+  const resolvedFolderId = asset.asset_folder_id || (assetFolderPath ? folderIds.get(assetFolderPath) : null);
+  if (!dryRun && assetFolderPath && !resolvedFolderId) {
+    throw new Error(`Storyblok asset folder was not resolved for asset ${filename}: ${assetFolderPath}`);
+  }
+  const signPayload = {
+    filename,
+    asset_folder_id: resolvedFolderId || undefined,
+    size: asset.size || '',
+    validate_upload: 1
+  };
+  return {
+    assetFolderPath,
+    filename,
+    localPath,
+    resolvedFolderId,
+    signPayload,
+    targetKey: storyblokAssetTargetKey(filename, resolvedFolderId)
+  };
+}
+
+async function dryRunStoryblokAssetUpload(asset, context) {
+  const source = await readStoryblokAssetSource(context.localPath);
+  return {
+    action: 'upload_asset',
+    dry_run: true,
+    local_path: context.localPath,
+    filename: context.filename,
+    source_ref: asset.source_ref || null,
+    asset_folder_path: context.assetFolderPath || null,
+    bytes: source.fileStat.size,
+    source_sha256: source.sourceSha256,
+    sign_payload: {
+      ...context.signPayload,
+      asset_folder_path: context.assetFolderPath || undefined
+    }
+  };
+}
+
+async function uploadStoryblokAsset(asset, context, { completedTargets, config, manifest }) {
+  const source = await readStoryblokAssetSource(context.localPath);
+  const completed = completedTargets.get(context.targetKey);
+  if (completed) {
+    const result = duplicateStoryblokAssetResult(asset, context, source, completed);
+    return result;
+  }
+
+  const existing = await findAssetByFilename(config, context.filename, {
+    assetFolderId: context.resolvedFolderId,
+    manifest
+  });
+  if (existing) {
+    assertAssetMatches(existing, { filename: context.filename, bytes: source.fileStat.size });
+    const result = {
       action: 'upload_asset',
       dry_run: false,
-      status: 'created',
-      local_path: localPath,
-      filename,
+      status: 'already_exists',
+      local_path: context.localPath,
+      filename: context.filename,
       source_ref: asset.source_ref || null,
-      asset_folder_path: assetFolderPath || null,
-      asset_folder_id: resolvedFolderId || null,
-      bytes: fileStat.size,
-      source_sha256: sourceSha256,
-      id: finished.asset?.id || assetId || null,
-      verification: finished.asset ? summarizeAsset(finished.asset) : finished
-    });
+      asset_folder_path: context.assetFolderPath || null,
+      asset_folder_id: context.resolvedFolderId || null,
+      bytes: source.fileStat.size,
+      source_sha256: source.sourceSha256,
+      id: existing.id || null,
+      verification: summarizeAsset(existing)
+    };
+    completedTargets.set(context.targetKey, result);
+    return result;
   }
-  return results;
+
+  const signed = await storyblokRequest(config, `/spaces/${config.spaceId}/assets/`, {
+    method: 'POST',
+    body: context.signPayload
+  });
+  await uploadSignedAsset(signed, context.localPath, context.filename, config, source.sourceBuffer);
+  const assetId = signed.id || signed.asset?.id;
+  const finished = assetId
+    ? await storyblokRequest(config, `/spaces/${config.spaceId}/assets/${assetId}/finish_upload`)
+    : signed;
+  const result = {
+    action: 'upload_asset',
+    dry_run: false,
+    status: 'created',
+    local_path: context.localPath,
+    filename: context.filename,
+    source_ref: asset.source_ref || null,
+    asset_folder_path: context.assetFolderPath || null,
+    asset_folder_id: context.resolvedFolderId || null,
+    bytes: source.fileStat.size,
+    source_sha256: source.sourceSha256,
+    id: finished.asset?.id || assetId || null,
+    verification: finished.asset ? summarizeAsset(finished.asset) : finished
+  };
+  completedTargets.set(context.targetKey, result);
+  return result;
+}
+
+async function readStoryblokAssetSource(localPath) {
+  if (!(await pathExists(localPath))) throw new Error(`asset file does not exist: ${localPath}`);
+  const fileStat = await stat(localPath);
+  const sourceBuffer = await readFile(localPath);
+  return {
+    fileStat,
+    sourceBuffer,
+    sourceSha256: sha256(sourceBuffer)
+  };
+}
+
+function duplicateStoryblokAssetResult(asset, context, source, completed) {
+  assertAssetMatches({ content_length: completed.bytes }, {
+    filename: context.filename,
+    bytes: source.fileStat.size
+  });
+  return {
+    action: 'upload_asset',
+    dry_run: false,
+    status: 'already_exists',
+    duplicate_target: true,
+    local_path: context.localPath,
+    filename: context.filename,
+    source_ref: asset.source_ref || null,
+    asset_folder_path: context.assetFolderPath || null,
+    asset_folder_id: context.resolvedFolderId || null,
+    bytes: source.fileStat.size,
+    source_sha256: source.sourceSha256,
+    id: completed.id || null,
+    verification: completed.verification || null
+  };
+}
+
+function storyblokAssetTargetKey(filename, assetFolderId) {
+  return `${assetFolderId || 0}:${normalizeStoryAssetKey(filename)}`;
 }
 
 export async function createStoryblokPresets(manifest, {
@@ -2695,11 +2764,11 @@ function sha256Json(value) {
   return sha256(stableJson(value));
 }
 
-async function uploadSignedAsset(signedResponse, localPath, filename, config = {}) {
+async function uploadSignedAsset(signedResponse, localPath, filename, config = {}, sourceBuffer = null) {
   const postUrl = signedResponse.post_url || signedResponse.upload_url;
   const fields = signedResponse.fields || {};
   if (!postUrl) throw new Error('Storyblok signed asset response did not include post_url');
-  const buffer = await readFile(localPath);
+  const buffer = sourceBuffer || await readFile(localPath);
   const form = new FormData();
   for (const [key, value] of Object.entries(fields)) {
     form.append(key, value);
@@ -3689,6 +3758,13 @@ async function mapConcurrent(items, mapper, { concurrency = DEFAULT_STORYBLOK_RE
   }));
 
   return results;
+}
+
+function enqueueSerial(queues, key, task) {
+  const previous = queues.get(key) || Promise.resolve();
+  const current = previous.then(task);
+  queues.set(key, current);
+  return current;
 }
 
 function endpointWithQuery(endpoint, params = {}) {
