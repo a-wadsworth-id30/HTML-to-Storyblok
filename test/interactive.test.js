@@ -80,6 +80,8 @@ test('interactive create flow produces a validated dry-run integration and repor
   assert.equal(await pathExists(path.join(workDir, 'report.md')), true);
   assert.match(output.text(), /Plan Summary/);
   assert.match(output.text(), /Dry run complete/);
+  assert.match(output.text(), /Repository Route Previews/);
+  assert.match(output.text(), /route-proposals\/home/);
 });
 
 test('interactive create flow prompts for session-only Storyblok credentials', async () => {

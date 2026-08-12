@@ -193,6 +193,9 @@ test('generate writes isolated route previews for every template page without to
   assert.ok(result.files.includes('src/integrations/acme-campaign-v1/routes/contact/template.html'));
   assert.ok(result.files.includes('src/integrations/acme-campaign-v1/route-proposals/manifest.json'));
   assert.ok(result.files.includes('src/integrations/acme-campaign-v1/route-proposals/home/route.js'));
+  assert.deepEqual(result.route_previews.map((route) => route.suggested_site_path), ['/', '/about', '/contact', '/gallery', '/services']);
+  assert.equal(result.route_previews[0].preview_file, 'src/integrations/acme-campaign-v1/routes/home/template.html');
+  assert.equal(result.route_previews[0].route_proposal_file, 'src/integrations/acme-campaign-v1/route-proposals/home/route.js');
 
   const routeManifest = JSON.parse(await readFile(path.join(repoPath, 'src/integrations/acme-campaign-v1/routes/manifest.json'), 'utf8'));
   assert.deepEqual(routeManifest.routes.map((route) => route.slug), ['home', 'about', 'contact', 'gallery', 'services']);

@@ -1757,6 +1757,7 @@ function renderApplyPreviewDiff(terminal, result) {
     ['Draft Stories', summary.draft_stories, summary.draft_stories ? 'success' : 'warning'],
     ['Story Links', `${summary.resolved_story_links} resolved / ${summary.unresolved_story_links} unresolved`, summary.unresolved_story_links ? 'warning' : 'success']
   ]);
+  renderRepositoryRoutePreviews(terminal, result);
 }
 
 function renderStoryblokOnlyPlanSummary(terminal, manifest) {
@@ -1821,6 +1822,7 @@ function renderCompletion(terminal, result, reportPath) {
   if (draftLinks.length > 0) {
     terminal.panel('Draft Story Links', draftLinks.map((entry) => [entry.slug, entry.editor_url, 'success']));
   }
+  renderRepositoryRoutePreviews(terminal, result);
 }
 
 function renderStoryblokOnlyCompletion(terminal, result, reportPath) {
@@ -1892,6 +1894,24 @@ function collectDraftEditorLinks(result) {
       editor_url: entry.editor_url
     }))
     .slice(0, 6);
+}
+
+function renderRepositoryRoutePreviews(terminal, result) {
+  const routePreviews = collectRepositoryRoutePreviews(result);
+  if (routePreviews.length === 0) return;
+  terminal.panel('Repository Route Previews', routePreviews.map((route) => [
+    route.suggested_site_path || route.slug,
+    route.preview_file ? `${route.preview_file} -> ${route.route_proposal_file || 'manual route review'}` : 'No generated route preview',
+    route.preview_file ? 'success' : 'warning'
+  ]));
+}
+
+function collectRepositoryRoutePreviews(result) {
+  const steps = Array.isArray(result?.steps) ? result.steps : [];
+  return steps
+    .flatMap((step) => ensureArray(step?.route_previews))
+    .filter((route) => route?.slug)
+    .slice(0, 8);
 }
 
 function summarizeApplyResult(result) {

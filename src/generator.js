@@ -78,6 +78,7 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     source_page: conversion?.source_page || null,
     collisions,
     files: files.map((file) => file.path),
+    route_previews: summarizeRoutePreviews(files, namespace),
     assets: conversion?.asset_copies?.map((asset) => asset.target_path) || [],
     removed_scripts: conversion?.removed_scripts || 0,
     removed_inline_handlers: conversion?.removed_inline_handlers || 0,
@@ -92,6 +93,18 @@ export async function generateIntegration(manifest, { repoPath = process.cwd(), 
     reusable_assets: reusableAssets,
     drifted_collisions: drifted
   };
+}
+
+function summarizeRoutePreviews(files, namespace) {
+  const adapterPlan = files.find((file) => file.path === `${namespace}/adapter-plan.json`)?.content;
+  return ensureArray(adapterPlan?.routes).map((route) => ({
+    slug: route.slug,
+    suggested_site_path: route.suggested_site_path,
+    storyblok_slug: route.storyblok_slug,
+    preview_file: route.preview_file,
+    route_proposal_file: route.route_proposal_file,
+    registration_policy: route.registration_policy
+  }));
 }
 
 function resolveGenerationFramework(manifest, framework) {
