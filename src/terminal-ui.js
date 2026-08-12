@@ -27,6 +27,7 @@ export function createTerminal({
   const write = (value = '') => output.write(String(value));
   const line = (value = '') => write(`${value}\n`);
   const progressStarts = new Map();
+  let activeTask = null;
   const terminal = {
     input,
     output,
@@ -69,10 +70,15 @@ export function createTerminal({
       const filled = Math.round((safeCurrent / safeTotal) * width);
       const bar = `${'█'.repeat(filled)}${'░'.repeat(width - filled)}`;
       const percent = Math.round((safeCurrent / safeTotal) * 100);
-      if (!progressStarts.has(label) || safeCurrent === 0) progressStarts.set(label, Date.now());
-      const elapsed = ((Date.now() - progressStarts.get(label)) / 1000).toFixed(1);
+      if (activeTask && interactive) {
+        if (!activeTask.progressMode) write(`${ANSI.clearLine}${ANSI.cursorStart}`);
+        activeTask.progressMode = true;
+      }
+      const progressKey = activeTask ? activeTask.label : label;
+      if (!progressStarts.has(progressKey) || safeCurrent === 0) progressStarts.set(progressKey, activeTask?.started || Date.now());
+      const elapsed = ((Date.now() - progressStarts.get(progressKey)) / 1000).toFixed(1);
       line(`${label}${detail ? ` ${style('dim', detail)}` : ''}\n${style('cyan', bar)} ${safeCurrent} / ${safeTotal} ${percent}% ${style('dim', `${elapsed}s`)}`);
-      if (safeCurrent >= safeTotal) progressStarts.delete(label);
+      if (safeCurrent >= safeTotal) progressStarts.delete(progressKey);
     },
     async task(label, callback) {
       if (!interactive) {
@@ -84,7 +90,10 @@ export function createTerminal({
       const frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
       const started = Date.now();
       let index = 0;
+      const previousTask = activeTask;
+      activeTask = { label, started, progressMode: false };
       const timer = setInterval(() => {
+        if (activeTask?.progressMode) return;
         const elapsed = ((Date.now() - started) / 1000).toFixed(1);
         write(`${ANSI.clearLine}${ANSI.cursorStart}${style('cyan', frames[index % frames.length])} ${label} ${style('dim', `${elapsed}s`)}`);
         index += 1;
@@ -92,12 +101,16 @@ export function createTerminal({
       try {
         const result = await callback();
         clearInterval(timer);
-        write(`${ANSI.clearLine}${ANSI.cursorStart}`);
+        if (!activeTask?.progressMode) write(`${ANSI.clearLine}${ANSI.cursorStart}`);
+        progressStarts.delete(label);
+        activeTask = previousTask;
         this.status(label, 'success', 'done');
         return result;
       } catch (error) {
         clearInterval(timer);
-        write(`${ANSI.clearLine}${ANSI.cursorStart}`);
+        if (!activeTask?.progressMode) write(`${ANSI.clearLine}${ANSI.cursorStart}`);
+        progressStarts.delete(label);
+        activeTask = previousTask;
         this.status(label, 'error', 'failed');
         throw error;
       }

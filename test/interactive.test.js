@@ -8,7 +8,7 @@ import { main } from '../src/cli.js';
 import { loadConfig, parseSettingAssignment, saveConfig, updateConfigValue, updateProfileValue } from '../src/config.js';
 import { discoverRepositories, discoverTemplates } from '../src/discovery.js';
 import { generateIntegration } from '../src/generator.js';
-import { createDashboardModel, runInteractiveApp, runSettings } from '../src/interactive.js';
+import { createDashboardModel, createRecoveryAdvice, runInteractiveApp, runSettings } from '../src/interactive.js';
 import { createIntegrationPlan } from '../src/planner.js';
 import { createDefaultManifest } from '../src/policy.js';
 import { pathExists } from '../src/utils.js';
@@ -387,7 +387,24 @@ test('interactive action failure shows recovery options before returning home', 
 
   assert.equal(result.action, 'exit');
   assert.match(output.text(), /Action Failed/);
+  assert.match(output.text(), /Recovery Assistant/);
   assert.match(output.text(), /Recovery/);
+});
+
+test('recovery advice gives specific guidance for Storyblok draft drift', () => {
+  const advice = createRecoveryAdvice({
+    action: 'apply',
+    error: new Error('Storyblok draft story drift detected for acme-homepage-v1/home; existing story does not match the manifest.'),
+    manifest: editableManifest(),
+    workDir: '.tmp/html-to-storyblok',
+    reportPath: '.tmp/html-to-storyblok/report.md'
+  });
+
+  assert.equal(advice.code, 'HTS_STORYBLOK_DRAFT_DRIFT');
+  assert.equal(advice.affected_resource, 'acme-homepage-v1/home');
+  assert.match(advice.recommended_fix, /new integration ID/);
+  assert.ok(advice.actions.includes('start-new'));
+  assert.ok(advice.commands.some((command) => command.includes('storyblok-reconcile')));
 });
 
 test('interactive completed Storyblok apply can validate and return to the home screen', async () => {
@@ -430,6 +447,10 @@ test('interactive completed Storyblok apply can validate and return to the home 
   assert.equal(input.paused, true);
   assert.equal(headers.length >= 2, true);
   assert.match(text, /Storyblok Integration Complete/);
+  assert.match(text, /What Changed/);
+  assert.match(text, /Test Next/);
+  assert.match(text, /Evidence And Safety/);
+  assert.match(text, /Rollback Preview/);
   assert.match(text, /Success/);
   assert.match(text, /Plan Validation\s+Passed/);
   assert.match(text, /Local Validation/);
