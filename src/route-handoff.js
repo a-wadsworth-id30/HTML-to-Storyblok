@@ -274,8 +274,10 @@ ${renderStoryblokContentHelpers(entry.storyblok_slug)}
 
 const story = Astro.props.story || await htsFetchStoryblokDraft();
 const blok = Astro.props.blok || story?.content || {};
+const htsStoryblokSource = story ? 'storyblok-draft' : 'generated-fallback';
 ---
 
+<span data-hts-storyblok-source={htsStoryblokSource} data-hts-storyblok-slug={HTS_STORYBLOK_STORY_SLUG} hidden></span>
 <ImportedRoute story={story} blok={blok} />
 `;
 }
@@ -290,7 +292,13 @@ ${renderStoryblokContentHelpers(entry.storyblok_slug)}
 
 export default async function HtsImportedRoutePage() {
   const story = await htsFetchStoryblokDraft();
-  return <ImportedRoute story={story} blok={story?.content || null} />;
+  const htsStoryblokSource = story ? 'storyblok-draft' : 'generated-fallback';
+  return (
+    <>
+      <span data-hts-storyblok-source={htsStoryblokSource} data-hts-storyblok-slug={HTS_STORYBLOK_STORY_SLUG} hidden />
+      <ImportedRoute story={story} blok={story?.content || null} />
+    </>
+  );
 }
 `;
 }
@@ -308,6 +316,7 @@ const { data: story } = await useAsyncData('hts-${safeIdentifier(entry.slug)}-st
 </script>
 
 <template>
+  <span :data-hts-storyblok-source="story ? 'storyblok-draft' : 'generated-fallback'" :data-hts-storyblok-slug="HTS_STORYBLOK_STORY_SLUG" hidden></span>
   <ImportedRoute :story="story" :blok="story?.content || null" />
 </template>
 `;

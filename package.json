@@ -15,6 +15,7 @@
     "test:demo-sites-full": "node scripts/test-demo-sites-full.mjs --require-framework",
     "test:demo-sites-full:install": "node scripts/test-demo-sites-full.mjs --install --smoke --require-framework",
     "test:demo-sites-generated": "node scripts/test-demo-sites-full.mjs --install --smoke --require-framework --generated",
+    "test:demo-sites-live-preview": "node scripts/test-demo-sites-live-preview.mjs",
     "test:demo-sites-full:list": "node scripts/test-demo-sites-full.mjs --list",
     "security:audit": "node scripts/security-audit.mjs",
     "check": "node scripts/check-syntax.mjs"
