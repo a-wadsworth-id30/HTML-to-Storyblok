@@ -36,6 +36,7 @@ const DEFAULT_STORYBLOK_READ_CONCURRENCY = 4;
 
 const requestQueues = new Map();
 const lastRequestTimes = new Map();
+const rateLimitBackoffUntil = new Map();
 
 export function createStoryblokStateCache() {
   return {
@@ -1375,6 +1376,10 @@ async function storyblokRequest(config, endpoint, { method = 'GET', body } = {})
     const text = await response.text();
     const data = parseJsonOrText(text);
     if (response.ok) return data;
+
+    if (Number(response.status) === 429) {
+      registerStoryblokRateLimit(config, retryAfterMs(response.headers?.get?.('retry-after')) ?? retryDelayMs(config, attempt));
+    }
 
     if (attempt < retryLimit && shouldRetryStoryblokStatus(response.status)) {
       const retryAfter = retryAfterMs(response.headers?.get?.('retry-after'));
@@ -3913,8 +3918,7 @@ function sleep(ms) {
 
 async function throttleStoryblokRequest(config) {
   const interval = Math.max(Number(config.requestIntervalMs) || 0, 0);
-  if (interval === 0) return;
-  const key = `${config.baseUrl}:${config.spaceId || 'content'}`;
+  const key = storyblokThrottleKey(config);
   const previous = requestQueues.get(key) || Promise.resolve();
   let release;
   const current = new Promise((resolve) => {
@@ -3923,10 +3927,22 @@ async function throttleStoryblokRequest(config) {
   requestQueues.set(key, previous.then(() => current));
   await previous;
   const last = lastRequestTimes.get(key) || 0;
-  const wait = interval - (Date.now() - last);
+  const intervalWait = interval - (Date.now() - last);
+  const backoffWait = (rateLimitBackoffUntil.get(key) || 0) - Date.now();
+  const wait = Math.max(intervalWait, backoffWait);
   if (wait > 0) await sleep(wait);
   lastRequestTimes.set(key, Date.now());
   release();
+}
+
+function registerStoryblokRateLimit(config, delayMs) {
+  const key = storyblokThrottleKey(config);
+  const until = Date.now() + Math.max(Number(delayMs) || 0, 0);
+  rateLimitBackoffUntil.set(key, Math.max(rateLimitBackoffUntil.get(key) || 0, until));
+}
+
+function storyblokThrottleKey(config) {
+  return `${config.baseUrl}:${config.spaceId || 'content'}`;
 }
 
 function createTimeout(timeoutMs) {
