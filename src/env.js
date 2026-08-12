@@ -3,6 +3,7 @@ import path from 'node:path';
 import { pathExists, unique, writeText } from './utils.js';
 
 const DEFAULT_ENV_FILES = ['.env', '.env.local'];
+const ENV_SOURCE_PROPERTY = '__hts_environment_sources';
 
 export const ENV_TEMPLATE = `# HTML-to-Storyblok local environment
 # Copy this file to .env.local and fill values locally. Do not commit real secrets.
@@ -72,6 +73,7 @@ export async function loadEnvironment({
   config = {}
 } = {}) {
   const fileEnv = {};
+  const fileSources = {};
   const filesLoaded = [];
   const directories = unique([
     cwd ? path.resolve(cwd) : null,
@@ -82,7 +84,14 @@ export async function loadEnvironment({
     for (const name of DEFAULT_ENV_FILES) {
       const filePath = path.join(directory, name);
       if (!(await pathExists(filePath))) continue;
-      Object.assign(fileEnv, parseDotEnv(await readFile(filePath, 'utf8')));
+      const parsed = parseDotEnv(await readFile(filePath, 'utf8'));
+      for (const [key, value] of Object.entries(parsed)) {
+        fileEnv[key] = value;
+        fileSources[key] = {
+          source: 'env_file',
+          file: filePath
+        };
+      }
       filesLoaded.push(filePath);
     }
   }
@@ -91,11 +100,21 @@ export async function loadEnvironment({
     ...fileEnv,
     ...env
   };
+  const sources = {};
+  for (const key of Object.keys(fileEnv)) {
+    sources[key] = env[key] === undefined ? fileSources[key] : { source: 'shell' };
+  }
+  for (const key of Object.keys(env)) {
+    sources[key] = { source: 'shell' };
+  }
+  attachEnvironmentSources(merged, sources);
   if (!merged.STORYBLOK_REGION && config.storyblok_region) {
     merged.STORYBLOK_REGION = config.storyblok_region;
+    setEnvironmentSource(merged, 'STORYBLOK_REGION', { source: 'profile', key: 'storyblok_region' });
   }
   if (!merged.STORYBLOK_SPACE_ID && !merged.SB_SPACE_ID && config.storyblok_space_id) {
     merged.STORYBLOK_SPACE_ID = config.storyblok_space_id;
+    setEnvironmentSource(merged, 'STORYBLOK_SPACE_ID', { source: 'profile', key: 'storyblok_space_id' });
   }
 
   return {
@@ -105,6 +124,32 @@ export async function loadEnvironment({
       .filter((key) => env[key] === undefined)
       .sort()
   };
+}
+
+export function cloneEnvironment(env = {}) {
+  const cloned = { ...env };
+  attachEnvironmentSources(cloned, { ...getEnvironmentSources(env) });
+  return cloned;
+}
+
+export function getEnvironmentSources(env = {}) {
+  return env?.[ENV_SOURCE_PROPERTY] || {};
+}
+
+export function setEnvironmentSource(env, name, source) {
+  const sources = { ...getEnvironmentSources(env) };
+  sources[name] = typeof source === 'string' ? { source } : source;
+  attachEnvironmentSources(env, sources);
+  return env;
+}
+
+function attachEnvironmentSources(env, sources) {
+  Object.defineProperty(env, ENV_SOURCE_PROPERTY, {
+    value: sources,
+    enumerable: false,
+    configurable: true
+  });
+  return env;
 }
 
 export async function initEnvFile({

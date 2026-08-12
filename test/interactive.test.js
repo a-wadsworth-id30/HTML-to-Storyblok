@@ -125,6 +125,8 @@ test('interactive create flow prompts for session-only Storyblok credentials', a
     assert.match(output.text(), /Start Here/);
     assert.match(output.text(), /Wizard Context/);
     assert.match(output.text(), /Create Integration/);
+    assert.match(output.text(), /Credential Sources/);
+    assert.match(output.text(), /session prompt/);
     assert.doesNotMatch(output.text(), /management-token|preview-token/);
   } finally {
     restoreFetch();
