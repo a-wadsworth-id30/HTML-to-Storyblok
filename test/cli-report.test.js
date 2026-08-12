@@ -155,6 +155,85 @@ test('report summarizes route handoff evidence artifacts', async () => {
   assert.match(markdown, /Latest route handoff: skipped/);
 });
 
+test('report and asset-dashboard surface asset integrity evidence', async () => {
+  const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-report-assets-'));
+  const assetPath = path.join(workDir, 'hero.svg');
+  await writeFile(assetPath, '<svg><title>Hero</title></svg>');
+
+  await writeArtifact(workDir, 'integration-manifest.json', {
+    integration_id: 'acme-homepage-v1',
+    repository: {
+      assets_to_create: [
+        {
+          source_path: assetPath,
+          target_path: 'src/integrations/acme-homepage-v1/assets/hero.svg'
+        }
+      ]
+    },
+    storyblok: {
+      assets_to_create: [
+        {
+          local_path: assetPath,
+          filename: 'acme-homepage-v1/hero.svg',
+          asset_folder_path: 'acme-homepage-v1'
+        }
+      ]
+    }
+  });
+  await writeArtifact(workDir, 'apply-result.json', {
+    status: 'complete',
+    dry_run: false,
+    steps: [
+      {
+        action: 'storyblok_assets',
+        results: [
+          {
+            action: 'upload_asset',
+            dry_run: false,
+            status: 'created',
+            local_path: assetPath,
+            filename: 'acme-homepage-v1/hero.svg',
+            asset_folder_path: 'acme-homepage-v1',
+            bytes: 29,
+            source_sha256: 'a'.repeat(64),
+            id: 123,
+            verification: {
+              id: 123,
+              filename: 'https://a.storyblok.com/f/123/hash/hero.svg'
+            }
+          }
+        ]
+      }
+    ]
+  });
+  await writeArtifact(workDir, 'storyblok-management-verification.json', {
+    status: 'passed',
+    summary: {
+      unresolved_asset_fields: 0,
+      asset_fields: 3
+    }
+  });
+
+  const report = await createReport(workDir);
+  const markdown = renderMarkdownReport(report);
+  const html = renderHtmlReport(report);
+  const dashboardOutput = await captureStdout(async () => {
+    await main(['node', 'html-to-storyblok', 'asset-dashboard', '--work-dir', workDir]);
+  });
+  const dashboard = JSON.parse(dashboardOutput);
+
+  assert.equal(report.asset_integrity.status, 'passed');
+  assert.equal(report.asset_integrity.planned_storyblok_assets, 1);
+  assert.equal(report.asset_integrity.uploaded_or_reused, 1);
+  assert.equal(report.asset_integrity.unresolved_asset_fields, 0);
+  assert.equal(report.safety_confirmation.asset_integrity_valid, true);
+  assert.match(markdown, /## Asset Integrity/);
+  assert.match(markdown, /Uploaded or reused: 1/);
+  assert.match(html, /Asset Integrity/);
+  assert.equal(dashboard.status, 'passed');
+  assert.equal(dashboard.assets[0].id, 123);
+});
+
 test('apply dry-run executes the import pipeline without copying template assets as repository duplicates', async () => {
   const repoPath = await mkdtemp(path.join(os.tmpdir(), 'hts-apply-dry-run-repo-'));
   const workDir = await mkdtemp(path.join(os.tmpdir(), 'hts-apply-dry-run-work-'));

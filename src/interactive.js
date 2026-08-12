@@ -1930,12 +1930,26 @@ async function renderReportViewer(terminal, report, reportPath, answers) {
       : [['Storyblok', 'No Storyblok artifacts recorded', 'warning']]);
     renderStoryblokReportDrilldown(terminal, storyblokArtifacts);
   } else if (section === 'assets') {
-    const manifest = report.artifacts.find((artifact) => artifact.type === 'integration_manifest');
-    const apply = [...report.artifacts].reverse().find((artifact) => artifact.type === 'storyblok_apply_result' || artifact.type === 'apply_result');
+    const assets = report.asset_integrity || {};
     terminal.panel('Assets', [
-      ['Planned Storyblok Assets', manifest?.storyblok_assets || 0, manifest?.storyblok_assets ? 'success' : 'warning'],
-      ['Created or Reused', apply?.assets_created_or_reused || 0, apply?.assets_created_or_reused ? 'success' : 'warning']
+      ['Status', assets.status || 'not_run', assets.status === 'failed' ? 'error' : assets.status === 'warning' || assets.status === 'pending' ? 'warning' : 'success'],
+      ['Planned Repository Assets', assets.planned_repository_assets || 0, assets.planned_repository_assets ? 'success' : 'warning'],
+      ['Planned Storyblok Assets', assets.planned_storyblok_assets || 0, assets.planned_storyblok_assets ? 'success' : 'warning'],
+      ['Local Sources Checked', assets.local_sources_checked || 0, assets.local_sources_checked ? 'success' : 'warning'],
+      ['Local Sources Missing', assets.local_sources_missing || 0, assets.local_sources_missing ? 'error' : 'success'],
+      ['Local Sources Hashed', assets.local_sources_hashed || 0, assets.local_sources_hashed ? 'success' : 'warning'],
+      ['Uploaded or Reused', assets.uploaded_or_reused || 0, assets.uploaded_or_reused ? 'success' : 'warning'],
+      ['Unresolved Asset Fields', assets.unresolved_asset_fields || 0, assets.unresolved_asset_fields ? 'error' : 'success']
     ]);
+    const rows = (assets.assets || []).slice(0, 8).map((asset) => [
+      asset.filename || asset.local_path || 'asset',
+      `source ${asset.source_status || 'unknown'}; upload ${asset.upload_status || 'not_run'}${asset.id ? `; id ${asset.id}` : ''}`,
+      asset.source_status === 'missing' || asset.upload_status === 'failed' ? 'error' : asset.upload_status === 'not_run' ? 'warning' : 'success'
+    ]);
+    if (rows.length > 0) terminal.panel('Asset Evidence', rows);
+    if (assets.warnings?.length) {
+      terminal.panel('Asset Warnings', assets.warnings.map((warning) => ['Warning', warning, 'warning']));
+    }
   } else if (section === 'links') {
     const apply = [...report.artifacts].reverse().find((artifact) => artifact.type === 'storyblok_apply_result' || artifact.type === 'apply_result');
     terminal.panel('Links', [

@@ -248,6 +248,14 @@ The report viewer exposes summary, validation, evidence, generated files, warnin
 
 The report viewer also includes Storyblok, assets, links, and rollback-target sections so you can inspect created/reused resources, unresolved generated story links, and cleanup scope without opening JSON artifacts directly.
 
+For a scriptable asset integrity dashboard:
+
+```sh
+html-to-storyblok asset-dashboard
+```
+
+This read-only command summarizes planned repository assets, planned Storyblok assets, local source availability, SHA-256 hashes, upload dry-run evidence, real uploaded/reused assets, Storyblok asset IDs, Management API asset-field verification, Content API asset counts, and unresolved draft asset fields.
+
 ## Where to put templates
 
 Place supplied templates in a dedicated input folder:
@@ -1030,7 +1038,7 @@ html-to-storyblok upload-assets \
 
 When `apply` or `storyblok-apply` runs the full workflow, uploaded asset results are fed into draft story creation. Template-local asset references such as `./assets/hero.svg` are converted into Storyblok asset fields with the uploaded asset ID, final Storyblok filename, alt text, and `fieldtype: "asset"`.
 
-Existing Storyblok assets are reused only when the match is integration-owned and exact. The CLI compares the manifest filename/path and the resolved integration asset folder, so a generic existing asset with the same basename, such as `logo.svg`, is not treated as a safe match unless it belongs to the planned integration namespace. Upload evidence now includes the local byte size and SHA-256 hash for each source file.
+Existing Storyblok assets are reused only when the match is integration-owned and exact. The CLI compares the manifest filename/path and the resolved integration asset folder, so a generic existing asset with the same basename, such as `logo.svg`, is not treated as a safe match unless it belongs to the planned integration namespace. Upload evidence includes the local byte size and SHA-256 hash for each source file, and `asset-dashboard` combines that evidence with manifest, upload, Content API, and Management API verification results so missing files or unresolved draft asset fields are visible without opening JSON artifacts.
 
 Create Storyblok component presets listed in `storyblok.presets_to_create`:
 
@@ -1221,6 +1229,7 @@ html-to-storyblok settings [--show] [--set key=value] [--profile <name>]
 html-to-storyblok env [--init] [--path .env.local] [--force] [--print]
 html-to-storyblok doctor
 html-to-storyblok view-report
+html-to-storyblok asset-dashboard
 html-to-storyblok completion [--shell zsh|bash|fish]
 html-to-storyblok inspect-template --template <path>
 html-to-storyblok template-readiness --template <path>
@@ -1262,6 +1271,7 @@ html-to-storyblok open-mr --repo <path> --title <title> [--target-branch main] [
 html-to-storyblok rollback-preview --manifest <path> [--repo <path>]
 html-to-storyblok rollback --manifest <path> --repo <path> --confirm-integration-id <id> [--remote --confirm-remote-delete] [--allow-modified-generated-files] [--dry-run]
 html-to-storyblok report [--view] [--html]
+html-to-storyblok asset-dashboard
 ```
 
 Mutating commands support `--dry-run` and require the relevant credentials before real execution. Scripted commands that normally emit JSON also support `--json-summary` for compact CI output. `route-handoff` is an alias for `wire-routes`; `handoff` is an alias for `readiness`; `live-demo-sites` is an alias for `demo-sites-live-preview`. Storyblok shortcut aliases are available for frequent operations: `sb-audit`, `sb-preflight`, `sb-validate`, `sb-reconcile`, `sb-verify`, `sb-activities`, and `sb-apply`.
@@ -1316,7 +1326,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, Storyblok field hydration for hinted text, rich text, asset, link, and form fields, safe Storyblok `_editable` marker preservation for generated previews, route SEO metadata extraction from template head tags, multi-route isolated repository previews, review-only route proposal wrappers, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching and route metadata fallback, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
