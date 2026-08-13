@@ -8,10 +8,54 @@ let workflows = [];
 let guidanceByActionId = new Map();
 let runHistory = [];
 let selectedWorkflowId = '';
+let selectedSetupId = '';
 let selectedActionId = '';
 let activeRequestId = null;
 
+const quickSetupRequirements = {
+  'storyblok-only': ['integrationId', 'templatePath'],
+  'full-import': ['integrationId', 'templatePath', 'repoPath'],
+  'validate-existing': ['manifestPath']
+};
+
+const quickSetupSummaries = {
+  'storyblok-only': {
+    ready: 'Storyblok test selected. Run the first step when Storyblok access is ready; existing site stays optional.',
+    missing: 'Storyblok test selected. Add {fields}; existing site is optional for this setup.'
+  },
+  'full-import': {
+    ready: 'Full site import selected. Run the first step to check the site, template, and Storyblok access before planning.',
+    missing: 'Full site import selected. Add {fields} before starting the site integration.'
+  },
+  'validate-existing': {
+    ready: 'Previous work review selected. Open the latest dashboard, report, validation, or evidence pack.',
+    missing: 'Previous work review selected. Add {fields} or use the default plan file from the advanced section.'
+  },
+  'handoff-recovery': {
+    ready: 'Handoff workflow selected. Use the step list below to prepare reports, evidence, or rollback visibility.',
+    missing: 'Handoff workflow selected. Add {fields} before creating handoff evidence.'
+  }
+};
+
+const fieldLabels = {
+  integrationId: 'import name',
+  templatePath: 'template folder',
+  repoPath: 'existing site',
+  manifestPath: 'plan file',
+  route: 'page'
+};
+
+const setupFieldElements = {
+  integrationId: 'integrationField',
+  templatePath: 'templateField',
+  repoPath: 'repoField',
+  manifestPath: null
+};
+
 const elements = {
+  quickSetup: document.getElementById('quickSetup'),
+  setupSummary: document.getElementById('setupSummary'),
+  repoOptionalBadge: document.getElementById('repoOptionalBadge'),
   workflows: document.getElementById('workflows'),
   workflowSteps: document.getElementById('workflowSteps'),
   actionGuidance: document.getElementById('actionGuidance'),
@@ -38,12 +82,15 @@ async function initialize() {
   guidanceByActionId = new Map((bootstrap.guidance || []).map((entry) => [entry.action_id, entry]));
   runHistory = bootstrap.runHistory || [];
   selectedWorkflowId = workflows.find((workflow) => workflow.primary)?.id || workflows[0]?.id || '';
+  selectedSetupId = selectedWorkflowId;
   selectedActionId = workflows.find((workflow) => workflow.id === selectedWorkflowId)?.steps[0]?.action_id || actions[0]?.id || '';
   state = {
     ...bootstrap.defaultState,
     ...readStoredState()
   };
   bindInputs();
+  bindQuickSetup();
+  renderQuickSetup();
   renderWorkflows();
   renderWorkflowSteps();
   renderActionGuidance();
@@ -65,6 +112,7 @@ function bindInputs() {
         state.manifestPath = `${state.workDir}/integration-manifest.json`;
       }
       storeState();
+      renderQuickSetup();
       renderWorkflowSteps();
       renderActions();
     });
@@ -81,9 +129,16 @@ function bindInputs() {
       state[field] = selected;
       document.getElementById(field).value = selected;
       storeState();
+      renderQuickSetup();
       renderWorkflowSteps();
       renderActions();
     });
+  }
+}
+
+function bindQuickSetup() {
+  for (const button of elements.quickSetup.querySelectorAll('[data-quick-setup]')) {
+    button.addEventListener('click', () => applyQuickSetup(button.dataset.quickSetup));
   }
 }
 
@@ -137,15 +192,74 @@ function renderWorkflows() {
     `;
     button.addEventListener('click', () => {
       selectedWorkflowId = workflow.id;
+      selectedSetupId = workflow.id;
       if (!workflow.steps.some((step) => step.action_id === selectedActionId)) {
         selectedActionId = workflow.steps[0]?.action_id || selectedActionId;
       }
+      renderQuickSetup();
       renderWorkflows();
       renderWorkflowSteps();
       renderActionGuidance();
     });
     elements.workflows.appendChild(button);
   }
+}
+
+function applyQuickSetup(setupId) {
+  const workflow = workflows.find((entry) => entry.id === setupId);
+  if (!workflow) return;
+
+  selectedSetupId = setupId;
+  selectedWorkflowId = workflow.id;
+  selectedActionId = workflow.steps[0]?.action_id || selectedActionId;
+
+  if (setupId === 'storyblok-only' && state.framework === 'auto') {
+    state.framework = 'static';
+    updateInputValue('framework');
+  }
+
+  storeState();
+  renderQuickSetup();
+  renderWorkflows();
+  renderWorkflowSteps();
+  renderActionGuidance();
+  renderActions();
+}
+
+function renderQuickSetup() {
+  if (document.body) document.body.dataset.setup = selectedSetupId || '';
+
+  for (const button of elements.quickSetup.querySelectorAll('[data-quick-setup]')) {
+    const isSelected = button.dataset.quickSetup === selectedSetupId;
+    button.classList.toggle('selected', isSelected);
+    button.setAttribute('aria-pressed', String(isSelected));
+  }
+
+  const required = new Set(quickSetupRequirements[selectedSetupId] || []);
+  for (const [field, elementId] of Object.entries(setupFieldElements)) {
+    if (!elementId) continue;
+    const element = document.getElementById(elementId);
+    if (!element) continue;
+    const hasValue = Boolean(String(state[field] || '').trim());
+    element.classList.toggle('is-required', required.has(field));
+    element.classList.toggle('is-complete', required.has(field) && hasValue);
+  }
+
+  if (elements.repoOptionalBadge) {
+    const repoRequired = required.has('repoPath');
+    elements.repoOptionalBadge.textContent = repoRequired ? 'Required for site import' : 'Optional';
+    elements.repoOptionalBadge.className = `field-badge ${repoRequired ? 'required' : 'optional'}`;
+  }
+
+  const missing = [...required].filter((field) => !String(state[field] || '').trim());
+  const copy = quickSetupSummaries[selectedSetupId] || {
+    ready: 'Choose a setup path, then follow the ordered steps below.',
+    missing: 'Choose a setup path and add {fields} before starting.'
+  };
+  const text = missing.length
+    ? copy.missing.replace('{fields}', missing.map((field) => fieldLabels[field] || field).join(', '))
+    : copy.ready;
+  elements.setupSummary.textContent = text;
 }
 
 function renderWorkflowSteps() {
@@ -414,6 +528,11 @@ function appendOutput(text) {
   elements.output.scrollTop = elements.output.scrollHeight;
 }
 
+function updateInputValue(field) {
+  const element = document.getElementById(field);
+  if (element) element.value = state[field] || '';
+}
+
 function formatRunMeta(run) {
   const ended = run.ended_at ? new Date(run.ended_at).toLocaleString() : 'unknown time';
   const duration = run.duration_ms ? `${Math.round(run.duration_ms / 100) / 10}s` : '0s';
@@ -422,16 +541,9 @@ function formatRunMeta(run) {
 }
 
 function missingFields(action) {
-  const labels = {
-    templatePath: 'template folder',
-    repoPath: 'existing site',
-    manifestPath: 'plan file',
-    integrationId: 'import name',
-    route: 'page'
-  };
   return (action.requirements || [])
     .filter((field) => !String(state[field] || '').trim())
-    .map((field) => labels[field] || field);
+    .map((field) => fieldLabels[field] || field);
 }
 
 function groupActions(items) {
