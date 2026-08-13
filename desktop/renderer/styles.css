@@ -114,6 +114,44 @@ label {
   font-size: 13px;
 }
 
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.field-badge {
+  border-radius: 999px;
+  padding: 4px 8px;
+  background: #f2f4f7;
+  color: #475467;
+  font-size: 11px;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.field-badge.required {
+  background: #d1e9ff;
+  color: #175cd3;
+}
+
+.field-badge.optional {
+  background: #f2f4f7;
+  color: #667085;
+}
+
+.setup-field.is-required input,
+.setup-field.is-required select {
+  border-color: #b2ddff;
+}
+
+.setup-field.is-complete input,
+.setup-field.is-complete select {
+  border-color: #abefc6;
+}
+
 input,
 select {
   width: 100%;
@@ -242,6 +280,7 @@ select:focus {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(440px, 1.1fr);
   grid-template-areas:
+    "setup setup"
     "workflow workflow"
     "guidance guidance"
     "actions output"
@@ -250,6 +289,7 @@ select:focus {
   gap: 18px;
 }
 
+.quick-setup-panel,
 .workflow-panel,
 .guidance-panel,
 .actions-panel,
@@ -260,6 +300,10 @@ select:focus {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
+}
+
+.quick-setup-panel {
+  grid-area: setup;
 }
 
 .workflow-panel {
@@ -368,6 +412,64 @@ select:focus {
 .command-preview {
   margin-top: 5px;
   color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.quick-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 18px 0;
+}
+
+.quick-setup-card {
+  display: grid;
+  gap: 7px;
+  min-height: 126px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 15px;
+  text-align: left;
+}
+
+.quick-setup-card:hover,
+.quick-setup-card.selected {
+  border-color: var(--id30-blue);
+  background: var(--surface-tint);
+}
+
+.quick-setup-card.selected {
+  box-shadow: 0 0 0 3px rgb(0 122 255 / 12%);
+}
+
+.quick-setup-card strong {
+  font-size: 16px;
+  line-height: 1.25;
+}
+
+.quick-setup-card small {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.quick-kicker {
+  color: #175cd3;
+  font-size: 12px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.setup-summary {
+  margin: 14px 18px 18px;
+  border: 1px solid #b2ddff;
+  border-radius: 8px;
+  background: #eff8ff;
+  color: #1849a9;
+  padding: 12px 14px;
   font-size: 13px;
   line-height: 1.45;
 }

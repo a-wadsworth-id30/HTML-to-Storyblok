@@ -22,11 +22,14 @@
 
         <section class="control-section">
           <h2>Start Here</h2>
-          <label>
-            Import name
+          <label id="integrationField" class="setup-field">
+            <span class="label-row">
+              Import name
+              <span class="field-badge required">Required</span>
+            </span>
             <input id="integrationId" type="text" autocomplete="off" placeholder="acme-campaign-v1">
           </label>
-          <label>
+          <label id="frameworkField" class="setup-field">
             Site type
             <select id="framework">
               <option value="auto">Auto detect</option>
@@ -42,15 +45,21 @@
 
         <section class="control-section">
           <h2>Choose Files</h2>
-          <label>
-            Template
+          <label id="templateField" class="setup-field">
+            <span class="label-row">
+              Template
+              <span class="field-badge required">Required</span>
+            </span>
             <span class="path-row">
               <input id="templatePath" type="text" autocomplete="off">
               <button class="icon-button" data-browse="templatePath" title="Choose template folder">...</button>
             </span>
           </label>
-          <label>
-            Existing site
+          <label id="repoField" class="setup-field">
+            <span class="label-row">
+              Existing site
+              <span id="repoOptionalBadge" class="field-badge optional">Optional</span>
+            </span>
             <span class="path-row">
               <input id="repoPath" type="text" autocomplete="off" placeholder="../client-site">
               <button class="icon-button" data-browse="repoPath" title="Choose existing site">...</button>
@@ -124,6 +133,33 @@
         </section>
 
         <section class="workspace">
+          <div class="quick-setup-panel">
+            <div class="panel-heading">
+              <div>
+                <h3>Quick Setup</h3>
+                <p>Choose the result you want first. The app will select the right steps and required fields.</p>
+              </div>
+            </div>
+            <div id="quickSetup" class="quick-setup-grid">
+              <button class="quick-setup-card" type="button" data-quick-setup="storyblok-only">
+                <span class="quick-kicker">Recommended first</span>
+                <strong>Test Storyblok</strong>
+                <small>Create draft pages, blocks, images, and evidence without needing an existing site.</small>
+              </button>
+              <button class="quick-setup-card" type="button" data-quick-setup="full-import">
+                <span class="quick-kicker">When ready</span>
+                <strong>Add To Existing Site</strong>
+                <small>Generate isolated site files and Storyblok drafts after safety checks and a dry run.</small>
+              </button>
+              <button class="quick-setup-card" type="button" data-quick-setup="validate-existing">
+                <span class="quick-kicker">Review</span>
+                <strong>Check Previous Work</strong>
+                <small>Open the latest plan, evidence, reports, and validation results for an existing import.</small>
+              </button>
+            </div>
+            <p id="setupSummary" class="setup-summary">Choose a setup path to see what is needed next.</p>
+          </div>
+
           <div class="workflow-panel">
             <div class="panel-heading">
               <div>

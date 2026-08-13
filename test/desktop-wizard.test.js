@@ -62,10 +62,17 @@ test('desktop renderer contains guided workflow screens and advanced action fall
   const html = await readFile(new URL('../desktop/renderer/index.html', import.meta.url), 'utf8');
   const renderer = await readFile(new URL('../desktop/renderer/app.js', import.meta.url), 'utf8');
 
+  assert.match(html, /Quick Setup/);
+  assert.match(html, /data-quick-setup="storyblok-only"/);
+  assert.match(html, /data-quick-setup="full-import"/);
+  assert.match(html, /id="setupSummary"/);
   assert.match(html, /What do you want to do\?/);
   assert.match(html, /Advanced controls/);
   assert.match(html, /id="workflows"/);
   assert.match(html, /id="workflowSteps"/);
+  assert.match(renderer, /applyQuickSetup/);
+  assert.match(renderer, /renderQuickSetup/);
+  assert.match(renderer, /selectedSetupId/);
   assert.match(renderer, /renderWorkflows/);
   assert.match(renderer, /renderWorkflowSteps/);
   assert.match(renderer, /runAction\(action\)/);
@@ -76,6 +83,9 @@ test('desktop renderer presents an import assistant before technical controls', 
 
   assert.match(html, /Desktop import assistant/);
   assert.match(html, /Bring an HTML template into Storyblok safely/);
+  assert.match(html, /Test Storyblok/);
+  assert.match(html, /Add To Existing Site/);
+  assert.match(html, /Check Previous Work/);
   assert.match(html, /<details class="control-section advanced-setup">/);
   assert.match(html, /<details class="actions-panel">/);
   assert.doesNotMatch(html, /Guided GUI for non-terminal team members/);
