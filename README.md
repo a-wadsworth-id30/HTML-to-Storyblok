@@ -159,7 +159,7 @@ html-to-storyblok desktop
 
 Use `html-to-storyblok desktop --dry-run` to verify the launcher path without opening the app.
 
-The desktop app is intentionally a thin layer over the existing CLI. It does not duplicate planner, validator, generator, Storyblok, route, rollback, or reporting logic. Guided workflow cards lead non-terminal users through Storyblok-only testing, full repository imports, existing integration validation, and handoff/recovery. Advanced buttons remain available for experienced users and run whitelisted CLI actions such as onboarding, doctor, template inspection, repository inspection, Storyblok inspection, plan, validate, dry run, real apply, route handoff, Storyblok validation, report generation, evidence index, handoff pack, and rollback preview.
+The desktop app is intentionally a thin layer over the existing CLI. It does not duplicate planner, validator, generator, Storyblok, route, rollback, or reporting logic. Guided workflow cards lead non-terminal users through Storyblok-only testing, full repository imports, existing integration validation, and handoff/recovery. Selecting any step shows contextual guidance covering required inputs, safety level, expected evidence, and failure/recovery notes. Advanced buttons remain available for experienced users and run whitelisted CLI actions such as onboarding, doctor, template inspection, repository inspection, Storyblok inspection, plan, validate, dry run, real apply, route handoff, Storyblok validation, report generation, evidence index, handoff pack, and rollback preview.
 
 Desktop safety rules:
 

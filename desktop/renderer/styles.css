@@ -243,12 +243,14 @@ select:focus {
   grid-template-columns: minmax(420px, 1fr) minmax(440px, 1.1fr);
   grid-template-areas:
     "workflow workflow"
+    "guidance guidance"
     "actions output"
     "evidence evidence";
   gap: 18px;
 }
 
 .workflow-panel,
+.guidance-panel,
 .actions-panel,
 .output-panel,
 .evidence-panel {
@@ -260,6 +262,10 @@ select:focus {
 
 .workflow-panel {
   grid-area: workflow;
+}
+
+.guidance-panel {
+  grid-area: guidance;
 }
 
 .actions-panel {
@@ -370,6 +376,17 @@ select:focus {
   background: #f8fafc;
 }
 
+.workflow-step.selected,
+.action-button.selected {
+  border-color: var(--id30-blue);
+  box-shadow: 0 0 0 3px rgb(0 122 255 / 12%);
+}
+
+.workflow-step:focus {
+  outline: none;
+  border-color: var(--id30-blue);
+}
+
 .step-number {
   display: grid;
   place-items: center;
@@ -392,6 +409,62 @@ select:focus {
   color: var(--muted);
   font-size: 13px;
   line-height: 1.4;
+}
+
+.guidance-content {
+  padding: 18px;
+}
+
+.guidance-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.guidance-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.guidance-card.wide {
+  grid-column: span 4;
+}
+
+.guidance-card h4 {
+  margin: 0 0 8px;
+  font-size: 13px;
+  text-transform: uppercase;
+  color: #344054;
+}
+
+.guidance-card p,
+.guidance-card li,
+.empty-state {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.guidance-card p,
+.guidance-card ul {
+  margin: 0;
+}
+
+.guidance-card ul {
+  padding-left: 17px;
+}
+
+.guidance-card li + li {
+  margin-top: 6px;
+}
+
+.empty-state {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 16px;
+  background: #f8fafc;
 }
 
 .action-group {

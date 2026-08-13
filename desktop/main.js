@@ -14,6 +14,7 @@ import {
   sanitizeSessionEnv,
   visibleSessionEnvKeys
 } from '../src/desktop-actions.js';
+import { getDesktopGuidance } from '../src/desktop-guidance.js';
 import { createDesktopCliSpawnConfig, createDesktopRuntime, isInsideDesktopRuntimePath, isInsideRendererAppPath } from '../src/desktop-runtime.js';
 import { getDesktopWorkflows } from '../src/desktop-wizard.js';
 
@@ -96,7 +97,8 @@ function registerIpc() {
       templatePath: runtime.default_template_path
     }),
     actions: getDesktopActions(),
-    workflows: getDesktopWorkflows()
+    workflows: getDesktopWorkflows(),
+    guidance: getDesktopGuidance()
   })));
 
   ipcMain.handle('desktop:select-directory', requireTrustedSender(async (_event, options = {}) => {
