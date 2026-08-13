@@ -159,6 +159,16 @@ html-to-storyblok desktop
 
 Use `html-to-storyblok desktop --dry-run` to verify the launcher path without opening the app.
 
+Desktop release commands:
+
+```sh
+npm run desktop:release-check
+npm run desktop:pack
+npm run desktop:dist
+```
+
+`desktop:release-check` validates the packaged app metadata, required files, proprietary license boundary, and secret-free build configuration without creating installers. `desktop:pack` creates an unpacked local app under `dist/desktop/` for internal smoke testing. `desktop:dist` creates platform installer artifacts through `electron-builder`; ID30 code signing and notarization certificates still need to be configured before distributing signed production installers.
+
 The desktop app is intentionally a thin layer over the existing CLI. It does not duplicate planner, validator, generator, Storyblok, route, rollback, or reporting logic. Guided workflow cards lead non-terminal users through Storyblok-only testing, full repository imports, existing integration validation, and handoff/recovery. Selecting any step shows contextual guidance covering required inputs, safety level, expected evidence, and failure/recovery notes. The app also keeps a local run history under Electron `userData` so reviewers can see recent desktop-launched CLI runs, status, elapsed time, command lines, and credential variable names without storing credential values. Advanced buttons remain available for experienced users and run whitelisted CLI actions such as onboarding, doctor, template inspection, repository inspection, Storyblok inspection, plan, validate, dry run, real apply, route handoff, Storyblok validation, report generation, evidence index, handoff pack, and rollback preview.
 
 Desktop safety rules:
@@ -168,6 +178,7 @@ Desktop safety rules:
 - Storyblok content remains draft-only and namespaced by integration ID.
 - Session credentials are passed to child CLI runs as environment variables and are not stored in settings, reports, command lines, run history, or browser localStorage.
 - Non-secret paths and workflow fields can be remembered locally by the app for convenience, and the desktop default work directory lives under Electron `userData` so packaged builds do not need to write into the application bundle.
+- Packaged builds include the CLI, desktop shell, source services, templates, and ID30 logo. `asar` is disabled until bundled child CLI execution is verified against an archived app package.
 - The Electron renderer runs with context isolation, no Node integration, sandboxing, a restrictive Content Security Policy, blocked arbitrary navigation/window creation, denied permission prompts, trusted IPC sender checks, and artifact opening limited to known evidence/report filenames.
 
 The intended split is:

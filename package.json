@@ -3,12 +3,20 @@
   "version": "0.1.0",
   "description": "Safe additive-only CLI for integrating supplied HTML templates into existing Storyblok projects.",
   "type": "module",
+  "main": "desktop/main.js",
+  "author": {
+    "name": "ID30",
+    "email": "info@id30.com"
+  },
   "bin": {
     "html-to-storyblok": "./bin/html-to-storyblok.js"
   },
   "scripts": {
     "desktop": "electron desktop/main.js",
     "desktop:dry-run": "node bin/html-to-storyblok.js desktop --dry-run",
+    "desktop:release-check": "node scripts/desktop-release-check.mjs",
+    "desktop:pack": "npm run desktop:release-check && electron-builder --dir",
+    "desktop:dist": "npm run desktop:release-check && electron-builder",
     "lint": "node scripts/check-syntax.mjs",
     "typecheck": "node scripts/check-syntax.mjs",
     "test": "node --test",
@@ -30,7 +38,46 @@
     "node": ">=20"
   },
   "devDependencies": {
-    "electron": "^43.4.0"
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.id30.html-to-storyblok",
+    "productName": "HTML-to-Storyblok",
+    "copyright": "Copyright © 2026 ID30",
+    "directories": {
+      "output": "dist/desktop"
+    },
+    "files": [
+      "bin/**/*",
+      "desktop/**/*",
+      "src/**/*",
+      "templates/**/*",
+      "id30-logo.svg",
+      "package.json"
+    ],
+    "asar": false,
+    "npmRebuild": false,
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "linux": {
+      "category": "Development",
+      "target": [
+        "AppImage",
+        "deb"
+      ]
+    }
   },
   "license": "UNLICENSED"
 }
