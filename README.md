@@ -167,7 +167,7 @@ Desktop safety rules:
 - Real apply buttons ask for confirmation and still run the same additive-only CLI safety gates.
 - Storyblok content remains draft-only and namespaced by integration ID.
 - Session credentials are passed to child CLI runs as environment variables and are not stored in settings, reports, command lines, or browser localStorage.
-- Non-secret paths and workflow fields can be remembered locally by the app for convenience.
+- Non-secret paths and workflow fields can be remembered locally by the app for convenience, and the desktop default work directory lives under Electron `userData` so packaged builds do not need to write into the application bundle.
 - The Electron renderer runs with context isolation, no Node integration, sandboxing, a restrictive Content Security Policy, blocked arbitrary navigation/window creation, denied permission prompts, trusted IPC sender checks, and artifact opening limited to known evidence/report filenames.
 
 The intended split is:
