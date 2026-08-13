@@ -15,6 +15,7 @@ import {
   visibleSessionEnvKeys
 } from '../src/desktop-actions.js';
 import { createDesktopCliSpawnConfig, createDesktopRuntime, isInsideDesktopRuntimePath, isInsideRendererAppPath } from '../src/desktop-runtime.js';
+import { getDesktopWorkflows } from '../src/desktop-wizard.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const binPath = path.join(root, 'bin/html-to-storyblok.js');
@@ -94,7 +95,8 @@ function registerIpc() {
       manifestPath: runtime.default_manifest_path,
       templatePath: runtime.default_template_path
     }),
-    actions: getDesktopActions()
+    actions: getDesktopActions(),
+    workflows: getDesktopWorkflows()
   })));
 
   ipcMain.handle('desktop:select-directory', requireTrustedSender(async (_event, options = {}) => {
