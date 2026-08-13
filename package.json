@@ -7,6 +7,8 @@
     "html-to-storyblok": "./bin/html-to-storyblok.js"
   },
   "scripts": {
+    "desktop": "electron desktop/main.js",
+    "desktop:dry-run": "node bin/html-to-storyblok.js desktop --dry-run",
     "lint": "node scripts/check-syntax.mjs",
     "typecheck": "node scripts/check-syntax.mjs",
     "test": "node --test",
@@ -26,6 +28,9 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "electron": "^43.4.0"
   },
   "license": "UNLICENSED"
 }

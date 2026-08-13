@@ -5,6 +5,7 @@ import { checkLiveAccess } from './access.js';
 import { CLI_BRANDING_LINES } from './branding.js';
 import { createClientApplyReviewGate, renderClientApplyReviewGateMarkdown } from './client-review-gate.js';
 import { duplicateAll } from './duplicator.js';
+import { launchDesktopApp } from './desktop-launcher.js';
 import { ENV_TEMPLATE, initEnvFile, loadEnvironment } from './env.js';
 import { ensureWorkDir, recordEvidence, writeArtifact, writeTextArtifact, DEFAULT_WORK_DIR } from './evidence.js';
 import { generateIntegration } from './generator.js';
@@ -90,6 +91,9 @@ export async function main(argv) {
     } else if (command === 'onboarding') {
       result = await runOnboardingCommand({ args });
       printJson = false;
+    } else if (command === 'desktop') {
+      result = await launchDesktopApp({ args, env });
+      printJson = Boolean(args.dry_run || args.print || args.json_summary);
     } else if (command === 'dashboard') {
       result = await runDashboard({ args });
       printJson = false;
@@ -1104,6 +1108,7 @@ function renderShellCompletion(shell = 'zsh') {
   const commands = [
     'help',
     'onboarding',
+    'desktop',
     'dashboard',
     'history',
     'demo-sites',
@@ -1288,6 +1293,7 @@ Usage:
   html-to-storyblok
   html-to-storyblok help <topic>
   html-to-storyblok onboarding
+  html-to-storyblok desktop [--dry-run]
   html-to-storyblok dashboard
   html-to-storyblok history [--limit 20]
   html-to-storyblok demo-sites [--list] [--site astro,next] [--generated] [--install] [--smoke] [--require-framework] [--report-path <file>]
