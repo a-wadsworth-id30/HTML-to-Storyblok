@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
@@ -14,6 +14,7 @@ import {
   sanitizeSessionEnv,
   visibleSessionEnvKeys
 } from '../src/desktop-actions.js';
+import { createDesktopCliSpawnConfig, createDesktopRuntime, isInsideDesktopRuntimePath, isInsideRendererAppPath } from '../src/desktop-runtime.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const binPath = path.join(root, 'bin/html-to-storyblok.js');
@@ -32,8 +33,14 @@ const IPC_CHANNELS = new Set([
 ]);
 
 let mainWindow = null;
+let runtime = null;
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  runtime = createDesktopRuntime({
+    appRoot: root,
+    userDataPath: app.getPath('userData')
+  });
+  await ensureRuntimeDirectories(runtime);
   configureSecurityPolicy();
   mainWindow = createWindow();
   registerIpc();
@@ -80,7 +87,13 @@ function createWindow() {
 function registerIpc() {
   ipcMain.handle('desktop:bootstrap', requireTrustedSender(async () => ({
     root,
-    defaultState: createDefaultDesktopState({ cwd: root }),
+    runtime,
+    defaultState: createDefaultDesktopState({
+      cwd: runtime.app_root,
+      workDir: runtime.default_work_dir,
+      manifestPath: runtime.default_manifest_path,
+      templatePath: runtime.default_template_path
+    }),
     actions: getDesktopActions()
   })));
 
@@ -113,14 +126,15 @@ function runAction(event, payload = {}) {
   const sessionEnv = sanitizeSessionEnv(payload.sessionEnv || {});
   const secretValues = Object.values(sessionEnv);
   const requestId = randomUUID();
-  const child = spawn(process.execPath, [binPath, ...built.args], {
-    cwd: built.cwd || root,
-    env: {
-      ...process.env,
-      ...sessionEnv
-    },
-    stdio: ['ignore', 'pipe', 'pipe']
+  const spawnConfig = createDesktopCliSpawnConfig({
+    electronExecPath: process.execPath,
+    binPath,
+    builtCommand: built,
+    runtime,
+    sessionEnv,
+    baseEnv: process.env
   });
+  const child = spawn(spawnConfig.command, spawnConfig.args, spawnConfig.options);
 
   activeProcesses.set(requestId, child);
   event.sender.send('desktop:cli-event', {
@@ -185,8 +199,8 @@ async function readArtifacts(rawState = {}) {
   const hints = desktopArtifactHints(state.workDir);
   const artifacts = [];
   for (const hint of hints) {
-    const absolute = path.resolve(root, hint.path);
-    if (!isSafeLocalPath(absolute) || !existsSync(absolute)) {
+    const absolute = path.resolve(runtime.app_root, hint.path);
+    if (!isInsideDesktopRuntimePath(absolute, runtime) || !existsSync(absolute)) {
       artifacts.push({ ...hint, exists: false, content: '' });
       continue;
     }
@@ -202,7 +216,7 @@ async function readArtifacts(rawState = {}) {
 }
 
 async function openArtifact(filePath) {
-  const absolute = path.resolve(root, String(filePath || ''));
+  const absolute = path.resolve(runtime.app_root, String(filePath || ''));
   if (!isAllowedArtifactPath(absolute) || !existsSync(absolute)) {
     return { status: 'missing' };
   }
@@ -266,20 +280,19 @@ function isAllowedRendererUrl(url) {
   try {
     const parsed = new URL(String(url || ''));
     if (parsed.protocol !== 'file:') return false;
-    return isSafeLocalPath(fileURLToPath(parsed));
+    return isInsideRendererAppPath(fileURLToPath(parsed), runtime);
   } catch {
     return false;
   }
 }
 
 function isAllowedArtifactPath(filePath) {
-  if (!isSafeLocalPath(filePath)) return false;
+  if (!isInsideDesktopRuntimePath(filePath, runtime)) return false;
   return ALLOWED_ARTIFACT_NAMES.has(path.basename(filePath));
 }
 
-function isSafeLocalPath(filePath) {
-  const relative = path.relative(root, filePath);
-  return Boolean(relative) && !relative.startsWith('..') && !path.isAbsolute(relative);
+async function ensureRuntimeDirectories(nextRuntime) {
+  await mkdir(nextRuntime.default_work_dir, { recursive: true });
 }
 
 function truncateContent(content, limit = 14000) {

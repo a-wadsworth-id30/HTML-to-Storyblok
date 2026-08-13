@@ -323,12 +323,18 @@ export const DESKTOP_ACTIONS = [
   }
 ];
 
-export function createDefaultDesktopState({ cwd = process.cwd() } = {}) {
+export function createDefaultDesktopState({
+  cwd = process.cwd(),
+  workDir = DEFAULT_DESKTOP_WORK_DIR,
+  manifestPath = null,
+  templatePath = 'templates/acme-campaign'
+} = {}) {
+  const resolvedWorkDir = normalizeString(workDir) || DEFAULT_DESKTOP_WORK_DIR;
   return {
     cwd,
-    workDir: DEFAULT_DESKTOP_WORK_DIR,
-    manifestPath: DEFAULT_DESKTOP_MANIFEST,
-    templatePath: 'templates/acme-campaign',
+    workDir: resolvedWorkDir,
+    manifestPath: normalizeString(manifestPath) || path.join(resolvedWorkDir, 'integration-manifest.json'),
+    templatePath,
     repoPath: '',
     integrationId: '',
     framework: 'auto',

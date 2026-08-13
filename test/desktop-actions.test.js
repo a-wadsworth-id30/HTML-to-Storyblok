@@ -45,6 +45,19 @@ test('desktop command builder creates full plan arguments from structured state'
   assert.match(command.commandLine, /html-to-storyblok plan/);
 });
 
+test('desktop default state accepts a portable runtime work directory', () => {
+  const state = createDefaultDesktopState({
+    cwd: '/app/root',
+    workDir: '/user/data/workspaces/default/html-to-storyblok',
+    templatePath: '/app/root/templates/acme-campaign'
+  });
+
+  assert.equal(state.cwd, '/app/root');
+  assert.equal(state.workDir, '/user/data/workspaces/default/html-to-storyblok');
+  assert.equal(state.manifestPath, '/user/data/workspaces/default/html-to-storyblok/integration-manifest.json');
+  assert.equal(state.templatePath, '/app/root/templates/acme-campaign');
+});
+
 test('desktop command builder requires repository for full apply but not Storyblok-only dry run', () => {
   assert.throws(() => buildDesktopCommand('fullDryRun', {
     manifestPath: '.tmp/html-to-storyblok/integration-manifest.json'
