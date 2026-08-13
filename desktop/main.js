@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, session, shell } from 'electron';
 import {
   buildDesktopCommand,
   createDefaultDesktopState,
@@ -18,11 +18,23 @@ import {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const binPath = path.join(root, 'bin/html-to-storyblok.js');
 const rendererPath = path.join(root, 'desktop/renderer/index.html');
+const preloadPath = path.join(root, 'desktop/preload.cjs');
 const activeProcesses = new Map();
+const ALLOWED_ARTIFACT_NAMES = new Set(desktopArtifactHints().map((hint) => hint.name));
+const IPC_CHANNELS = new Set([
+  'desktop:bootstrap',
+  'desktop:select-directory',
+  'desktop:preview-action',
+  'desktop:run-action',
+  'desktop:cancel-action',
+  'desktop:read-artifacts',
+  'desktop:open-artifact'
+]);
 
 let mainWindow = null;
 
 app.whenReady().then(() => {
+  configureSecurityPolicy();
   mainWindow = createWindow();
   registerIpc();
 
@@ -46,46 +58,54 @@ function createWindow() {
     title: 'HTML-to-Storyblok',
     backgroundColor: '#f6f8fb',
     webPreferences: {
-      preload: path.join(root, 'desktop/preload.js'),
+      preload: preloadPath,
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
+      webviewTag: false
     }
   });
 
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  window.webContents.on('will-navigate', (event, navigationUrl) => {
+    if (!isAllowedRendererUrl(navigationUrl)) event.preventDefault();
+  });
   window.loadFile(rendererPath);
   return window;
 }
 
 function registerIpc() {
-  ipcMain.handle('desktop:bootstrap', async () => ({
+  ipcMain.handle('desktop:bootstrap', requireTrustedSender(async () => ({
     root,
     defaultState: createDefaultDesktopState({ cwd: root }),
     actions: getDesktopActions()
-  }));
+  })));
 
-  ipcMain.handle('desktop:select-directory', async (_event, options = {}) => {
+  ipcMain.handle('desktop:select-directory', requireTrustedSender(async (_event, options = {}) => {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: options.title || 'Choose Folder',
       defaultPath: options.defaultPath || root,
       properties: ['openDirectory', 'createDirectory']
     });
     return result.canceled ? null : result.filePaths[0];
-  });
+  }));
 
-  ipcMain.handle('desktop:preview-action', async (_event, payload = {}) => {
+  ipcMain.handle('desktop:preview-action', requireTrustedSender(async (_event, payload = {}) => {
     const built = buildDesktopCommand(payload.actionId, payload.state);
     return {
       action: built.action,
       commandLine: built.commandLine,
       visibleSessionEnvKeys: visibleSessionEnvKeys(payload.sessionEnv || {})
     };
-  });
+  }));
 
-  ipcMain.handle('desktop:run-action', async (event, payload = {}) => runAction(event, payload));
-  ipcMain.handle('desktop:cancel-action', async (_event, requestId) => cancelAction(requestId));
-  ipcMain.handle('desktop:read-artifacts', async (_event, payload = {}) => readArtifacts(payload.state));
-  ipcMain.handle('desktop:open-artifact', async (_event, filePath) => openArtifact(filePath));
+  ipcMain.handle('desktop:run-action', requireTrustedSender(async (event, payload = {}) => runAction(event, payload)));
+  ipcMain.handle('desktop:cancel-action', requireTrustedSender(async (_event, requestId) => cancelAction(requestId)));
+  ipcMain.handle('desktop:read-artifacts', requireTrustedSender(async (_event, payload = {}) => readArtifacts(payload.state)));
+  ipcMain.handle('desktop:open-artifact', requireTrustedSender(async (_event, filePath) => openArtifact(filePath)));
 }
 
 function runAction(event, payload = {}) {
@@ -183,11 +203,78 @@ async function readArtifacts(rawState = {}) {
 
 async function openArtifact(filePath) {
   const absolute = path.resolve(root, String(filePath || ''));
-  if (!isSafeLocalPath(absolute) || !existsSync(absolute)) {
+  if (!isAllowedArtifactPath(absolute) || !existsSync(absolute)) {
     return { status: 'missing' };
   }
   const error = await shell.openPath(absolute);
   return { status: error ? 'failed' : 'opened', error: error || null };
+}
+
+function configureSecurityPolicy() {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    if (!isAllowedRendererUrl(details.url)) {
+      callback({ responseHeaders: details.responseHeaders });
+      return;
+    }
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Content-Security-Policy': [
+          [
+            "default-src 'self'",
+            "script-src 'self'",
+            "style-src 'self'",
+            "img-src 'self' data:",
+            "font-src 'self'",
+            "connect-src 'none'",
+            "object-src 'none'",
+            "base-uri 'none'",
+            "form-action 'none'",
+            "frame-ancestors 'none'"
+          ].join('; ')
+        ]
+      }
+    });
+  });
+  app.on('web-contents-created', (_event, contents) => {
+    contents.setWindowOpenHandler(() => ({ action: 'deny' }));
+    contents.on('will-navigate', (event, navigationUrl) => {
+      if (!isAllowedRendererUrl(navigationUrl)) event.preventDefault();
+    });
+  });
+}
+
+function requireTrustedSender(handler) {
+  return async (event, ...args) => {
+    if (!isTrustedSender(event)) {
+      throw new Error('Blocked untrusted desktop IPC sender');
+    }
+    return handler(event, ...args);
+  };
+}
+
+function isTrustedSender(event) {
+  const channel = event?.channel;
+  if (channel && !IPC_CHANNELS.has(channel)) return false;
+  return isAllowedRendererUrl(event.senderFrame?.url || event.sender?.getURL?.() || '');
+}
+
+function isAllowedRendererUrl(url) {
+  try {
+    const parsed = new URL(String(url || ''));
+    if (parsed.protocol !== 'file:') return false;
+    return isSafeLocalPath(fileURLToPath(parsed));
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedArtifactPath(filePath) {
+  if (!isSafeLocalPath(filePath)) return false;
+  return ALLOWED_ARTIFACT_NAMES.has(path.basename(filePath));
 }
 
 function isSafeLocalPath(filePath) {
