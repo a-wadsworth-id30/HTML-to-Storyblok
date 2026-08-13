@@ -245,7 +245,8 @@ select:focus {
     "workflow workflow"
     "guidance guidance"
     "actions output"
-    "evidence evidence";
+    "evidence evidence"
+    "history history";
   gap: 18px;
 }
 
@@ -253,7 +254,8 @@ select:focus {
 .guidance-panel,
 .actions-panel,
 .output-panel,
-.evidence-panel {
+.evidence-panel,
+.history-panel {
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -278,6 +280,10 @@ select:focus {
 
 .evidence-panel {
   grid-area: evidence;
+}
+
+.history-panel {
+  grid-area: history;
 }
 
 .panel-heading {
@@ -566,6 +572,64 @@ select:focus {
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   padding: 18px;
+}
+
+.run-history {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.run-history-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: start;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 13px 14px;
+}
+
+.run-history-item h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.run-history-item p {
+  margin: 0 0 7px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.run-history-item code {
+  display: block;
+  color: #344054;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.run-status {
+  border-radius: 999px;
+  padding: 5px 8px;
+  font-size: 12px;
+  font-weight: 750;
+  text-transform: capitalize;
+}
+
+.run-status.passed {
+  color: var(--success);
+  background: #ecfdf3;
+}
+
+.run-status.failed {
+  color: #b42318;
+  background: #fee4e2;
+}
+
+.run-status.cancelled {
+  color: var(--warning);
+  background: #fffaeb;
 }
 
 .artifact {
