@@ -29,6 +29,29 @@ const COMMAND_GUIDES = {
     ],
     next: ['settings', 'env', 'doctor', 'interactive']
   },
+  desktop: {
+    title: 'Desktop App',
+    purpose: 'Launches the Electron desktop control panel for non-terminal team members while keeping the CLI as the execution engine.',
+    usage: ['html-to-storyblok desktop', 'npm run desktop'],
+    when: [
+      'Use this when PM, design, QA, account, or content team members need a guided GUI instead of terminal prompts.',
+      'Use --dry-run to verify the launcher path without opening the desktop app.'
+    ],
+    evidence: [
+      'Runs the same CLI commands, writes the same .tmp/html-to-storyblok artifacts, and reads the same reports as terminal workflows.'
+    ],
+    safety: [
+      'The desktop app uses a whitelisted action registry rather than arbitrary shell input.',
+      'Session credentials are passed as environment variables to child CLI runs and are never stored in settings, reports, command lines, or localStorage.',
+      'Real apply buttons still run the CLI additive-only preflight, validation, and draft-only Storyblok safety gates.'
+    ],
+    examples: [
+      'html-to-storyblok desktop',
+      'html-to-storyblok desktop --dry-run',
+      'npm run desktop'
+    ],
+    next: ['doctor', 'onboarding', 'plan', 'apply']
+  },
   doctor: {
     title: 'Doctor',
     purpose: 'Checks the local machine, credentials, repository, and service readiness before an import.',

@@ -27,6 +27,7 @@ Do not put secrets in the repository. Use environment variables only, and never 
 Clone the project and install the local CLI:
 
 ```sh
+npm install
 npm link
 ```
 
@@ -48,6 +49,8 @@ You can also run it without linking:
 ```sh
 node bin/html-to-storyblok.js --help
 ```
+
+`npm install` is only required for local dependencies such as the optional desktop app. The core CLI remains scriptable through `node bin/html-to-storyblok.js` and `html-to-storyblok`.
 
 ## Interactive CLI
 
@@ -139,6 +142,37 @@ If `.tmp/html-to-storyblok/integration-manifest.json` already exists, the CLI of
 `Import History` reads the durable `.tmp/html-to-storyblok/import-history.json` ledger so you can see multiple integrations, statuses, report paths, and manifest snapshots without opening JSON files manually. It still shows recent evidence commands and artifacts as supporting detail. `Live Sandbox Test` guides a disposable Storyblok-only test against a namespaced integration ID, validates the drafts when a Content API token is available, and can roll back generated remote resources.
 
 For CI/CD or scripted usage, pass `--no-interactive` and use the command reference below. The no-command `--no-interactive` path prints help instead of launching a prompt.
+
+## Desktop App
+
+The project now includes an Electron desktop control panel for team members who are more comfortable with a GUI than a terminal:
+
+```sh
+npm run desktop
+```
+
+or, after `npm link`:
+
+```sh
+html-to-storyblok desktop
+```
+
+Use `html-to-storyblok desktop --dry-run` to verify the launcher path without opening the app.
+
+The desktop app is intentionally a thin layer over the existing CLI. It does not duplicate planner, validator, generator, Storyblok, route, rollback, or reporting logic. Buttons in the app run whitelisted CLI actions such as onboarding, doctor, template inspection, repository inspection, Storyblok inspection, plan, validate, dry run, real apply, route handoff, Storyblok validation, report generation, evidence index, handoff pack, and rollback preview.
+
+Desktop safety rules:
+
+- The GUI cannot run arbitrary shell commands; it uses the shared `src/desktop-actions.js` action registry.
+- Real apply buttons ask for confirmation and still run the same additive-only CLI safety gates.
+- Storyblok content remains draft-only and namespaced by integration ID.
+- Session credentials are passed to child CLI runs as environment variables and are not stored in settings, reports, command lines, or browser localStorage.
+- Non-secret paths and workflow fields can be remembered locally by the app for convenience.
+
+The intended split is:
+
+- Senior developers can continue using terminal commands and the interactive CLI.
+- PM, design, QA, account, and content team members can use the desktop app to run safe checks, inspect evidence, and follow the same import runbook without memorising commands.
 
 ## Dashboard, Settings, Doctor, and Reports
 
@@ -1395,7 +1429,7 @@ html-to-storyblok report
 
 Implemented:
 
-- Interactive wizard with the ID30 startup banner, first-run onboarding readiness panel, dedicated `onboarding` command, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness and quality scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, evidence-driven next-action recommendations, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, handoff evidence indexes, production handoff packs, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, and scriptable commands.
+- Interactive wizard with the ID30 startup banner, first-run onboarding readiness panel, dedicated `onboarding` command, session-only credential prompts, safe credential source display, credential test screen, Storyblok-only test mode, template readiness and quality scoring, resume dashboard, durable multi-integration history with manifest snapshots, one-step Storyblok execution, recovery menu, evidence-driven next-action recommendations, apply preview diff with repository route preview summaries, safe route handoff preview/application, route handoff evidence reports, link and field mapping editors, dashboard, asset integrity dashboard, live sandbox test, project profiles, settings, shell completion, doctor checks, readiness handoff reports, handoff evidence indexes, production handoff packs, report viewer with Storyblok/assets/links/routes/activity/rollback drilldowns, report search, HTML export, shortcut aliases, compact JSON summaries, command examples, severity-filtered validation, skipped duplication diagnostics, a first-pass Electron desktop app for non-terminal users, and scriptable commands.
 - Template conversion for static HTML, CSS, local assets, JSX/Vue-safe attributes, ID reference rewrites, Storyblok field hydration for hinted text, rich text, asset, link, and form fields, safe Storyblok `_editable` marker preservation for generated previews, route SEO metadata extraction from template head tags, multi-route isolated repository previews, review-only route proposal wrappers, read-only platform readiness and route handoff checklists, opt-in additive host route handoff for Astro/Next/Nuxt with optional live Storyblok draft fetching and route metadata fallback, and local JavaScript isolation.
 - CSS namespacing and JavaScript isolation inside the integration root.
 - Additive-only manifests with derived Storyblok prefixes and isolated repository namespaces.
@@ -1440,7 +1474,7 @@ npm run test:visual-regression
 npm run test:visual-editor-readiness
 ```
 
-`npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, `scripts/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
+`npm run check` discovers checkable JavaScript/MJS files under `bin/`, `src/`, `test/`, `scripts/`, `desktop/`, and `demo-sites/scripts/` and runs `node --check` against each one. GitHub Actions runs the same syntax check and test suite on pushes to `main` and pull requests.
 
 The test suite includes a temp-directory end-to-end CLI workflow test that exercises the production command path without requiring live Storyblok, Netlify, GitHub, or GitLab credentials.
 

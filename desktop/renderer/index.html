@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>HTML-to-Storyblok Desktop</title>
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark">
+            <img src="../../id30-logo.svg" alt="ID30">
+          </div>
+          <div>
+            <h1>HTML-to-Storyblok</h1>
+            <p>Safety-first template integration</p>
+          </div>
+        </div>
+
+        <section class="control-section">
+          <h2>Project</h2>
+          <label>
+            Work directory
+            <input id="workDir" type="text" autocomplete="off">
+          </label>
+          <label>
+            Integration ID
+            <input id="integrationId" type="text" autocomplete="off" placeholder="acme-campaign-v1">
+          </label>
+          <label>
+            Framework
+            <select id="framework">
+              <option value="auto">Auto detect</option>
+              <option value="astro">Astro</option>
+              <option value="next">Next</option>
+              <option value="nuxt">Nuxt</option>
+              <option value="vue">Vue</option>
+              <option value="react">React</option>
+              <option value="static">Static</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="control-section">
+          <h2>Paths</h2>
+          <label>
+            Template folder
+            <span class="path-row">
+              <input id="templatePath" type="text" autocomplete="off">
+              <button class="icon-button" data-browse="templatePath" title="Choose template folder">...</button>
+            </span>
+          </label>
+          <label>
+            Target repository
+            <span class="path-row">
+              <input id="repoPath" type="text" autocomplete="off" placeholder="../client-site">
+              <button class="icon-button" data-browse="repoPath" title="Choose repository folder">...</button>
+            </span>
+          </label>
+          <label>
+            Manifest path
+            <input id="manifestPath" type="text" autocomplete="off">
+          </label>
+          <label>
+            Route filter
+            <input id="route" type="text" autocomplete="off" placeholder="home or /about">
+          </label>
+        </section>
+
+        <section class="control-section">
+          <h2>Session Credentials</h2>
+          <p class="hint">Used only for commands run from this app. Values are not written to settings, reports, or command lines.</p>
+          <label>
+            Storyblok Management token
+            <input id="storyblokManagementToken" type="password" autocomplete="off">
+          </label>
+          <label>
+            Storyblok Space ID
+            <input id="storyblokSpaceId" type="text" autocomplete="off">
+          </label>
+          <label>
+            Storyblok Preview token
+            <input id="storyblokPreviewToken" type="password" autocomplete="off">
+          </label>
+          <label>
+            Storyblok Region
+            <select id="storyblokRegion">
+              <option value="">Use env/default</option>
+              <option value="eu">EU</option>
+              <option value="us">US</option>
+              <option value="ca">CA</option>
+              <option value="ap">AP</option>
+              <option value="cn">CN</option>
+            </select>
+          </label>
+          <button id="clearSecrets" class="secondary-button" type="button">Clear session credentials</button>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Desktop control panel</p>
+            <h2>Guided GUI for non-terminal team members</h2>
+          </div>
+          <div class="status-strip">
+            <span class="status-pill safe">Additive only</span>
+            <span class="status-pill">Draft first</span>
+            <span class="status-pill">CLI powered</span>
+          </div>
+        </header>
+
+        <section class="safety-band">
+          <strong>Safety model:</strong>
+          This app runs the existing CLI commands through a restricted action list. Real apply actions still create only namespaced, integration-owned resources and never publish Storyblok content.
+        </section>
+
+        <section class="workspace">
+          <div class="actions-panel">
+            <div class="panel-heading">
+              <h3>Runbook</h3>
+              <button id="refreshEvidence" class="secondary-button" type="button">Refresh evidence</button>
+            </div>
+            <div id="actions"></div>
+          </div>
+
+          <div class="output-panel">
+            <div class="panel-heading">
+              <div>
+                <h3>Live Output</h3>
+                <p id="commandPreview" class="command-preview">Choose an action to preview its CLI command.</p>
+              </div>
+              <button id="cancelRun" class="danger-button" type="button" disabled>Cancel run</button>
+            </div>
+            <pre id="output" class="terminal-output">Ready.</pre>
+          </div>
+
+          <div class="evidence-panel">
+            <div class="panel-heading">
+              <div>
+                <h3>Evidence</h3>
+                <p>Reports and artifacts from the current work directory.</p>
+              </div>
+            </div>
+            <div id="artifacts" class="artifacts"></div>
+          </div>
+        </section>
+
+        <footer class="legal">
+          Copyright ID30 2026. Developer: Adam Wadsworth - a.wadsworth@id30.com. This software is proprietary to ID30 and may be used only by the ID30 team and Senior Full Stack Web and App Developer Adam Wadsworth unless written permission is granted by ID30.
+        </footer>
+      </main>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
