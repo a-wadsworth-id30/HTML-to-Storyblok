@@ -5,12 +5,16 @@ const secretFields = ['storyblokManagementToken', 'storyblokSpaceId', 'storyblok
 let state = {};
 let actions = [];
 let workflows = [];
+let guidanceByActionId = new Map();
 let selectedWorkflowId = '';
+let selectedActionId = '';
 let activeRequestId = null;
 
 const elements = {
   workflows: document.getElementById('workflows'),
   workflowSteps: document.getElementById('workflowSteps'),
+  actionGuidance: document.getElementById('actionGuidance'),
+  guidanceSubtitle: document.getElementById('guidanceSubtitle'),
   actions: document.getElementById('actions'),
   artifacts: document.getElementById('artifacts'),
   output: document.getElementById('output'),
@@ -28,7 +32,9 @@ async function initialize() {
   const bootstrap = await api.bootstrap();
   actions = bootstrap.actions;
   workflows = bootstrap.workflows || [];
+  guidanceByActionId = new Map((bootstrap.guidance || []).map((entry) => [entry.action_id, entry]));
   selectedWorkflowId = workflows.find((workflow) => workflow.primary)?.id || workflows[0]?.id || '';
+  selectedActionId = workflows.find((workflow) => workflow.id === selectedWorkflowId)?.steps[0]?.action_id || actions[0]?.id || '';
   state = {
     ...bootstrap.defaultState,
     ...readStoredState()
@@ -36,6 +42,7 @@ async function initialize() {
   bindInputs();
   renderWorkflows();
   renderWorkflowSteps();
+  renderActionGuidance();
   renderActions();
   bindGlobalControls();
   await refreshEvidence();
@@ -124,8 +131,12 @@ function renderWorkflows() {
     `;
     button.addEventListener('click', () => {
       selectedWorkflowId = workflow.id;
+      if (!workflow.steps.some((step) => step.action_id === selectedActionId)) {
+        selectedActionId = workflow.steps[0]?.action_id || selectedActionId;
+      }
       renderWorkflows();
       renderWorkflowSteps();
+      renderActionGuidance();
     });
     elements.workflows.appendChild(button);
   }
@@ -154,7 +165,8 @@ function renderWorkflowSteps() {
 function renderWorkflowStep(step, action) {
   const missing = missingFields(action);
   const row = document.createElement('article');
-  row.className = `workflow-step ${missing.length ? 'blocked' : 'ready'}`;
+  row.className = `workflow-step ${missing.length ? 'blocked' : 'ready'} ${action.id === selectedActionId ? 'selected' : ''}`;
+  row.tabIndex = 0;
   row.innerHTML = `
     <div class="step-number">${step.number}</div>
     <div>
@@ -167,8 +179,10 @@ function renderWorkflowStep(step, action) {
     </button>
   `;
   const button = row.querySelector('button');
-  button.addEventListener('mouseenter', () => previewAction(action));
-  button.addEventListener('focus', () => previewAction(action));
+  row.addEventListener('mouseenter', () => selectAction(action));
+  row.addEventListener('focusin', () => selectAction(action));
+  button.addEventListener('mouseenter', () => selectAction(action, { preview: true }));
+  button.addEventListener('focus', () => selectAction(action, { preview: true }));
   button.addEventListener('click', () => runAction(action));
   return row;
 }
@@ -176,7 +190,7 @@ function renderWorkflowStep(step, action) {
 function renderActionButton(action) {
   const missing = missingFields(action);
   const button = document.createElement('button');
-  button.className = 'action-button';
+  button.className = `action-button ${action.id === selectedActionId ? 'selected' : ''}`;
   button.type = 'button';
   button.disabled = missing.length > 0 || Boolean(activeRequestId);
   button.innerHTML = `
@@ -186,10 +200,62 @@ function renderActionButton(action) {
     </span>
     <span class="safety-tag ${escapeHtml(action.safety)}">${escapeHtml(action.safety)}</span>
   `;
-  button.addEventListener('mouseenter', () => previewAction(action));
-  button.addEventListener('focus', () => previewAction(action));
+  button.addEventListener('mouseenter', () => selectAction(action, { preview: true }));
+  button.addEventListener('focus', () => selectAction(action, { preview: true }));
   button.addEventListener('click', () => runAction(action));
   return button;
+}
+
+function selectAction(action, options = {}) {
+  if (selectedActionId === action.id) {
+    if (options.preview) previewAction(action);
+    return;
+  }
+  selectedActionId = action.id;
+  renderWorkflowSteps();
+  renderActionGuidance();
+  renderActions();
+  if (options.preview) previewAction(action);
+}
+
+function renderActionGuidance() {
+  const guidance = guidanceByActionId.get(selectedActionId);
+  if (!guidance) {
+    elements.guidanceSubtitle.textContent = 'Choose a workflow step or advanced action to see what it needs and what evidence it creates.';
+    elements.actionGuidance.innerHTML = `
+      <div class="empty-state">
+        Select a step to view its purpose, safety level, required inputs, output evidence, and recovery notes.
+      </div>
+    `;
+    return;
+  }
+
+  elements.guidanceSubtitle.textContent = guidance.summary;
+  elements.actionGuidance.innerHTML = `
+    <div class="guidance-grid">
+      <section class="guidance-card">
+        <h4>Before Running</h4>
+        ${renderList(guidance.before_run)}
+      </section>
+      <section class="guidance-card">
+        <h4>Required Inputs</h4>
+        ${renderRequirements(guidance.requirements)}
+      </section>
+      <section class="guidance-card">
+        <h4>Safety</h4>
+        <p><span class="safety-tag ${escapeHtml(guidance.safety.level)}">${escapeHtml(guidance.safety.level)}</span></p>
+        <p>${escapeHtml(guidance.safety.description)}</p>
+      </section>
+      <section class="guidance-card">
+        <h4>Evidence Created</h4>
+        ${renderList(guidance.evidence)}
+      </section>
+      <section class="guidance-card wide">
+        <h4>Failure Guidance</h4>
+        ${renderList(guidance.recovery)}
+      </section>
+    </div>
+  `;
 }
 
 async function previewAction(action) {
@@ -208,6 +274,26 @@ async function previewAction(action) {
   } catch (error) {
     elements.commandPreview.textContent = error.message || String(error);
   }
+}
+
+function renderRequirements(requirements) {
+  if (!requirements.length) return '<p>No required form fields for this action.</p>';
+  return `
+    <ul>
+      ${requirements.map((requirement) => `
+        <li><strong>${escapeHtml(requirement.label)}:</strong> ${escapeHtml(requirement.help)}</li>
+      `).join('')}
+    </ul>
+  `;
+}
+
+function renderList(items) {
+  if (!items.length) return '<p>No additional guidance.</p>';
+  return `
+    <ul>
+      ${items.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+    </ul>
+  `;
 }
 
 async function runAction(action) {
