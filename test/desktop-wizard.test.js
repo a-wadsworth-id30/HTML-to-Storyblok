@@ -15,6 +15,18 @@ test('desktop workflows expose guided paths for primary import outcomes', () => 
   assert.ok(workflows.every((workflow) => workflow.steps.every((step, index) => step.number === index + 1)));
 });
 
+test('desktop workflows use outcome-led non-technical labels', () => {
+  const workflows = getDesktopWorkflows();
+
+  assert.deepEqual(workflows.map((workflow) => workflow.title), [
+    'Test In Storyblok Only',
+    'Add To An Existing Site',
+    'Check Previous Work',
+    'Prepare Handoff'
+  ]);
+  assert.ok(workflows.every((workflow) => !/repository|manifest/i.test(workflow.title)));
+});
+
 test('desktop workflow steps all map to known desktop actions', () => {
   const knownActionIds = new Set(getDesktopActions().map((action) => action.id));
 
@@ -50,11 +62,22 @@ test('desktop renderer contains guided workflow screens and advanced action fall
   const html = await readFile(new URL('../desktop/renderer/index.html', import.meta.url), 'utf8');
   const renderer = await readFile(new URL('../desktop/renderer/app.js', import.meta.url), 'utf8');
 
-  assert.match(html, /Guided Workflows/);
-  assert.match(html, /Advanced Actions/);
+  assert.match(html, /What do you want to do\?/);
+  assert.match(html, /Advanced controls/);
   assert.match(html, /id="workflows"/);
   assert.match(html, /id="workflowSteps"/);
   assert.match(renderer, /renderWorkflows/);
   assert.match(renderer, /renderWorkflowSteps/);
   assert.match(renderer, /runAction\(action\)/);
+});
+
+test('desktop renderer presents an import assistant before technical controls', async () => {
+  const html = await readFile(new URL('../desktop/renderer/index.html', import.meta.url), 'utf8');
+
+  assert.match(html, /Desktop import assistant/);
+  assert.match(html, /Bring an HTML template into Storyblok safely/);
+  assert.match(html, /<details class="control-section advanced-setup">/);
+  assert.match(html, /<details class="actions-panel">/);
+  assert.doesNotMatch(html, /Guided GUI for non-terminal team members/);
+  assert.doesNotMatch(html, /Action Guidance/);
 });

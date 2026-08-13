@@ -86,7 +86,7 @@ test('desktop renderer exposes a run history panel through read-only IPC', async
   assert.match(mainSource, /desktop:read-run-history/);
   assert.match(mainSource, /recordDesktopRun/);
   assert.match(preloadSource, /readRunHistory/);
-  assert.match(html, /Run History/);
+  assert.match(html, /Recent Runs/);
   assert.match(html, /id="runHistory"/);
   assert.match(renderer, /renderRunHistory/);
   assert.match(renderer, /refreshRunHistory/);

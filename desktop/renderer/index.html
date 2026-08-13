@@ -16,22 +16,18 @@
           </div>
           <div>
             <h1>HTML-to-Storyblok</h1>
-            <p>Safety-first template integration</p>
+            <p>Import assistant</p>
           </div>
         </div>
 
         <section class="control-section">
-          <h2>Project</h2>
+          <h2>Start Here</h2>
           <label>
-            Work directory
-            <input id="workDir" type="text" autocomplete="off">
-          </label>
-          <label>
-            Integration ID
+            Import name
             <input id="integrationId" type="text" autocomplete="off" placeholder="acme-campaign-v1">
           </label>
           <label>
-            Framework
+            Site type
             <select id="framework">
               <option value="auto">Auto detect</option>
               <option value="astro">Astro</option>
@@ -45,48 +41,57 @@
         </section>
 
         <section class="control-section">
-          <h2>Paths</h2>
+          <h2>Choose Files</h2>
           <label>
-            Template folder
+            Template
             <span class="path-row">
               <input id="templatePath" type="text" autocomplete="off">
               <button class="icon-button" data-browse="templatePath" title="Choose template folder">...</button>
             </span>
           </label>
           <label>
-            Target repository
+            Existing site
             <span class="path-row">
               <input id="repoPath" type="text" autocomplete="off" placeholder="../client-site">
-              <button class="icon-button" data-browse="repoPath" title="Choose repository folder">...</button>
+              <button class="icon-button" data-browse="repoPath" title="Choose existing site">...</button>
             </span>
           </label>
+          <p class="hint">Leave existing site empty when you only want to test Storyblok.</p>
+        </section>
+
+        <details class="control-section advanced-setup">
+          <summary>Advanced setup</summary>
           <label>
-            Manifest path
+            Save location
+            <input id="workDir" type="text" autocomplete="off">
+          </label>
+          <label>
+            Plan file
             <input id="manifestPath" type="text" autocomplete="off">
           </label>
           <label>
-            Route filter
+            Review one page
             <input id="route" type="text" autocomplete="off" placeholder="home or /about">
           </label>
-        </section>
+        </details>
 
         <section class="control-section">
-          <h2>Session Credentials</h2>
-          <p class="hint">Used only for commands run from this app. Values are not written to settings, reports, or command lines.</p>
+          <h2>Storyblok Access</h2>
+          <p class="hint">Used for this session only. Nothing typed here is saved.</p>
           <label>
-            Storyblok Management token
+            Management token
             <input id="storyblokManagementToken" type="password" autocomplete="off">
           </label>
           <label>
-            Storyblok Space ID
+            Space ID
             <input id="storyblokSpaceId" type="text" autocomplete="off">
           </label>
           <label>
-            Storyblok Preview token
+            Preview token
             <input id="storyblokPreviewToken" type="password" autocomplete="off">
           </label>
           <label>
-            Storyblok Region
+            Region
             <select id="storyblokRegion">
               <option value="">Use env/default</option>
               <option value="eu">EU</option>
@@ -96,34 +101,34 @@
               <option value="cn">CN</option>
             </select>
           </label>
-          <button id="clearSecrets" class="secondary-button" type="button">Clear session credentials</button>
+          <button id="clearSecrets" class="secondary-button" type="button">Clear access fields</button>
         </section>
       </aside>
 
       <main class="main">
         <header class="topbar">
           <div>
-            <p class="eyebrow">Desktop control panel</p>
-            <h2>Guided GUI for non-terminal team members</h2>
+            <p class="eyebrow">Desktop import assistant</p>
+            <h2>Bring an HTML template into Storyblok safely.</h2>
           </div>
           <div class="status-strip">
-            <span class="status-pill safe">Additive only</span>
-            <span class="status-pill">Draft first</span>
-            <span class="status-pill">CLI powered</span>
+            <span class="status-pill safe">No overwrites</span>
+            <span class="status-pill">Draft only</span>
+            <span class="status-pill">Reviewable evidence</span>
           </div>
         </header>
 
         <section class="safety-band">
-          <strong>Safety model:</strong>
-          This app runs the existing CLI commands through a restricted action list. Real apply actions still create only namespaced, integration-owned resources and never publish Storyblok content.
+          <strong>Safety promise:</strong>
+          Imports are kept under the import name, created as drafts, and checked before anything is written.
         </section>
 
         <section class="workspace">
           <div class="workflow-panel">
             <div class="panel-heading">
               <div>
-                <h3>Guided Workflows</h3>
-                <p>Choose the outcome first, then run each step in order.</p>
+                <h3>What do you want to do?</h3>
+                <p>Pick the outcome. The app will show the steps in order.</p>
               </div>
             </div>
             <div id="workflows" class="workflow-list"></div>
@@ -133,29 +138,32 @@
           <div class="guidance-panel">
             <div class="panel-heading">
               <div>
-                <h3>Action Guidance</h3>
-                <p id="guidanceSubtitle">Choose a workflow step or advanced action to see what it needs and what evidence it creates.</p>
+                <h3>Help For This Step</h3>
+                <p id="guidanceSubtitle">Choose a step to see what you need, what will happen, and what evidence you will get.</p>
               </div>
             </div>
             <div id="actionGuidance" class="guidance-content"></div>
           </div>
 
-          <div class="actions-panel">
-            <div class="panel-heading">
-              <div>
-                <h3>Advanced Actions</h3>
-                <p>Direct access for experienced users.</p>
-              </div>
+          <details class="actions-panel">
+            <summary class="disclosure-heading">
+              <span>
+                <strong>Advanced controls</strong>
+                <small>Direct command access for experienced users.</small>
+              </span>
+              <span class="summary-state"></span>
+            </summary>
+            <div class="advanced-toolbar">
               <button id="refreshEvidence" class="secondary-button" type="button">Refresh evidence</button>
             </div>
             <div id="actions"></div>
-          </div>
+          </details>
 
           <div class="output-panel">
             <div class="panel-heading">
               <div>
-                <h3>Live Output</h3>
-                <p id="commandPreview" class="command-preview">Choose an action to preview its CLI command.</p>
+                <h3>Activity</h3>
+                <p id="commandPreview" class="command-preview">Choose a step to see the command that will run.</p>
               </div>
               <button id="cancelRun" class="danger-button" type="button" disabled>Cancel run</button>
             </div>
@@ -165,8 +173,8 @@
           <div class="evidence-panel">
             <div class="panel-heading">
               <div>
-                <h3>Evidence</h3>
-                <p>Reports and artifacts from the current work directory.</p>
+                <h3>Review Files</h3>
+                <p>Reports and proof created for this import.</p>
               </div>
             </div>
             <div id="artifacts" class="artifacts"></div>
@@ -175,8 +183,8 @@
           <div class="history-panel">
             <div class="panel-heading">
               <div>
-                <h3>Run History</h3>
-                <p>Recent desktop-launched CLI runs. Credentials are never stored.</p>
+                <h3>Recent Runs</h3>
+                <p>What was run from this app. Access tokens are never stored.</p>
               </div>
               <button id="refreshHistory" class="secondary-button" type="button">Refresh history</button>
             </div>

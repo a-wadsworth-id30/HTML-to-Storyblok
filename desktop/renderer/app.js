@@ -74,7 +74,7 @@ function bindInputs() {
     button.addEventListener('click', async () => {
       const field = button.dataset.browse;
       const selected = await api.selectDirectory({
-        title: field === 'repoPath' ? 'Choose target repository' : 'Choose template folder',
+        title: field === 'repoPath' ? 'Choose existing site' : 'Choose template folder',
         defaultPath: state[field] || state.cwd
       });
       if (!selected) return;
@@ -177,11 +177,10 @@ function renderWorkflowStep(step, action) {
     <div class="step-number">${step.number}</div>
     <div>
       <h4>${escapeHtml(action.title)}</h4>
-      <p>${escapeHtml(missing.length ? `Fill ${missing.join(', ')} before running this step.` : step.guidance)}</p>
+      <p>${escapeHtml(missing.length ? `Add ${missing.join(', ')} before starting this step.` : step.guidance)}</p>
     </div>
     <button class="action-button compact" type="button" ${missing.length || activeRequestId ? 'disabled' : ''}>
-      <span class="action-title">Run</span>
-      <span class="safety-tag ${escapeHtml(action.safety)}">${escapeHtml(action.safety)}</span>
+      <span class="action-title">Start</span>
     </button>
   `;
   const button = row.querySelector('button');
@@ -230,7 +229,7 @@ function renderActionGuidance() {
     elements.guidanceSubtitle.textContent = 'Choose a workflow step or advanced action to see what it needs and what evidence it creates.';
     elements.actionGuidance.innerHTML = `
       <div class="empty-state">
-        Select a step to view its purpose, safety level, required inputs, output evidence, and recovery notes.
+        Select a step to see what it needs, what it will do, and what you can review afterwards.
       </div>
     `;
     return;
@@ -240,11 +239,11 @@ function renderActionGuidance() {
   elements.actionGuidance.innerHTML = `
     <div class="guidance-grid">
       <section class="guidance-card">
-        <h4>Before Running</h4>
+        <h4>Before You Start</h4>
         ${renderList(guidance.before_run)}
       </section>
       <section class="guidance-card">
-        <h4>Required Inputs</h4>
+        <h4>What You Need</h4>
         ${renderRequirements(guidance.requirements)}
       </section>
       <section class="guidance-card">
@@ -253,11 +252,11 @@ function renderActionGuidance() {
         <p>${escapeHtml(guidance.safety.description)}</p>
       </section>
       <section class="guidance-card">
-        <h4>Evidence Created</h4>
+        <h4>What You Get</h4>
         ${renderList(guidance.evidence)}
       </section>
       <section class="guidance-card wide">
-        <h4>Failure Guidance</h4>
+        <h4>If Something Stops</h4>
         ${renderList(guidance.recovery)}
       </section>
     </div>
@@ -283,7 +282,7 @@ async function previewAction(action) {
 }
 
 function renderRequirements(requirements) {
-  if (!requirements.length) return '<p>No required form fields for this action.</p>';
+  if (!requirements.length) return '<p>Nothing else is needed for this step.</p>';
   return `
     <ul>
       ${requirements.map((requirement) => `
@@ -303,7 +302,7 @@ function renderList(items) {
 }
 
 async function runAction(action) {
-  if (action.confirmation && !window.confirm(`${action.confirmation}\n\nThe CLI safety gates will still run before changes are made.`)) {
+  if (action.confirmation && !window.confirm(`${action.confirmation}\n\nThe same safety checks will still run before changes are made.`)) {
     return;
   }
   elements.output.textContent = '';
@@ -369,7 +368,7 @@ function renderRunHistory() {
   if (!runHistory.length) {
     elements.runHistory.innerHTML = `
       <div class="empty-state">
-        No desktop runs recorded yet. Run a guided workflow step to create a local audit trail.
+        No runs yet. Start a step and it will appear here.
       </div>
     `;
     return;
@@ -425,10 +424,10 @@ function formatRunMeta(run) {
 function missingFields(action) {
   const labels = {
     templatePath: 'template folder',
-    repoPath: 'target repository',
-    manifestPath: 'manifest path',
-    integrationId: 'integration ID',
-    route: 'route'
+    repoPath: 'existing site',
+    manifestPath: 'plan file',
+    integrationId: 'import name',
+    route: 'page'
   };
   return (action.requirements || [])
     .filter((field) => !String(state[field] || '').trim())

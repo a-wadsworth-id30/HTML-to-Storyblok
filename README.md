@@ -145,7 +145,7 @@ For CI/CD or scripted usage, pass `--no-interactive` and use the command referen
 
 ## Desktop App
 
-The project now includes an Electron desktop control panel for team members who are more comfortable with a GUI than a terminal:
+The project now includes an Electron desktop import assistant for team members who are more comfortable with a GUI than a terminal:
 
 ```sh
 npm run desktop
@@ -169,7 +169,7 @@ npm run desktop:dist
 
 `desktop:release-check` validates the packaged app metadata, required files, proprietary license boundary, and secret-free build configuration without creating installers. `desktop:pack` creates an unpacked local app under `dist/desktop/` for internal smoke testing. `desktop:dist` creates platform installer artifacts through `electron-builder`; ID30 code signing and notarization certificates still need to be configured before distributing signed production installers.
 
-The desktop app is intentionally a thin layer over the existing CLI. It does not duplicate planner, validator, generator, Storyblok, route, rollback, or reporting logic. Guided workflow cards lead non-terminal users through Storyblok-only testing, full repository imports, existing integration validation, and handoff/recovery. Selecting any step shows contextual guidance covering required inputs, safety level, expected evidence, and failure/recovery notes. The app also keeps a local run history under Electron `userData` so reviewers can see recent desktop-launched CLI runs, status, elapsed time, command lines, and credential variable names without storing credential values. Advanced buttons remain available for experienced users and run whitelisted CLI actions such as onboarding, doctor, template inspection, repository inspection, Storyblok inspection, plan, validate, dry run, real apply, route handoff, Storyblok validation, report generation, evidence index, handoff pack, and rollback preview.
+The desktop app is intentionally a thin layer over the existing CLI. It does not duplicate planner, validator, generator, Storyblok, route, rollback, or reporting logic. The default screen uses plain-language workflow cards such as `Test In Storyblok Only`, `Add To An Existing Site`, `Check Previous Work`, and `Prepare Handoff`. Selecting any step shows contextual help covering what the user needs, what will happen, safety, review files, and recovery notes. Advanced command buttons remain available in a collapsed section for experienced users and run whitelisted CLI actions such as onboarding, doctor, template inspection, repository inspection, Storyblok inspection, plan, validate, dry run, real apply, route handoff, Storyblok validation, report generation, evidence index, handoff pack, and rollback preview.
 
 Desktop safety rules:
 

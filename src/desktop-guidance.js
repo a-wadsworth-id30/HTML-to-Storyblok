@@ -2,41 +2,41 @@ import { getDesktopActions } from './desktop-actions.js';
 
 const FIELD_GUIDANCE = {
   workDir: {
-    label: 'Work directory',
-    help: 'Where manifests, reports, dry-run output, and handoff evidence are stored.'
+    label: 'Save location',
+    help: 'Where this import keeps its plan, reports, previews, and review files.'
   },
   templatePath: {
-    label: 'Template folder',
-    help: 'The HTML template folder to inspect and convert.'
+    label: 'Template',
+    help: 'The folder that contains the HTML pages and assets you want to import.'
   },
   repoPath: {
-    label: 'Target repository',
-    help: 'The existing site repository. Required only for full repository imports and route handoff checks.'
+    label: 'Existing site',
+    help: 'The site folder to add the import to. Leave this empty for a Storyblok-only test.'
   },
   manifestPath: {
-    label: 'Manifest path',
-    help: 'The generated integration manifest that drives validation, apply, evidence, and rollback.'
+    label: 'Plan file',
+    help: 'The saved plan that tells the app what belongs to this import.'
   },
   integrationId: {
-    label: 'Integration ID',
-    help: 'Unique import name used for Storyblok prefixes, draft story folders, CSS roots, and repository namespaces.'
+    label: 'Import name',
+    help: 'A unique name that keeps this import separate from other templates on the same site.'
   },
   framework: {
-    label: 'Framework',
-    help: 'Use auto for repository detection, or pick the target framework when running without a detected repository.'
+    label: 'Site type',
+    help: 'Use auto when a site is selected, or pick the type when testing without a site.'
   },
   route: {
-    label: 'Route filter',
-    help: 'Optional route name for route handoff checks when reviewing one imported page at a time.'
+    label: 'Review one page',
+    help: 'Optional page name when you only want to review one imported page.'
   }
 };
 
 const SAFETY_GUIDANCE = {
-  'read-only': 'Reads local files or remote state only. It should not create, edit, publish, or delete project resources.',
-  'local-write': 'Writes local evidence or generated files inside the configured work directory or integration namespace.',
-  'dry-run': 'Previews the operations and evidence without creating repository or Storyblok resources.',
-  'remote-write': 'Creates namespaced Storyblok draft resources only. It does not publish content or alter existing components.',
-  'local-and-remote-write': 'Creates isolated repository files and namespaced Storyblok draft resources after safety gates pass.'
+  'read-only': 'Checks information only. It should not create, edit, publish, or delete anything.',
+  'local-write': 'Creates local review files or generated files that belong only to this import.',
+  'dry-run': 'Shows what would happen without creating site or Storyblok resources.',
+  'remote-write': 'Creates Storyblok draft items for this import only. It does not publish or alter existing components.',
+  'local-and-remote-write': 'Creates isolated site files and Storyblok draft items only after safety checks pass.'
 };
 
 const ACTION_GUIDANCE = {
@@ -48,18 +48,18 @@ const ACTION_GUIDANCE = {
   ),
   dashboard: guidance(
     ['Use this to understand the latest local integration state before resuming work.'],
-    ['Select the work directory that contains the integration artifacts you want to review.'],
+    ['Select the save location that contains the import you want to review.'],
     ['dashboard terminal summary'],
     ['If the dashboard says attention is needed, open the report and evidence index next.']
   ),
   doctorFull: guidance(
-    ['Use before a full repository import to check local tools, repository health, Storyblok, and optional services.'],
-    ['Choose the target repository and provide session credentials when remote checks are needed.'],
+    ['Use before adding a template to a site to check local tools, site health, Storyblok, and optional services.'],
+    ['Choose the existing site and provide session access when remote checks are needed.'],
     ['doctor report in terminal output'],
     ['Missing Git, package manager, or credentials should be fixed before planning a client import.']
   ),
   doctorStoryblok: guidance(
-    ['Use before Storyblok-only testing when no target repository is available.'],
+    ['Use before Storyblok-only testing when no existing site is available.'],
     ['Provide Management API token, Space ID, Preview token, and region when available.'],
     ['doctor report in terminal output'],
     ['Remote credential failures do not change the Storyblok space; correct credentials and rerun.']
@@ -77,56 +77,56 @@ const ACTION_GUIDANCE = {
     ['Low scores should be resolved with the design/source template owner.']
   ),
   inspectRepository: guidance(
-    ['Detects framework, package manager, Storyblok packages, route files, Netlify config, and build commands.'],
-    ['Choose the target repository. The command is read-only.'],
-    ['repository inspection summary'],
+    ['Checks what kind of site was selected and whether it is ready for a safe import.'],
+    ['Choose the existing site. The command only reads information.'],
+    ['site inspection summary'],
     ['If detection is inconclusive, choose the framework manually before planning.']
   ),
   inspectStoryblok: guidance(
     ['Reviews the target Storyblok space through the Management API without printing secrets.'],
     ['Provide session credentials or environment variables for Management API access.'],
     ['Storyblok inspection summary'],
-    ['Optional Management API collections can be unavailable on some spaces; the CLI marks those as not queried.']
+    ['Some Storyblok account details may be unavailable on certain spaces; the app marks those as not checked.']
   ),
   planFull: guidance(
-    ['Creates the full additive manifest for repository files, Storyblok schemas, assets, presets, and draft stories.'],
-    ['Choose template, repository, integration ID, and framework. Keep the integration ID unique per template import.'],
+    ['Creates the safe import plan for site files, Storyblok blocks, images, and draft pages.'],
+    ['Choose template, existing site, import name, and site type. Keep the import name unique per template.'],
     ['integration-manifest.json'],
-    ['Planning fails on unsafe names, invalid routes, or a repository that cannot be inspected when framework is auto.']
+    ['Planning stops on unsafe names, invalid pages, or a site that cannot be checked while site type is auto.']
   ),
   planStoryblokOnly: guidance(
-    ['Creates a manifest for Storyblok-only testing without requiring a client repository.'],
-    ['Choose template and integration ID. Use static framework unless testing a specific renderer shape.'],
+    ['Creates a Storyblok-only plan without needing a client site.'],
+    ['Choose template and import name. Use static site type unless testing a specific site shape.'],
     ['integration-manifest.json'],
-    ['Use this workflow when proving components, assets, links, and draft stories before repository handoff.']
+    ['Use this workflow when proving blocks, images, links, and draft stories before site handoff.']
   ),
   validatePlan: guidance(
-    ['Validates additive-only policy, namespacing, route safety, and Storyblok ownership boundaries.'],
+    ['Checks that the plan keeps this import separate and avoids unsafe changes.'],
     ['Run after planning and before any dry run or real apply.'],
     ['plan-validation.json'],
     ['Do not continue to apply if validation fails. Fix the plan or template first.']
   ),
   previewDiff: guidance(
-    ['Shows which generated repository files would be created and whether they already exist.'],
-    ['Choose manifest and target repository.'],
-    ['repository diff summary'],
+    ['Shows which site files would be created and whether they already exist.'],
+    ['Choose plan file and existing site.'],
+    ['site change preview'],
     ['Existing non-generated files must never be overwritten; resolve collisions before apply.']
   ),
   clientReview: guidance(
     ['Creates a read-only review gate for an existing client site before local or remote writes.'],
-    ['Choose manifest and target repository after plan validation passes.'],
+    ['Choose plan file and existing site after the safety check passes.'],
     ['client-review-gate-report.md'],
     ['Treat failed review gates as blockers until the report is resolved.']
   ),
   platformReadiness: guidance(
     ['Checks whether the detected platform can host the generated integration and live draft preview handoff.'],
-    ['Choose manifest and target repository.'],
+    ['Choose plan file and existing site.'],
     ['platform-readiness-report.md'],
     ['Manual-router frameworks may require handoff notes rather than automatic route files.']
   ),
   routeChecklist: guidance(
     ['Creates route-by-route acceptance checks for imported pages.'],
-    ['Choose manifest and repository. Optionally set a route filter.'],
+    ['Choose plan file and existing site. Optionally focus one page.'],
     ['route-handoff-checklist.md'],
     ['Use this before connecting preview URLs or asking QA to review imported pages.']
   ),
@@ -143,20 +143,20 @@ const ACTION_GUIDANCE = {
     ['If drift is detected, use recovery or rollback preview. Existing non-matching drafts are not overwritten.']
   ),
   fullDryRun: guidance(
-    ['Previews local repository generation and Storyblok remote operations together.'],
+    ['Previews site file creation and Storyblok draft creation together.'],
     ['Run after plan validation and client review.'],
     ['apply-result.json', 'report.md'],
-    ['Resolve repository collisions, host baseline failures, or unresolved Storyblok links before real apply.']
+    ['Resolve existing-file conflicts, site check failures, or unresolved Storyblok links before the real import.']
   ),
   fullApply: guidance(
-    ['Runs the full additive import against the target repository and Storyblok space.'],
+    ['Runs the full safe import against the selected site and Storyblok space.'],
     ['Run after full dry run passes. Confirm the safety prompt and keep credentials session-only.'],
     ['apply-result.json', 'report.md', 'storyblok-management-verification.json'],
     ['If a later remote step fails, the ledger and rollback preview show exactly what was created.']
   ),
   wireRoutesDryRun: guidance(
     ['Previews framework route handoff files without writing host routes.'],
-    ['Choose manifest and repository after generated integration files exist.'],
+    ['Choose plan file and existing site after generated import files exist.'],
     ['route-handoff-report.md'],
     ['Route collisions must be resolved manually; automatic route writing remains additive-only.']
   ),
@@ -167,8 +167,8 @@ const ACTION_GUIDANCE = {
     ['The command refuses to overwrite an existing route file.']
   ),
   validateLocal: guidance(
-    ['Validates generated repository files, hash ledgers, runtime coupling, and adapter output.'],
-    ['Choose manifest and repository after a real repository apply.'],
+    ['Checks the generated site files and confirms they still belong to this import.'],
+    ['Choose plan file and existing site after a real site import.'],
     ['validation-result.json'],
     ['Failures usually mean generated files were edited or a required host adapter file is missing.']
   ),
@@ -182,10 +182,10 @@ const ACTION_GUIDANCE = {
     ['Uses the Management API to verify created folders, components, presets, assets, and draft stories.'],
     ['Provide Management API credentials and run after Storyblok apply.'],
     ['storyblok-management-verification.json'],
-    ['Verification drift means the remote draft no longer matches the manifest and should be reviewed.']
+    ['Verification drift means the Storyblok draft no longer matches the plan and should be reviewed.']
   ),
   report: guidance(
-    ['Generates the main Markdown report from manifest, validation, apply, and evidence artifacts.'],
+    ['Generates the main report from the plan, checks, import run, and review files.'],
     ['Run whenever you need a current written summary.'],
     ['report.md'],
     ['Missing evidence sections mean the related command has not been run yet.']
@@ -198,7 +198,7 @@ const ACTION_GUIDANCE = {
   ),
   evidenceIndex: guidance(
     ['Creates a compact index of required evidence and whether each artifact is present.'],
-    ['Choose the manifest, and repository when repository evidence matters.'],
+    ['Choose the plan file, and existing site when site evidence matters.'],
     ['handoff-evidence-index.md'],
     ['Use missing entries as the next-action checklist before sign-off.']
   ),
@@ -209,14 +209,14 @@ const ACTION_GUIDANCE = {
     ['The pack should not be treated as complete while required evidence is marked missing.']
   ),
   rollbackPreview: guidance(
-    ['Shows exactly which integration-owned resources rollback would target without deleting anything.'],
-    ['Choose the manifest. Add repository path when local generated files should be included.'],
+    ['Shows exactly which items from this import rollback would target without deleting anything.'],
+    ['Choose the plan file. Add existing site when local generated files should be included.'],
     ['rollback-preview.json'],
-    ['Rollback must remain explicit and should never target production or non-namespaced content.']
+    ['Rollback must remain explicit and should never target production or content outside this import.']
   ),
   visualEditorReadiness: guidance(
     ['Checks whether Storyblok Visual Editor preview requirements are documented and ready.'],
-    ['Choose manifest and optionally the repository with generated preview adapters.'],
+    ['Choose plan file and optionally the existing site with generated preview files.'],
     ['visual-editor-readiness-report.md'],
     ['Non-HTTPS or missing preview URLs should be resolved before editor testing.']
   )

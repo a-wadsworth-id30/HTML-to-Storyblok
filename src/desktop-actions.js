@@ -5,10 +5,10 @@ export const DEFAULT_DESKTOP_MANIFEST = `${DEFAULT_DESKTOP_WORK_DIR}/integration
 
 const FIELD_LABELS = {
   templatePath: 'template folder',
-  repoPath: 'target repository',
-  manifestPath: 'integration manifest',
-  integrationId: 'integration ID',
-  route: 'route'
+  repoPath: 'existing site',
+  manifestPath: 'plan file',
+  integrationId: 'import name',
+  route: 'page'
 };
 
 export const DESKTOP_ACTIONS = [

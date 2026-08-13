@@ -4,13 +4,13 @@
   --muted: #667085;
   --line: #d8dee8;
   --surface: #ffffff;
-  --surface-soft: #f6f8fb;
+  --surface-soft: #f4f7fb;
   --surface-tint: #eaf3ff;
   --success: #14804a;
   --warning: #b54708;
   --danger: #c2410c;
   --code: #121826;
-  --shadow: 0 16px 50px rgb(15 23 42 / 10%);
+  --shadow: 0 10px 30px rgb(15 23 42 / 7%);
   color-scheme: light;
 }
 
@@ -40,36 +40,36 @@ button {
 
 .app-shell {
   display: grid;
-  grid-template-columns: 348px minmax(0, 1fr);
+  grid-template-columns: 324px minmax(0, 1fr);
   min-height: 100vh;
 }
 
 .sidebar {
   border-right: 1px solid var(--line);
-  background: #101827;
-  color: #f8fafc;
-  padding: 24px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 22px;
   overflow-y: auto;
 }
 
 .brand {
   display: grid;
-  grid-template-columns: 72px 1fr;
-  gap: 14px;
+  grid-template-columns: 58px 1fr;
+  gap: 12px;
   align-items: center;
-  margin-bottom: 26px;
+  margin-bottom: 22px;
 }
 
 .brand-mark {
   display: grid;
   place-items: center;
-  height: 56px;
+  height: 48px;
   border-radius: 6px;
   background: var(--id30-blue);
 }
 
 .brand-mark img {
-  width: 58px;
+  width: 49px;
   height: auto;
 }
 
@@ -89,28 +89,28 @@ button {
 
 .brand p,
 .hint {
-  color: #b7c1d1;
+  color: var(--muted);
   font-size: 13px;
   line-height: 1.45;
 }
 
 .control-section {
   padding: 18px 0;
-  border-top: 1px solid rgb(255 255 255 / 12%);
+  border-top: 1px solid #eaecf0;
 }
 
 .control-section h2 {
   margin: 0 0 12px;
   font-size: 13px;
   text-transform: uppercase;
-  color: #d7e4f5;
+  color: #344054;
 }
 
 label {
   display: grid;
   gap: 7px;
   margin-bottom: 13px;
-  color: #e6edf7;
+  color: #344054;
   font-size: 13px;
 }
 
@@ -118,10 +118,10 @@ input,
 select {
   width: 100%;
   min-height: 38px;
-  border: 1px solid rgb(255 255 255 / 16%);
+  border: 1px solid #cfd7e6;
   border-radius: 6px;
-  background: rgb(255 255 255 / 7%);
-  color: #ffffff;
+  background: #ffffff;
+  color: var(--ink);
   padding: 8px 10px;
   outline: none;
 }
@@ -154,8 +154,8 @@ select:focus {
 }
 
 .icon-button {
-  background: rgb(255 255 255 / 14%);
-  color: #ffffff;
+  background: #eef4ff;
+  color: #175cd3;
 }
 
 .secondary-button {
@@ -165,8 +165,8 @@ select:focus {
 
 .sidebar .secondary-button {
   width: 100%;
-  background: rgb(255 255 255 / 12%);
-  color: #ffffff;
+  background: #eef4ff;
+  color: #175cd3;
 }
 
 .danger-button {
@@ -180,7 +180,7 @@ select:focus {
 }
 
 .main {
-  padding: 28px;
+  padding: 24px;
   overflow: auto;
 }
 
@@ -200,7 +200,7 @@ select:focus {
 }
 
 .topbar h2 {
-  font-size: 30px;
+  font-size: 28px;
   line-height: 1.15;
   max-width: 740px;
 }
@@ -229,10 +229,10 @@ select:focus {
 }
 
 .safety-band {
-  border: 1px solid #fedf89;
+  border: 1px solid #abefc6;
   border-radius: 8px;
-  background: #fffaeb;
-  color: #7a2e0e;
+  background: #ecfdf3;
+  color: #085d3a;
   padding: 12px 14px;
   margin-bottom: 18px;
   line-height: 1.45;
@@ -295,6 +295,71 @@ select:focus {
   border-bottom: 1px solid var(--line);
 }
 
+.advanced-setup summary,
+.disclosure-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  cursor: pointer;
+  color: #344054;
+  font-weight: 750;
+  list-style: none;
+}
+
+.advanced-setup summary {
+  font-size: 13px;
+}
+
+.advanced-setup summary::-webkit-details-marker,
+.disclosure-heading::-webkit-details-marker {
+  display: none;
+}
+
+.advanced-setup[open] summary {
+  margin-bottom: 13px;
+}
+
+.disclosure-heading {
+  padding: 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.disclosure-heading small {
+  display: block;
+  margin-top: 5px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.summary-state {
+  border-radius: 999px;
+  background: #eef4ff;
+  color: #175cd3;
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.summary-state::after {
+  content: "Show";
+}
+
+.actions-panel[open] .summary-state {
+  color: var(--success);
+  background: #ecfdf3;
+}
+
+.actions-panel[open] .summary-state::after {
+  content: "Hide";
+}
+
+.advanced-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 14px 18px 0;
+}
+
 .panel-heading h3 {
   font-size: 18px;
 }
@@ -309,7 +374,7 @@ select:focus {
 
 .workflow-list {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
   padding: 18px 18px 0;
 }
@@ -318,7 +383,7 @@ select:focus {
   display: grid;
   gap: 12px;
   align-content: space-between;
-  min-height: 150px;
+  min-height: 118px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: #ffffff;
@@ -369,7 +434,7 @@ select:focus {
 
 .workflow-step {
   display: grid;
-  grid-template-columns: 34px minmax(0, 1fr) 150px;
+  grid-template-columns: 34px minmax(0, 1fr) 106px;
   gap: 12px;
   align-items: center;
   border: 1px solid var(--line);
@@ -423,7 +488,7 @@ select:focus {
 
 .guidance-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
 }
 
@@ -435,7 +500,7 @@ select:focus {
 }
 
 .guidance-card.wide {
-  grid-column: span 4;
+  grid-column: span 2;
 }
 
 .guidance-card h4 {
@@ -503,9 +568,10 @@ select:focus {
 
 .action-button.compact {
   min-height: 36px;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr;
   justify-content: center;
   padding: 8px 10px;
+  text-align: center;
 }
 
 .action-button:hover {
@@ -553,8 +619,8 @@ select:focus {
 }
 
 .terminal-output {
-  min-height: 440px;
-  max-height: 590px;
+  min-height: 340px;
+  max-height: 520px;
   overflow: auto;
   margin: 0;
   padding: 18px;
