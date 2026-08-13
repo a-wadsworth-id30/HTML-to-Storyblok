@@ -7,6 +7,7 @@ const CHANNELS = Object.freeze({
   runAction: 'desktop:run-action',
   cancelAction: 'desktop:cancel-action',
   readArtifacts: 'desktop:read-artifacts',
+  readRunHistory: 'desktop:read-run-history',
   openArtifact: 'desktop:open-artifact',
   cliEvent: 'desktop:cli-event'
 });
@@ -18,6 +19,7 @@ contextBridge.exposeInMainWorld('htmlToStoryblokDesktop', {
   runAction: (payload) => ipcRenderer.invoke(CHANNELS.runAction, payload),
   cancelAction: (requestId) => ipcRenderer.invoke(CHANNELS.cancelAction, requestId),
   readArtifacts: (payload) => ipcRenderer.invoke(CHANNELS.readArtifacts, payload),
+  readRunHistory: () => ipcRenderer.invoke(CHANNELS.readRunHistory),
   openArtifact: (filePath) => ipcRenderer.invoke(CHANNELS.openArtifact, filePath),
   onCliEvent: (callback) => {
     if (typeof callback !== 'function') return () => {};

@@ -6,6 +6,7 @@ let state = {};
 let actions = [];
 let workflows = [];
 let guidanceByActionId = new Map();
+let runHistory = [];
 let selectedWorkflowId = '';
 let selectedActionId = '';
 let activeRequestId = null;
@@ -17,10 +18,12 @@ const elements = {
   guidanceSubtitle: document.getElementById('guidanceSubtitle'),
   actions: document.getElementById('actions'),
   artifacts: document.getElementById('artifacts'),
+  runHistory: document.getElementById('runHistory'),
   output: document.getElementById('output'),
   commandPreview: document.getElementById('commandPreview'),
   cancelRun: document.getElementById('cancelRun'),
   refreshEvidence: document.getElementById('refreshEvidence'),
+  refreshHistory: document.getElementById('refreshHistory'),
   clearSecrets: document.getElementById('clearSecrets')
 };
 
@@ -33,6 +36,7 @@ async function initialize() {
   actions = bootstrap.actions;
   workflows = bootstrap.workflows || [];
   guidanceByActionId = new Map((bootstrap.guidance || []).map((entry) => [entry.action_id, entry]));
+  runHistory = bootstrap.runHistory || [];
   selectedWorkflowId = workflows.find((workflow) => workflow.primary)?.id || workflows[0]?.id || '';
   selectedActionId = workflows.find((workflow) => workflow.id === selectedWorkflowId)?.steps[0]?.action_id || actions[0]?.id || '';
   state = {
@@ -44,6 +48,7 @@ async function initialize() {
   renderWorkflowSteps();
   renderActionGuidance();
   renderActions();
+  renderRunHistory();
   bindGlobalControls();
   await refreshEvidence();
   api.onCliEvent(handleCliEvent);
@@ -84,6 +89,7 @@ function bindInputs() {
 
 function bindGlobalControls() {
   elements.refreshEvidence.addEventListener('click', refreshEvidence);
+  elements.refreshHistory.addEventListener('click', refreshRunHistory);
   elements.cancelRun.addEventListener('click', async () => {
     if (!activeRequestId) return;
     await api.cancelAction(activeRequestId);
@@ -341,6 +347,7 @@ function handleCliEvent(event) {
     renderWorkflowSteps();
     renderActions();
     refreshEvidence();
+    refreshRunHistory();
   }
 }
 
@@ -350,6 +357,41 @@ async function refreshEvidence() {
   for (const artifact of artifacts) {
     elements.artifacts.appendChild(renderArtifact(artifact));
   }
+}
+
+async function refreshRunHistory() {
+  runHistory = await api.readRunHistory();
+  renderRunHistory();
+}
+
+function renderRunHistory() {
+  elements.runHistory.innerHTML = '';
+  if (!runHistory.length) {
+    elements.runHistory.innerHTML = `
+      <div class="empty-state">
+        No desktop runs recorded yet. Run a guided workflow step to create a local audit trail.
+      </div>
+    `;
+    return;
+  }
+
+  for (const run of runHistory.slice(0, 12)) {
+    elements.runHistory.appendChild(renderRunHistoryItem(run));
+  }
+}
+
+function renderRunHistoryItem(run) {
+  const item = document.createElement('article');
+  item.className = `run-history-item ${escapeHtml(run.status)}`;
+  item.innerHTML = `
+    <div>
+      <h4>${escapeHtml(run.action_title || run.action_id)}</h4>
+      <p>${escapeHtml(formatRunMeta(run))}</p>
+      <code>${escapeHtml(run.command_line)}</code>
+    </div>
+    <span class="run-status ${escapeHtml(run.status)}">${escapeHtml(run.status)}</span>
+  `;
+  return item;
 }
 
 function renderArtifact(artifact) {
@@ -371,6 +413,13 @@ function renderArtifact(artifact) {
 function appendOutput(text) {
   elements.output.textContent += text;
   elements.output.scrollTop = elements.output.scrollHeight;
+}
+
+function formatRunMeta(run) {
+  const ended = run.ended_at ? new Date(run.ended_at).toLocaleString() : 'unknown time';
+  const duration = run.duration_ms ? `${Math.round(run.duration_ms / 100) / 10}s` : '0s';
+  const env = run.env_keys?.length ? ` | env: ${run.env_keys.join(', ')}` : '';
+  return `${ended} | ${duration} | ${run.safety || 'unknown safety'}${env}`;
 }
 
 function missingFields(action) {

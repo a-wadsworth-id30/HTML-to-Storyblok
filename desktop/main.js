@@ -15,6 +15,7 @@ import {
   visibleSessionEnvKeys
 } from '../src/desktop-actions.js';
 import { getDesktopGuidance } from '../src/desktop-guidance.js';
+import { createDesktopRunRecord, readDesktopRunHistory, recordDesktopRun } from '../src/desktop-history.js';
 import { createDesktopCliSpawnConfig, createDesktopRuntime, isInsideDesktopRuntimePath, isInsideRendererAppPath } from '../src/desktop-runtime.js';
 import { getDesktopWorkflows } from '../src/desktop-wizard.js';
 
@@ -31,6 +32,7 @@ const IPC_CHANNELS = new Set([
   'desktop:run-action',
   'desktop:cancel-action',
   'desktop:read-artifacts',
+  'desktop:read-run-history',
   'desktop:open-artifact'
 ]);
 
@@ -98,7 +100,8 @@ function registerIpc() {
     }),
     actions: getDesktopActions(),
     workflows: getDesktopWorkflows(),
-    guidance: getDesktopGuidance()
+    guidance: getDesktopGuidance(),
+    runHistory: await readDesktopRunHistory(runtime)
   })));
 
   ipcMain.handle('desktop:select-directory', requireTrustedSender(async (_event, options = {}) => {
@@ -122,6 +125,7 @@ function registerIpc() {
   ipcMain.handle('desktop:run-action', requireTrustedSender(async (event, payload = {}) => runAction(event, payload)));
   ipcMain.handle('desktop:cancel-action', requireTrustedSender(async (_event, requestId) => cancelAction(requestId)));
   ipcMain.handle('desktop:read-artifacts', requireTrustedSender(async (_event, payload = {}) => readArtifacts(payload.state)));
+  ipcMain.handle('desktop:read-run-history', requireTrustedSender(async () => readDesktopRunHistory(runtime)));
   ipcMain.handle('desktop:open-artifact', requireTrustedSender(async (_event, filePath) => openArtifact(filePath)));
 }
 
@@ -129,7 +133,11 @@ function runAction(event, payload = {}) {
   const built = buildDesktopCommand(payload.actionId, payload.state);
   const sessionEnv = sanitizeSessionEnv(payload.sessionEnv || {});
   const secretValues = Object.values(sessionEnv);
+  const envKeys = Object.keys(sessionEnv).sort();
   const requestId = randomUUID();
+  const startedAt = new Date();
+  const startedMs = Date.now();
+  let recorded = false;
   const spawnConfig = createDesktopCliSpawnConfig({
     electronExecPath: process.execPath,
     binPath,
@@ -146,7 +154,7 @@ function runAction(event, payload = {}) {
     requestId,
     action: built.action,
     commandLine: built.commandLine,
-    envKeys: Object.keys(sessionEnv).sort()
+    envKeys
   });
 
   child.stdout.on('data', (chunk) => {
@@ -167,6 +175,9 @@ function runAction(event, payload = {}) {
 
   child.on('error', (error) => {
     activeProcesses.delete(requestId);
+    recordRunOnce('failed', {
+      error: redactDesktopOutput(error.message || String(error), secretValues)
+    });
     event.sender.send('desktop:cli-event', {
       type: 'error',
       requestId,
@@ -176,10 +187,16 @@ function runAction(event, payload = {}) {
 
   child.on('close', (exitCode, signal) => {
     activeProcesses.delete(requestId);
+    const normalizedExitCode = exitCode ?? (signal ? 1 : 0);
+    const status = signal === 'SIGTERM' ? 'cancelled' : normalizedExitCode === 0 ? 'passed' : 'failed';
+    recordRunOnce(status, {
+      exitCode: normalizedExitCode,
+      signal: signal || null
+    });
     event.sender.send('desktop:cli-event', {
       type: 'closed',
       requestId,
-      exitCode: exitCode ?? (signal ? 1 : 0),
+      exitCode: normalizedExitCode,
       signal: signal || null
     });
   });
@@ -188,6 +205,26 @@ function runAction(event, payload = {}) {
     requestId,
     commandLine: built.commandLine
   };
+
+  function recordRunOnce(status, extra = {}) {
+    if (recorded) return;
+    recorded = true;
+    const endedAt = new Date();
+    const record = createDesktopRunRecord({
+      requestId,
+      action: built.action,
+      commandLine: built.commandLine,
+      workDir: built.workDir,
+      manifestPath: built.manifestPath,
+      startedAt: startedAt.toISOString(),
+      endedAt: endedAt.toISOString(),
+      durationMs: Date.now() - startedMs,
+      status,
+      envKeys,
+      ...extra
+    });
+    void recordDesktopRun(runtime, record).catch(() => {});
+  }
 }
 
 function cancelAction(requestId) {
