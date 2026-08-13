@@ -61,7 +61,7 @@ test('desktop default state accepts a portable runtime work directory', () => {
 test('desktop command builder requires repository for full apply but not Storyblok-only dry run', () => {
   assert.throws(() => buildDesktopCommand('fullDryRun', {
     manifestPath: '.tmp/html-to-storyblok/integration-manifest.json'
-  }), /target repository/);
+  }), /existing site/);
 
   const command = buildDesktopCommand('storyblokDryRun', {
     manifestPath: '.tmp/html-to-storyblok/integration-manifest.json',

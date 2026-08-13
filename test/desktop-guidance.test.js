@@ -39,9 +39,9 @@ test('desktop guidance documents write actions without weakening additive-only s
   const remote = findDesktopGuidance('storyblokApply');
   const full = findDesktopGuidance('fullApply');
 
-  assert.match(remote.safety.description, /draft resources/i);
+  assert.match(remote.safety.description, /draft items/i);
   assert.match(remote.recovery.join(' '), /not overwritten/i);
-  assert.match(full.safety.description, /isolated repository files/i);
+  assert.match(full.safety.description, /isolated site files/i);
   assert.match(full.recovery.join(' '), /rollback preview/i);
 });
 
@@ -52,9 +52,9 @@ test('desktop bootstrap exposes guidance to the renderer', async () => {
 
   assert.match(mainSource, /getDesktopGuidance/);
   assert.match(mainSource, /guidance:\s*getDesktopGuidance\(\)/);
-  assert.match(html, /Action Guidance/);
+  assert.match(html, /Help For This Step/);
   assert.match(html, /id="actionGuidance"/);
   assert.match(renderer, /renderActionGuidance/);
-  assert.match(renderer, /Evidence Created/);
-  assert.match(renderer, /Failure Guidance/);
+  assert.match(renderer, /What You Get/);
+  assert.match(renderer, /If Something Stops/);
 });
