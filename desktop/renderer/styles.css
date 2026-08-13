@@ -242,11 +242,13 @@ select:focus {
   display: grid;
   grid-template-columns: minmax(420px, 1fr) minmax(440px, 1.1fr);
   grid-template-areas:
+    "workflow workflow"
     "actions output"
     "evidence evidence";
   gap: 18px;
 }
 
+.workflow-panel,
 .actions-panel,
 .output-panel,
 .evidence-panel {
@@ -254,6 +256,10 @@ select:focus {
   border: 1px solid var(--line);
   border-radius: 8px;
   box-shadow: var(--shadow);
+}
+
+.workflow-panel {
+  grid-area: workflow;
 }
 
 .actions-panel {
@@ -289,6 +295,105 @@ select:focus {
   line-height: 1.45;
 }
 
+.workflow-list {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 18px 18px 0;
+}
+
+.workflow-card {
+  display: grid;
+  gap: 12px;
+  align-content: space-between;
+  min-height: 150px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--ink);
+  padding: 14px;
+  text-align: left;
+}
+
+.workflow-card:hover,
+.workflow-card.selected {
+  border-color: var(--id30-blue);
+  background: var(--surface-tint);
+}
+
+.workflow-title {
+  display: block;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+
+.workflow-summary {
+  display: block;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.workflow-count {
+  color: #175cd3;
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.workflow-steps {
+  display: grid;
+  gap: 10px;
+  padding: 18px;
+}
+
+.workflow-outcome {
+  border: 1px solid #b2ddff;
+  border-radius: 8px;
+  background: #eff8ff;
+  color: #1849a9;
+  padding: 11px 12px;
+  font-size: 13px;
+}
+
+.workflow-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) 150px;
+  gap: 12px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  padding: 12px;
+}
+
+.workflow-step.blocked {
+  background: #f8fafc;
+}
+
+.step-number {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: var(--id30-blue);
+  color: #ffffff;
+  font-weight: 800;
+  font-size: 13px;
+}
+
+.workflow-step h4 {
+  margin: 0 0 4px;
+  font-size: 14px;
+}
+
+.workflow-step p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
 .action-group {
   padding: 16px 18px 4px;
 }
@@ -315,6 +420,13 @@ select:focus {
   border: 1px solid var(--line);
   background: #ffffff;
   color: var(--ink);
+}
+
+.action-button.compact {
+  min-height: 36px;
+  grid-template-columns: 1fr auto;
+  justify-content: center;
+  padding: 8px 10px;
 }
 
 .action-button:hover {

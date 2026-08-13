@@ -4,9 +4,13 @@ const secretFields = ['storyblokManagementToken', 'storyblokSpaceId', 'storyblok
 
 let state = {};
 let actions = [];
+let workflows = [];
+let selectedWorkflowId = '';
 let activeRequestId = null;
 
 const elements = {
+  workflows: document.getElementById('workflows'),
+  workflowSteps: document.getElementById('workflowSteps'),
   actions: document.getElementById('actions'),
   artifacts: document.getElementById('artifacts'),
   output: document.getElementById('output'),
@@ -23,11 +27,15 @@ initialize().catch((error) => {
 async function initialize() {
   const bootstrap = await api.bootstrap();
   actions = bootstrap.actions;
+  workflows = bootstrap.workflows || [];
+  selectedWorkflowId = workflows.find((workflow) => workflow.primary)?.id || workflows[0]?.id || '';
   state = {
     ...bootstrap.defaultState,
     ...readStoredState()
   };
   bindInputs();
+  renderWorkflows();
+  renderWorkflowSteps();
   renderActions();
   bindGlobalControls();
   await refreshEvidence();
@@ -45,6 +53,7 @@ function bindInputs() {
         state.manifestPath = `${state.workDir}/integration-manifest.json`;
       }
       storeState();
+      renderWorkflowSteps();
       renderActions();
     });
   }
@@ -60,6 +69,7 @@ function bindInputs() {
       state[field] = selected;
       document.getElementById(field).value = selected;
       storeState();
+      renderWorkflowSteps();
       renderActions();
     });
   }
@@ -97,6 +107,70 @@ function renderActions() {
     section.append(title, list);
     elements.actions.appendChild(section);
   }
+}
+
+function renderWorkflows() {
+  elements.workflows.innerHTML = '';
+  for (const workflow of workflows) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = `workflow-card ${workflow.id === selectedWorkflowId ? 'selected' : ''}`;
+    button.innerHTML = `
+      <span>
+        <span class="workflow-title">${escapeHtml(workflow.title)}</span>
+        <span class="workflow-summary">${escapeHtml(workflow.summary)}</span>
+      </span>
+      <span class="workflow-count">${workflow.steps.length} steps</span>
+    `;
+    button.addEventListener('click', () => {
+      selectedWorkflowId = workflow.id;
+      renderWorkflows();
+      renderWorkflowSteps();
+    });
+    elements.workflows.appendChild(button);
+  }
+}
+
+function renderWorkflowSteps() {
+  const workflow = workflows.find((entry) => entry.id === selectedWorkflowId);
+  if (!workflow) {
+    elements.workflowSteps.innerHTML = '';
+    return;
+  }
+
+  const actionById = new Map(actions.map((action) => [action.id, action]));
+  elements.workflowSteps.innerHTML = `
+    <div class="workflow-outcome">
+      <strong>Outcome:</strong> ${escapeHtml(workflow.outcome)}
+    </div>
+  `;
+  for (const step of workflow.steps) {
+    const action = actionById.get(step.action_id);
+    if (!action) continue;
+    elements.workflowSteps.appendChild(renderWorkflowStep(step, action));
+  }
+}
+
+function renderWorkflowStep(step, action) {
+  const missing = missingFields(action);
+  const row = document.createElement('article');
+  row.className = `workflow-step ${missing.length ? 'blocked' : 'ready'}`;
+  row.innerHTML = `
+    <div class="step-number">${step.number}</div>
+    <div>
+      <h4>${escapeHtml(action.title)}</h4>
+      <p>${escapeHtml(missing.length ? `Fill ${missing.join(', ')} before running this step.` : step.guidance)}</p>
+    </div>
+    <button class="action-button compact" type="button" ${missing.length || activeRequestId ? 'disabled' : ''}>
+      <span class="action-title">Run</span>
+      <span class="safety-tag ${escapeHtml(action.safety)}">${escapeHtml(action.safety)}</span>
+    </button>
+  `;
+  const button = row.querySelector('button');
+  button.addEventListener('mouseenter', () => previewAction(action));
+  button.addEventListener('focus', () => previewAction(action));
+  button.addEventListener('click', () => runAction(action));
+  return row;
 }
 
 function renderActionButton(action) {
@@ -150,6 +224,7 @@ async function runAction(action) {
     activeRequestId = run.requestId;
     elements.cancelRun.disabled = false;
     elements.commandPreview.textContent = run.commandLine;
+    renderWorkflowSteps();
     renderActions();
   } catch (error) {
     appendOutput(`${error.message || String(error)}\n`, 'error');
@@ -177,6 +252,7 @@ function handleCliEvent(event) {
     appendOutput(`\nProcess finished with exit code ${event.exitCode}.\n`, event.exitCode === 0 ? 'info' : 'error');
     activeRequestId = null;
     elements.cancelRun.disabled = true;
+    renderWorkflowSteps();
     renderActions();
     refreshEvidence();
   }
